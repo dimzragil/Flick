@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flick/core/utils/dev_log.dart';
 import 'package:flick/providers/app_preferences_provider.dart';
 import 'package:flick/services/display_mode_service.dart';
 
@@ -27,9 +28,9 @@ class _DisplayModeWrapperState extends ConsumerState<DisplayModeWrapper>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ref.listenManual(appPreferencesProvider.select((p) => p.refreshRateMode),
-        (_, __) => _applyRefreshRate());
+        (_, __) => _applyRefreshRate('preference'));
     if (widget.enableOnMount) {
-      _applyRefreshRate();
+      _applyRefreshRate('mount');
     }
   }
 
@@ -42,17 +43,18 @@ class _DisplayModeWrapperState extends ConsumerState<DisplayModeWrapper>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _applyRefreshRate();
+      _applyRefreshRate('resume');
     }
   }
 
-  Future<void> _applyRefreshRate() async {
+  Future<void> _applyRefreshRate(String reason) async {
     final mode = ref.read(appPreferencesProvider).refreshRateMode;
+    devLog('DisplayMode[wrapper]: apply refreshRateMode=$mode ($reason)');
     switch (mode) {
       case 'standard':
         await _displayModeService.setLowRefreshRate();
       case 'adaptive':
-        break;
+        await _displayModeService.resetToAuto();
       default:
         await _displayModeService.setHighRefreshRate();
     }

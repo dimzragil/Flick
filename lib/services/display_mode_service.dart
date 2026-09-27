@@ -17,12 +17,40 @@ class DisplayModeService {
 
   bool get isSupported => defaultTargetPlatform == TargetPlatform.android;
 
+  static String _describe(DisplayMode? mode) {
+    if (mode == null) return 'unknown';
+    if (mode.id == 0) return 'auto';
+    return '#${mode.id} ${mode.width}x${mode.height}@${mode.refreshRate}Hz';
+  }
+
+  Future<void> _logState(String tag) async {
+    try {
+      _currentMode = await FlutterDisplayMode.active;
+      _preferredMode = await FlutterDisplayMode.preferred;
+    } catch (e) {
+      devLog('DisplayMode[$tag]: failed to read state: $e');
+      return;
+    }
+    devLog(
+      'DisplayMode[$tag]: active=${_describe(_currentMode)} '
+      'preferred=${_describe(_preferredMode)}',
+    );
+  }
+
   Future<void> initialize() async {
     if (!isSupported) return;
     try {
       _availableModes = await FlutterDisplayMode.supported;
       _currentMode = await FlutterDisplayMode.active;
       _preferredMode = await FlutterDisplayMode.preferred;
+      devLog(
+        'DisplayMode[init]: supported='
+        '${_availableModes.map(_describe).join(', ')}',
+      );
+      devLog(
+        'DisplayMode[init]: active=${_describe(_currentMode)} '
+        'preferred=${_describe(_preferredMode)}',
+      );
     } catch (e) {
       devLog('Failed to initialize display modes: $e');
     }
@@ -32,7 +60,7 @@ class DisplayModeService {
     if (!isSupported) return;
     try {
       await FlutterDisplayMode.setHighRefreshRate();
-      _currentMode = await FlutterDisplayMode.active;
+      await _logState('setHigh');
     } catch (e) {
       devLog('Failed to set high refresh rate: $e');
     }
@@ -42,7 +70,7 @@ class DisplayModeService {
     if (!isSupported) return;
     try {
       await FlutterDisplayMode.setLowRefreshRate();
-      _currentMode = await FlutterDisplayMode.active;
+      await _logState('setLow');
     } catch (e) {
       devLog('Failed to set low refresh rate: $e');
     }
@@ -52,10 +80,20 @@ class DisplayModeService {
     if (!isSupported) return;
     try {
       await FlutterDisplayMode.setPreferredMode(mode);
-      _currentMode = await FlutterDisplayMode.active;
-      _preferredMode = mode;
+      await _logState('setPreferred ${_describe(mode)}');
     } catch (e) {
       devLog('Failed to set preferred mode: $e');
+    }
+  }
+
+  /// Clears any forced display mode so the system decides again.
+  Future<void> resetToAuto() async {
+    if (!isSupported) return;
+    try {
+      await FlutterDisplayMode.setPreferredMode(DisplayMode.auto);
+      await _logState('resetAuto');
+    } catch (e) {
+      devLog('Failed to reset display mode: $e');
     }
   }
 
