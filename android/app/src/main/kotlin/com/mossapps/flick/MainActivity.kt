@@ -493,6 +493,9 @@ class MainActivity: FlutterActivity() {
                 "hasAllFilesAccess" -> {
                     result.success(hasAllFilesAccess())
                 }
+                "isAllFilesAccessSupported" -> {
+                    result.success(isAllFilesAccessSupported())
+                }
                 "requestAllFilesAccess" -> {
                     result.success(openAllFilesAccessSettings())
                 }
@@ -1848,6 +1851,25 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to open battery optimization settings", e)
             return false
+        }
+    }
+
+    // Whether this build declares MANAGE_EXTERNAL_STORAGE at all (the `full`
+    // flavor does; the `play` flavor ships without it). UI for granting the
+    // permission must be hidden when it can never be granted.
+    private fun isAllFilesAccessSupported(): Boolean {
+        return try {
+            val flags = PackageManager.GET_PERMISSIONS
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, flags)
+            }
+            info.requestedPermissions?.contains(Manifest.permission.MANAGE_EXTERNAL_STORAGE) == true
+        } catch (e: Exception) {
+            Log.w("MainActivity", "isAllFilesAccessSupported() failed: ${e.message}")
+            false
         }
     }
 
