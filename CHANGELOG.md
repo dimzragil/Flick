@@ -1,54 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.22.0-beta.2 (2026-09-28)
+
+### Distribution
+- **Google Play builds no longer request All Files Access**: Play policy requires MediaStore/SAF for media apps, so the `play` flavor ships without `MANAGE_EXTERNAL_STORAGE` and scans via MediaStore plus the DSD/DSF/WavPack reconciliation path.
+- **GitHub builds keep Full Library Access**: the `full` flavor retains raw filesystem scanning; the Settings entry to grant it only appears in builds that declare the permission.
+- Builds: `flutter build appbundle --flavor play` for Play, `flutter build apk --flavor full` for GitHub releases.
+
+## 0.22.0-beta.1 (2026-09-10)
 
 ### Apple Music Metadata
 - **Apple Music metadata enrichment** for untagged files: releases are matched by track name and duration, candidates are reviewed in an identify-album sheet, and confident exact matches are applied automatically after a scan.
 - New **Fix Missing Metadata** screen with a shortcut in Library settings, plus an Apple Music tile under Integrations.
 - Album and artist detail screens gain **Identify album**, offline-cached Apple Music artwork fallback, biography, similar artists, top songs, and "About this album" notes.
 
-### Library Scanning & Artwork
-- Scans and rescans now finish with album art ready: after metadata completes, a skippable **Loading artwork** phase shows cover progress (`n / N covers`); skipping lets resolution continue in the background.
-- Albums, Artists, and folder screens reload as post-scan artwork writes land, so covers no longer appear only after scrolling.
-- Post-scan audio preload no longer blocks artwork resolution.
-- **Quick or Full rescan** — Rescan Library now asks whether to re-read only new or changed files (quick) or re-read metadata for every file (full).
-- **Per-folder progress** — rescanning multiple folders shows one combined bar plus a small progress row for each folder.
-- **Honest scan progress** — the bar counts every checked file, including unchanged ones, instead of sitting at zero until the end.
-
-### Floating Progress & Preload
-- Fixed the floating progress pill getting stuck after a scan showing "Preloading audio" while nothing was preloading; Stop now clears it immediately even during the artwork phase.
-- Stopping preload interrupts the in-flight decode chunk instead of waiting for it to finish, so the pill and preload card can't outlive the cancel.
-- Fixed a race where the preload toggle could display off while a stale persisted value still triggered preload after scanning; toggles now wait for the stored preferences before writing.
-- Turning preload off now cancels a pass that is already decoding and suppresses the ones a scan would spawn; turning it back on lifts the suppression.
-- The floating pill no longer stays stuck after leaving Settings mid-scan; it now plays a short check-mark animation when the scan and its artwork loading finish, then disappears. After the check, background preload stays silent until a new scan starts, so the pill no longer pops back up.
-- The scan, preload, and ReplayGain progress is now a small **draggable bubble** that snaps to either screen edge and remembers its position; tap it for compact progress details without leaving the current screen.
-
-### Storage
-- Playback no longer converts ALAC/M4A/AIFF tracks to WAV files: they are decoded on demand and streamed to the player, so the playback cache stops growing with queue size (issue #212).
-
 ### DSD Native Playback
-- Fixed DSF files decoding 8 bytes late (wrong data offset probe) — the cause of the continuous light ticks on all DSF playback; bit order now follows the DSF header flag (1 = LSB, 8 = MSB).
+- **DSD-NATIVE output** via SAS offload shim (HiBy devices) with ALSA direct fallback; WavPack DSD detection and decoding fixed.
+- Fixed DSF files decoding 8 bytes late (wrong data offset probe) — the cause of continuous light ticks; bit order now follows the DSF header flag.
 - ReplayGain is ignored on native DSD/DoP sources (a gain multiply would corrupt the DSD bits).
-- Reduced residual DSD native crackle: debug dump capture is now opt-in (no blocking storage I/O in the audio loops), native ring buffer enlarged with a stricter prefill gate, render/decoder threads get raised priority, and decoder reads use 256 KiB chunks.
+- Reduced residual crackle: opt-in debug dumps, larger ring buffer, raised render/decoder thread priority, 256 KiB decoder reads.
+- DSD wire format and grouping settings in UAC2 preferences; decoder crash dumps captured offline.
 
-### Motion Art & Bit-Perfect
-- Motion art is suspended while direct/exclusive bit-perfect output is active (DAP internal hi-res and USB DAC direct): the extra video stream could preempt the native output, stopping or muting audio. The animated Ken Burns artwork shows instead.
-- Added an opt-in **Motion Art in Bit-Perfect** toggle in Settings → Playback & Display for devices where motion art plays fine during bit-perfect output.
-- Loss of the native direct output (AudioTrack DIRECT / ALSA direct) is now reported to the app; the Rust engine respawns and resumes the track instead of silently stopping.
-
-### Network Sources & Metadata
-- Fixed WebDAV href double-decoding that aborted syncs on non-ASCII and special-character filenames (`%`, `#`, `?`); hrefs are decoded exactly once at parse time and re-encoded for request URLs.
-- HTTP auth headers now travel with resolved URIs, so WebDAV Basic auth reaches ExoPlayer ranged requests.
-- An ID3 tag is now created when writing metadata to untagged WAV files.
-
-## 0.22.0-beta.1 (2026-09-10)
-
-### DSD Native Playback
-- **DSD-NATIVE output** via SAS offload shim (HiBy devices) with ALSA direct fallback.
-- DoP packer bit-reversal; short reads handled; wire silence padding fixes audio pops.
-- DSD wire format and grouping settings in UAC2 preferences; restored output mode and transport overrides.
-- DSD reconciliation finds unindexed DSD files; decoder crash dumps captured offline.
-- Fixed WavPack DSD detection and decoding (libwavpack qualify mode); DSDIFF ID3 extraction fixed and invalid years rejected.
+### Equalizer
+- **Standalone preamp** broadband gain stage applied before the band curve, independent of configured bands.
+- RBJ biquad response modeling so the graph matches the real Rust audio path.
+- Gain range widened to ±20 dB and Q to 0.2–20; preset imports warn on clamped values.
+- Animated swipe navigation between tabs; knobs double-tap to reset.
 
 ### ReplayGain & Crossfeed
 - **ReplayGain** Track/Album modes with pre-amp and clipping prevention.
@@ -61,51 +38,63 @@
 - Lyrics from **MP4/M4A and OGG/Opus** containers; text alignment options and readability scrim.
 
 ### Global Search
-- Unified search across songs, albums, artists, and playlists.
-- Filter chips with persisted selection; refined search screen.
+- Unified search across songs, albums, artists, and playlists, with persisted filter chips.
 
-### Library Scanning & Permissions
+### Library Scanning & Artwork
 - Optional **Full Library Access** — Rust scanner walks every volume directly; falls back to MediaStore/SAF.
 - **DSD/DSF/WavPack always scanned**, even on devices whose media indexer skips them (Xiaomi/MIUI, Vivo, Honor).
 - **WavPack/DSD tags & album art everywhere** via Rust parser fallback; fixed DFF/WavPack embedded covers.
 - **Fixed library wipe when switching scan engines** — each engine only deletes rows it can see.
-- Floating minimizable scan progress pill; preload runs as one cancellable pass with a Stop button.
-- Opus files no longer misdetected as OGG; broader extension coverage.
-- Metadata recovery for sparse/failed retriever results; existing genre and year preserved; track metadata from CUE sheets.
-- Deleted songs no longer reappear — their MediaStore entries are removed on deletion.
+- Opus files no longer misdetected as OGG; deleted songs no longer reappear.
+- Scans finish with artwork ready — a skippable **Loading artwork** phase (`n / N covers`), and library screens reload as covers land.
+- **Quick or Full rescan** chooser; **per-folder progress**; **honest scan progress** counts every checked file.
+- Draggable **scan bubble** for scan/preload/ReplayGain progress that snaps to an edge; **Stop** halts the scan and its preload immediately.
+- Metadata recovery for sparse results; existing genre and year preserved; track metadata from CUE sheets.
 
-### Engine Recovery & Accuracy
-- Rust engine **crash recovery** — revives on dead channels with panic reporting.
-- Lying container headers detected and corrected; implausible sample rates filtered.
-- Gapless queueing disabled across incompatible engine configs to prevent playback glitches.
+### Storage & Caches
+- **Bounded playback caches** — WAV conversions and SAF staging copies capped (default 1 GB, configurable in Library → Storage) with LRU eviction and a one-time sweep of older leftovers.
+- **Streamed conversion** — ALAC/M4A/AIFF tracks are decoded on demand instead of converting the whole queue to WAV (fixes cache growth, issue #212).
+- Fixed a regression where quitting could delete persisted WAV conversions; WAV streaming memory is now bounded so large high-bitrate queues can't OOM the app.
+
+### Motion Art & Bit-Perfect
+- Motion art runs only in the immersive full-bleed player, with route-aware lifecycle and memory tracking.
+- Motion art is **suspended during bit-perfect output** (DAP hi-res and USB DAC direct); an opt-in **Motion Art in Bit-Perfect** toggle is available in Playback & Display.
+- Static cover shows while animated artwork resolves; a refresh action was added to the song actions sheet.
+- Loss of the native direct output is detected and the Rust engine respawns and resumes the track.
+
+### Reliability & Diagnostics
+- Rust engine **crash recovery** — revives on dead channels; Oboe callback panics are contained; the pitch shifter no longer resizes buffers on the render thread.
+- Lying container headers detected and corrected; implausible sample rates filtered; gapless queueing disabled across incompatible engine configs.
+- Offline/reconnection notices; update checks reuse the shared connectivity state.
+- App logs persist to disk with periodic flush and on lifecycle changes; process-exit diagnostics are reported on launch; logs share as timestamped files.
 
 ### Navigation & UI Refresh
-- Nested navigators per tab; full player and queue routed via root navigator.
+- Nested navigators per tab; full player and queue routed via root navigator; bottom nav restored via a route observer.
 - New **FlickDialog** system and **FlickArtworkPlaceholder** across the app.
 - Shared detail headers with glass blur back buttons; landscape mode support.
-- System **reduced-motion** preference respected globally.
+- System **reduced-motion** preference respected globally; full-text glass sheet for fetched descriptions.
 
 ### USB & Bluetooth
-- Bit-perfect **auto-prompt on DAC attach**, with per-device decline memory.
-- UAC1: refuses direct USB when SET_CUR fails; better sampling-frequency negotiation.
-- USB route monitoring at boot; Hi-Res Direct for the Bluetooth Rust Oboe path.
+- USB DAC **bit-perfect auto-engage** with a master toggle and per-device decline memory (resettable).
+- Suppressed direct USB routes retry after transient failures; a payload audit grace latch stops verification flapping.
+- UAC1 refuses direct USB when SET_CUR fails; better sampling-frequency negotiation; Hi-Res Direct for the Bluetooth Rust Oboe path.
 
-### Network Sources
-- Jellyfin **silent re-auth** via secure password store; auth failure detection.
-- Tidal sign-in fix with persisted session token.
+### Network & Metadata
+- Fixed WebDAV href double-decoding on non-ASCII and special-character filenames; HTTP auth headers now reach ExoPlayer ranged requests.
+- Jellyfin **silent re-auth** via secure password store; Tidal sign-in fix with persisted session token.
+- WavPack playback uses the true PCM sample rate; an ID3 tag is created when writing metadata to untagged WAV files.
+- Editable descriptions on detail pages plus a song actions button.
 
 ### Player & Library
 - Rebuilt full player with song stage carousel; swipe-down previous-track gesture.
 - Metadata editor moved to a bottom sheet with instant sync.
-- Playlist sorting; bulk favorites; duplicate cleaner with per-group multi-keep.
-- Folder tree view toggle; EQ knobs double-tap to reset.
-- **Motion Art album art** — Apple Music-style animated artwork in the full player, with vertical motion art and silent looping.
-- Editable descriptions on detail pages plus a song actions button.
+- Playlist sorting; bulk favorites; duplicate cleaner with per-group multi-keep; folder tree view toggle.
 - Case-insensitive sorting for album, artist, song, and folder lists.
 
 ### Casting
 - Cast from the **system media route picker**; DLNA routes surfaced in the app.
 - DLNA (RenderingControl) and Chromecast volume control from the app and **media notification**.
+
 
 ## Currently on Pre-release
 

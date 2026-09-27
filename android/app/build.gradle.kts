@@ -65,6 +65,19 @@ android {
         }
     }
 
+    // `play` ships to Google Play without MANAGE_EXTERNAL_STORAGE (policy
+    // requires MediaStore/SAF for media apps). `full` keeps All Files Access
+    // for GitHub Releases and sideload builds. See docs/LIBRARY_SCAN_ARCHITECTURE.md.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") {
+            dimension = "distribution"
+        }
+        create("full") {
+            dimension = "distribution"
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")

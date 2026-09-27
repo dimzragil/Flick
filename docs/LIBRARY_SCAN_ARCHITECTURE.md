@@ -22,10 +22,11 @@ The decision is pure and unit-tested (`test/services/library_scanner_routing_tes
 
 ### Permission model
 
-- `MANAGE_EXTERNAL_STORAGE` (All Files Access) unlocks raw filesystem reads on every volume, so normal scans run through the Rust walker and no OEM MediaScanner gap can hide a file. Settings → Library → Scan Settings → "Full Library Access" (with status); a dismissible notice card prompts on the Library screen when it's off.
-- Without it (scoped storage), MediaStore + SAF apply, and the Tier 1 DSD reconciliation walk below fills OEM indexing gaps.
+- `MANAGE_EXTERNAL_STORAGE` (All Files Access) is **flavor-dependent** (`productFlavors { play, full }` in `android/app/build.gradle.kts`). The `full` flavor (GitHub Releases/sideload) declares it in `android/app/src/full/AndroidManifest.xml`; the `play` flavor ships without it because Play policy requires MediaStore/SAF for media apps. Both share the same applicationId.
+- When declared and granted, normal scans run through the Rust walker and no OEM MediaScanner gap can hide a file. Settings → Library → Scan Settings → "Full Library Access" (with status) plus a dismissible notice card are shown only when `PermissionService.isAllFilesAccessSupported()` reports the permission is declared in this build's manifest.
+- The `play` flavor falls back to scoped storage: MediaStore + SAF apply, and the Tier 1 DSD reconciliation walk below fills OEM indexing gaps. Android ≤10 is unaffected in both flavors — `hasAllFilesAccess()` accepts the still-declared legacy `READ_EXTERNAL_STORAGE` there.
 - Legacy: `READ_EXTERNAL_STORAGE` (≤32), `WRITE_EXTERNAL_STORAGE` (≤28) + `requestLegacyExternalStorage`, `READ_MEDIA_AUDIO` (13+).
-- Kotlin exposes `hasAllFilesAccess` / `requestAllFilesAccess` (opens the system settings screen) on the `com.mossapps.flick/storage` channel; `resolveStorageInfo` returns an `allFilesAccess` flag alongside `fsPath`/`mediaStoreVolume`.
+- Kotlin exposes `hasAllFilesAccess` / `isAllFilesAccessSupported` / `requestAllFilesAccess` (opens the system settings screen) on the `com.mossapps.flick/storage` channel; `resolveStorageInfo` returns an `allFilesAccess` flag alongside `fsPath`/`mediaStoreVolume`.
 
 ### Tier 1 — MediaStore Scanner (`LibraryScannerService`)
 
@@ -110,7 +111,7 @@ Excludes tag parsing; metadata extraction runs only for `NEW`/`MODIFIED` files.
 
 ## External Storage (USB/SD) Scanning
 
-Removable volumes are accessed only through SAF. The app holds `ACTION_OPEN_DOCUMENT_TREE` + `READ_MEDIA_AUDIO` but **not** `MANAGE_EXTERNAL_STORAGE`, so scoped raw paths on removable media are unreadable. The scanner routes removable folders through SAF and degrades gracefully on unplug.
+Removable volumes are accessed only through SAF. Play builds hold `ACTION_OPEN_DOCUMENT_TREE` + `READ_MEDIA_AUDIO` but **not** `MANAGE_EXTERNAL_STORAGE` (Play policy), so scoped raw paths on removable media are unreadable and the scanner routes removable folders through SAF, degrading gracefully on unplug. Full/GitHub builds declare the permission and read removable raw paths directly once it is granted.
 
 ### Why removable needs special handling
 

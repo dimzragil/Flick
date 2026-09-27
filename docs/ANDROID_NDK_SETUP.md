@@ -59,9 +59,9 @@ For cpal/oboe to work, we need to initialize the NDK context before Dart loads t
 ### Build Process
 The `libc++_shared.so` library is now automatically copied during the build:
 ```bash
-flutter build apk
+flutter build apk --flavor full       # or --flavor play
 # or
-flutter build appbundle
+flutter build appbundle --flavor play  # or --flavor full
 ```
 
 ### Manual Copy (if needed)

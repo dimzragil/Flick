@@ -3,19 +3,21 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/src/rust/frb_generated.dart';
 import 'package:flick/app/app.dart';
 import 'package:flick/data/database.dart';
+import 'package:flick/services/display_mode_service.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/playback_cache_maintenance.dart';
 import 'package:flick/services/process_exit_diagnostics_service.dart';
+import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/core/utils/frame_timings_monitor.dart';
 import 'package:flick/src/rust/api/logging.dart';
 
 Future<void> main() async {
@@ -26,6 +28,8 @@ Future<void> main() async {
   ]);
 
   await AppLog.instance.initializePersistence();
+  await Uac2PreferencesService().initializeDeveloperModeCache();
+  FrameTimingsMonitor.instance.start();
 
   FlutterError.onError = (details) {
     AppLog.instance.add(
@@ -70,7 +74,7 @@ void _subscribeRustLogs() {
 }
 
 Future<void> _bootstrapAppAfterFirstFrame() async {
-  unawaited(_setOptimalDisplayMode());
+  unawaited(DisplayModeService().initialize());
   unawaited(
     _requestNotificationPermission().catchError(
       (Object e) => devLog('Notification permission request failed: $e'),
@@ -91,14 +95,6 @@ Future<void> _bootstrapAppAfterFirstFrame() async {
       (Object e) => devLog('Playback cache maintenance failed: $e'),
     ),
   );
-}
-
-Future<void> _setOptimalDisplayMode() async {
-  try {
-    await FlutterDisplayMode.setHighRefreshRate();
-  } catch (e) {
-    devLog('Display mode not supported: $e');
-  }
 }
 
 Future<void> _requestNotificationPermission() async {

@@ -55,6 +55,7 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
   bool _showBatteryOptimizationNotice = false;
   bool _showAllFilesAccessNotice = false;
   bool _allFilesAccessGranted = false;
+  bool _allFilesAccessSupported = false;
   bool _isXiaomiDevice = false;
   bool _scanSettingsExpanded = false;
   bool _libraryExpanded = false;
@@ -156,13 +157,15 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         permissionService.isIgnoringBatteryOptimizations(),
         permissionService.isBatteryNoticeDismissed(),
         permissionService.hasAllFilesAccess(),
+        permissionService.isAllFilesAccessSupported(),
         permissionService.isAllFilesNoticeDismissed(),
       ]);
       final deviceInfo = results[0] as AndroidPlaybackDeviceInfo;
       final isIgnoringBatteryOptimizations = results[1] as bool;
       final isNoticeDismissed = results[2] as bool;
       final allFilesAccess = results[3] as bool;
-      final isAllFilesNoticeDismissed = results[4] as bool;
+      final allFilesAccessSupported = results[4] as bool;
+      final isAllFilesNoticeDismissed = results[5] as bool;
 
       if (!mounted) return;
       setState(() {
@@ -170,14 +173,18 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         _showBatteryOptimizationNotice =
             !isIgnoringBatteryOptimizations && !isNoticeDismissed;
         _allFilesAccessGranted = allFilesAccess;
+        _allFilesAccessSupported = allFilesAccessSupported;
         _showAllFilesAccessNotice =
-            !allFilesAccess && !isAllFilesNoticeDismissed;
+            allFilesAccessSupported &&
+            !allFilesAccess &&
+            !isAllFilesNoticeDismissed;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _showBatteryOptimizationNotice = false;
         _showAllFilesAccessNotice = false;
+        _allFilesAccessSupported = false;
       });
     }
   }
@@ -1868,19 +1875,21 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
                                 .setUseDeepScan(value);
                           },
                         ),
-                        const SettingsDivider(),
-                        NavigationSetting(
-                          icon: _allFilesAccessGranted
-                              ? LucideIcons.shieldCheck
-                              : LucideIcons.folderSearch,
-                          title: 'Full Library Access',
-                          subtitle: _allFilesAccessGranted
-                              ? 'Granted — scans read every volume directly, '
-                                    'including DSD/DSF/WavPack'
-                              : 'Not granted — enable so scans cover DSD/DSF/WavPack '
-                                    'files the system index may skip',
-                          onTap: _openAllFilesAccessSettings,
-                        ),
+                        if (_allFilesAccessSupported) ...[
+                          const SettingsDivider(),
+                          NavigationSetting(
+                            icon: _allFilesAccessGranted
+                                ? LucideIcons.shieldCheck
+                                : LucideIcons.folderSearch,
+                            title: 'Full Library Access',
+                            subtitle: _allFilesAccessGranted
+                                ? 'Granted — scans read every volume directly, '
+                                      'including DSD/DSF/WavPack'
+                                : 'Not granted — enable so scans cover DSD/DSF/WavPack '
+                                      'files the system index may skip',
+                            onTap: _openAllFilesAccessSettings,
+                          ),
+                        ],
                       ],
                       const SettingsDivider(),
                       ToggleSetting(

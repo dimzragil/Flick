@@ -44,59 +44,14 @@ class ChangelogSubsection {
 /// automatically surface the entry whose `version` equals `kAppVersion`.
 const List<ChangelogEntry> kChangelogEntries = [
   ChangelogEntry(
-    version: '0.22.0-beta.q',
-    date: '2026-09-16',
+    version: '0.22.0-beta.2',
+    date: '2026-09-28',
     sections: [
       ChangelogSection(
-        title: 'Apple Music Metadata',
+        title: 'Distribution Update',
         bullets: [
-          '**Apple Music metadata enrichment** for untagged files — Flick matches releases by track name and duration, lets you review candidates, and applies confident exact matches automatically after a scan.',
-          'New **Fix Missing Metadata** screen, reachable from Library settings, plus an Apple Music tile under Integrations.',
-          'Album and artist detail screens gain **Identify album**, offline-cached Apple Music artwork fallback, biography, similar artists, top songs, and "About this album" notes.',
-        ],
-      ),
-      ChangelogSection(
-        title: 'Interface',
-        bullets: [
-          '**Pinned scan bubble** — minimized scan, preload, and ReplayGain progress is now a small draggable bubble instead of a full-width pill; it snaps to either screen edge and remembers its position.',
-          'Tap the bubble to see progress details in a compact card without leaving the screen you are on.',
-          '**Stop means stop** — stopping a rescan now clears the progress UI at once and halts the scan plus the automatic audio preload that follows it, instead of letting them run on in the background.',
-          '**Honest scan progress** — the bar counts every checked file, including unchanged ones, so a rescan no longer sits at zero until the final moment.',
-          '**Per-folder progress** — rescanning multiple folders now keeps one combined bar plus a small progress row for each folder.',
-          '**Quick or Full rescan** — Rescan Library now asks whether to re-read only new or changed files (quick) or re-read metadata for every file (full).',
-          'Scans now finish with album art ready: a skippable **Loading artwork** phase shows cover progress, and library screens reload as post-scan artwork writes land.',
-        ],
-      ),
-      ChangelogSection(
-        title: 'Storage',
-        bullets: [
-          '**Bounded playback caches** — WAV conversions and SAF staging copies are now capped (default 1 GB, configurable in Library → Storage) instead of growing without limit.',
-          'Least-recently-used eviction keeps the newest conversions; a one-time sweep removes multi-GB leftovers from earlier versions.',
-          'Fixed a regression where quitting could delete persisted WAV conversions.',
-          '**Streamed conversion** — ALAC/M4A/AIFF tracks are decoded on demand and streamed to the player instead of converting the whole queue to WAV, so caches stay flat while you browse and play.',
-        ],
-      ),
-      ChangelogSection(
-        title: 'DSD Native Playback',
-        bullets: [
-          'Fixed DSF files decoding 8 bytes late (wrong data offset probe) — the cause of the continuous light ticks on all DSF playback; bit order now follows the DSF header flag.',
-          'ReplayGain is ignored on native DSD/DoP sources, since a gain multiply would corrupt the DSD bits.',
-          'Reduced residual DSD native crackle with opt-in debug dumps, a larger native ring buffer, raised render/decoder thread priority, and 256 KiB decoder reads.',
-        ],
-      ),
-      ChangelogSection(
-        title: 'Motion Art & Bit-Perfect',
-        bullets: [
-          '**Motion art pauses under bit-perfect audio** — while direct or exclusive bit-perfect output is active, Apple Music motion art no longer starts a second video stream that could interrupt playback; the animated Ken Burns artwork shows instead.',
-          'Added an opt-in **Motion Art in Bit-Perfect** toggle in Settings → Playback & Display for devices where motion art coexists with bit-perfect output.',
-          'If the native direct output is lost anyway, Flick now detects it and automatically revives the audio engine and resumes the track instead of going silent.',
-        ],
-      ),
-      ChangelogSection(
-        title: 'Network & Metadata',
-        bullets: [
-          'Fixed WebDAV href double-decoding that aborted syncs on non-ASCII and special-character filenames; HTTP auth headers now travel with ExoPlayer ranged requests.',
-          'An ID3 tag is now created when writing metadata to untagged WAV files.',
+          '**Google Play builds no longer request All Files Access** — Play policy requires MediaStore/SAF for media apps. Scans still pick up DSD/DSF/WavPack through the fallback path.',
+          '**GitHub builds keep Full Library Access** — the Settings entry appears only in builds that declare the permission.',
         ],
       ),
     ],
@@ -106,12 +61,30 @@ const List<ChangelogEntry> kChangelogEntries = [
     date: '2026-09-10',
     sections: [
       ChangelogSection(
+        title: 'Apple Music Metadata',
+        bullets: [
+          '**Apple Music metadata enrichment** for untagged files — matches releases by track name and duration, lets you review candidates, and auto-applies confident matches after a scan.',
+          'New **Fix Missing Metadata** screen (Library settings) and an Apple Music tile under Integrations.',
+          'Album and artist screens gain **Identify album**, cached Apple Music artwork fallback, biography, similar artists, top songs, and "About this album" notes.',
+        ],
+      ),
+      ChangelogSection(
         title: 'DSD Native Playback',
         bullets: [
-          '**DSD-NATIVE output** via SAS offload shim (HiBy devices) with ALSA direct fallback.',
-          'DoP packer bit-reversal; short reads handled; wire silence padding fixes audio pops.',
-          'DSD wire format and grouping settings in UAC2 preferences; restored output mode and transport overrides.',
-          'DSD reconciliation finds unindexed DSD files; decoder crash dumps captured offline.',
+          '**DSD-NATIVE output** via SAS offload shim (HiBy devices) with ALSA direct fallback; WavPack DSD detection and decoding fixed.',
+          'Fixed DSF files decoding 8 bytes late (the cause of light ticks); bit order follows the DSF header flag.',
+          'ReplayGain is ignored on native DSD/DoP sources (a gain multiply would corrupt the bits).',
+          'Reduced crackle: opt-in debug dumps, larger ring buffer, raised thread priority, 256 KiB decoder reads.',
+          'DSD wire format and grouping settings in UAC2 preferences; decoder crash dumps captured offline.',
+        ],
+      ),
+      ChangelogSection(
+        title: 'Equalizer',
+        bullets: [
+          '**Standalone preamp** broadband gain stage, independent of the band curve.',
+          'RBJ biquad response modeling so the graph matches the native audio path.',
+          'Gain range widened to ±20 dB and Q to 0.2–20; preset imports warn on clamped values.',
+          'Animated swipe navigation between tabs; knobs double-tap to reset.',
         ],
       ),
       ChangelogSection(
@@ -126,65 +99,90 @@ const List<ChangelogEntry> kChangelogEntries = [
         title: 'Karaoke Lyrics',
         bullets: [
           'Word-level **karaoke sync** with gradient sweep and a toggle in lyrics settings.',
-          'Full-screen **Lyrics Sync Studio**: tap-along word stamping, enhanced LRC export, video-style word timeline, syllable splitting.',
-          'Lyrics from **MP4/M4A and OGG/Opus** containers; text alignment options and readability scrim.',
+          'Full-screen **Lyrics Sync Studio**: tap-along word stamping, enhanced LRC export, word timeline, syllable splitting.',
+          'Lyrics from **MP4/M4A and OGG/Opus** containers; alignment options and readability scrim.',
         ],
       ),
       ChangelogSection(
         title: 'Global Search',
         bullets: [
-          'Unified search across songs, albums, artists, and playlists.',
-          'Filter chips with persisted selection; refined search screen.',
+          'Unified search across songs, albums, artists, and playlists, with persisted filter chips.',
         ],
       ),
       ChangelogSection(
-        title: 'Smarter Library Scanning',
+        title: 'Library Scanning & Artwork',
         bullets: [
           'Optional **Full Library Access** — Rust scanner walks every volume directly; falls back to MediaStore/SAF.',
-          '**DSD/DSF/WavPack always scanned**, even on devices whose media indexer skips them (Xiaomi/MIUI, Vivo, Honor).',
-          '**WavPack/DSD tags & album art everywhere** via Rust parser fallback; fixed DFF/WavPack embedded covers.',
-          '**Fixed library wipe when switching scan engines** — each engine only deletes rows it can see.',
-          'Floating minimizable scan progress pill; preload runs as one cancellable pass with a Stop button.',
+          '**DSD/DSF/WavPack always scanned**; WavPack/DSD tags and art via Rust parser fallback (fixed DFF/WavPack covers).',
+          '**Fixed library wipe when switching scan engines**; deleted songs no longer reappear.',
+          'Scans finish with artwork ready — a skippable **Loading artwork** phase, and screens reload as covers land.',
+          '**Quick or Full rescan** chooser; per-folder progress; honest file counts.',
+          'Draggable **scan bubble** for scan/preload/ReplayGain progress; Stop halts work immediately.',
         ],
       ),
       ChangelogSection(
-        title: 'Engine Recovery & Accuracy',
+        title: 'Storage & Caches',
         bullets: [
-          'Rust engine **crash recovery** — revives on dead channels with panic reporting.',
-          'Lying container headers detected and corrected; implausible sample rates filtered.',
+          '**Bounded playback caches** — WAV and SAF staging capped (default 1 GB, configurable) with LRU eviction.',
+          '**Streamed conversion** — ALAC/M4A/AIFF decoded on demand instead of converting the queue to WAV.',
+          'WAV streaming memory bounded; large high-bitrate queues no longer OOM the app.',
+        ],
+      ),
+      ChangelogSection(
+        title: 'Motion Art & Bit-Perfect',
+        bullets: [
+          'Motion art runs only in the immersive full-bleed player, with lifecycle and memory tracking.',
+          'Motion art **suspended during bit-perfect output** (opt-in override in Playback & Display).',
+          'Static cover shown while motion art resolves; refresh action in the song actions sheet.',
+          'Lost native direct output is detected and the engine respawns and resumes the track.',
+        ],
+      ),
+      ChangelogSection(
+        title: 'Reliability & Diagnostics',
+        bullets: [
+          'Rust engine **crash recovery** — revives on dead channels; Oboe panics contained; pitch shifter no longer resizes on the render thread.',
+          'Lying container headers corrected; implausible sample rates filtered; gapless queueing disabled across incompatible configs.',
+          'Offline/reconnection notices; update checks share connectivity state.',
+          'App logs persisted to disk (periodic flush, on lifecycle change); process-exit diagnostics reported on launch.',
         ],
       ),
       ChangelogSection(
         title: 'Navigation & UI Refresh',
         bullets: [
-          'Nested navigators per tab; full player and queue routed via root navigator.',
-          'New **FlickDialog** system and **FlickArtworkPlaceholder** across the app.',
-          'Shared detail headers with glass blur back buttons; landscape mode support.',
-          'System **reduced-motion** preference respected globally.',
+          'Nested navigators per tab; full player and queue via root navigator; bottom nav restored via route observer.',
+          'New **FlickDialog** system and **FlickArtworkPlaceholder**; shared detail headers with glass blur back buttons.',
+          'Landscape mode; system **reduced-motion** respected globally; full-text sheet for fetched descriptions.',
         ],
       ),
       ChangelogSection(
         title: 'USB & Bluetooth',
         bullets: [
-          'Bit-perfect **auto-prompt on DAC attach**, with per-device decline memory.',
-          'UAC1: refuses direct USB when SET_CUR fails; better sampling-frequency negotiation.',
-          'USB route monitoring at boot; Hi-Res Direct for the Bluetooth Rust Oboe path.',
+          'USB DAC **bit-perfect auto-engage** with a master toggle and per-device decline memory (resettable).',
+          'Suppressed direct USB routes retry after transient failures; payload audit grace latch stops flapping.',
+          'UAC1 refuses direct USB when SET_CUR fails; better sampling-frequency negotiation; Hi-Res Direct for BT Rust Oboe.',
         ],
       ),
       ChangelogSection(
-        title: 'Network Sources',
+        title: 'Network & Metadata',
         bullets: [
-          'Jellyfin **silent re-auth** via secure password store; auth failure detection.',
-          'Tidal sign-in fix with persisted session token.',
+          'Fixed WebDAV href double-decoding; HTTP auth headers now reach ExoPlayer ranged requests.',
+          'Jellyfin silent re-auth; Tidal sign-in fix with persisted token; WavPack playback uses the true PCM sample rate.',
+          'ID3 tag created when writing metadata to untagged WAV; editable descriptions on detail pages.',
         ],
       ),
       ChangelogSection(
         title: 'Player & Library',
         bullets: [
           'Rebuilt full player with song stage carousel; swipe-down previous-track gesture.',
-          'Metadata editor moved to a bottom sheet with instant sync.',
-          'Playlist sorting; bulk favorites; duplicate cleaner with per-group multi-keep.',
-          'EQ knobs: double-tap to reset.',
+          'Metadata editor bottom sheet with instant sync; song actions on detail screens; case-insensitive sorting.',
+          'Playlist sorting; bulk favorites; duplicate cleaner with per-group multi-keep; folder tree view.',
+        ],
+      ),
+      ChangelogSection(
+        title: 'Casting',
+        bullets: [
+          'Cast from the **system media route picker**; DLNA routes surfaced in the app.',
+          'DLNA (RenderingControl) and Chromecast volume control from the app and **media notification**.',
         ],
       ),
     ],

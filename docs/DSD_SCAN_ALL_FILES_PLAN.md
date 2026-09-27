@@ -1,6 +1,13 @@
 # DSD Scan + All-Files Access Plan
 
-Goal: DSD/DSF/DFF/WV always scan on every OEM. Primary strategy: All Files Access
+> **Status (2026-09-28):** Google Play rejected `MANAGE_EXTERNAL_STORAGE` twice —
+> media-file access is not a permitted use, regardless of declaration. The
+> grant-based strategy now ships only in the `full` flavor (GitHub Releases);
+> the `play` flavor ships the scoped-storage path (Tier 1 DSD reconciliation +
+> SAF) without the permission. See `docs/LIBRARY_SCAN_ARCHITECTURE.md` →
+> Permission model.
+
+Goal: DSD/DSF/DFF/WV always scan on every OEM. Primary strategy in `full` builds: All Files Access
 (`MANAGE_EXTERNAL_STORAGE`) so all normal scans use the Rust filesystem walker (UAPP-style,
 MediaStore bypassed). Scoped-storage path stays fully functional as fallback with DSD fixes.
 
@@ -16,5 +23,5 @@ MediaStore bypassed). Scoped-storage path stays fully functional as fallback wit
 
 Notes:
 - Walk is stat-only and deduped against MediaStore rows; incremental via existing fingerprint cache in `_scanFolderRust`.
-- Play review risk for `MANAGE_EXTERNAL_STORAGE` accepted; off-Play fallback if rejected.
+- Play rejected the declaration twice (Sep 2026); Play builds silently fall back to the scoped path, `full` builds keep the permission.
 - Extension allowlists (Rust scanner, two_phase, Dart, SAF) already include dsf/dff/wv — no changes needed there.
