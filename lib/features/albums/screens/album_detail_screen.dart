@@ -518,9 +518,12 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen>
                   if (albumNotes != null && albumNotes.isNotEmpty)
                     _buildSectionTitle(context, 'About this album'),
                  if (albumNotes != null && albumNotes.isNotEmpty)
-                   SliverToBoxAdapter(
-                     child: FetchedDescription(text: albumNotes),
-                   ),
+                     SliverToBoxAdapter(
+                       child: FetchedDescription(
+                         text: albumNotes,
+                         sheetTitle: 'About this album',
+                       ),
+                     ),
                  const SliverToBoxAdapter(
                    child: SizedBox(height: AppConstants.spacingLg),
                  ),
