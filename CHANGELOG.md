@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0-beta.2 (2026-09-28)
+
+### Distribution
+- **Google Play builds no longer request All Files Access**: Play policy requires MediaStore/SAF for media apps, so the `play` flavor ships without `MANAGE_EXTERNAL_STORAGE` and scans via MediaStore plus the DSD/DSF/WavPack reconciliation path.
+- **GitHub builds keep Full Library Access**: the `full` flavor retains raw filesystem scanning; the Settings entry to grant it only appears in builds that declare the permission.
+- Builds: `flutter build appbundle --flavor play` for Play, `flutter build apk --flavor full` for GitHub releases.
+
 ## 0.22.0-beta.1 (2026-09-10)
 
 ### Apple Music Metadata

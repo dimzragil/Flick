@@ -23,9 +23,9 @@ Contributions are welcome. Bug fixes, hardware compatibility improvements, DSP w
   ```bash
   flutter pub get
   cd rust && cargo fetch && cd ..
-  flutter run
+  flutter run --flavor full
   ```
-  Or `flutter build apk --release` if you want to confirm a release build still passes.
+  Or `flutter build apk --flavor full --release` if you want to confirm a release build still passes. (`full` keeps All Files Access; `play` is the Play Store flavor without it.)
 - If you touch the Rust audio engine, test on real hardware if you can. A USB DAC behaves differently from the emulator's virtual device.
 
 ## PRs

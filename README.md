@@ -41,15 +41,18 @@ Flutter (Riverpod, just_audio, Isar) on the frontend. Rust (Symphonia, rusb, cpa
 ```bash
 flutter pub get
 cd rust && cargo fetch && cd ..
-flutter run
+flutter run --flavor full
 ```
 
-Or `flutter build apk --release`.
+Or for release builds: `flutter build apk --flavor full` (GitHub build with
+All Files Access) or `flutter build appbundle --flavor play` (Google Play,
+no All Files Access).
 
 ## Docs
 
 - [`docs/DSD_ARCHITECTURE.md`](docs/DSD_ARCHITECTURE.md)
 - [`docs/LIBRARY_SCAN_ARCHITECTURE.md`](docs/LIBRARY_SCAN_ARCHITECTURE.md)
+- [`docs/RELEASING.md`](docs/RELEASING.md)
 - [`docs/hardware_volume_control.md`](docs/hardware_volume_control.md)
 - [`docs/uac2/`](docs/uac2/)
 
