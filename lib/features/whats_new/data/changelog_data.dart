@@ -44,6 +44,19 @@ class ChangelogSubsection {
 /// automatically surface the entry whose `version` equals `kAppVersion`.
 const List<ChangelogEntry> kChangelogEntries = [
   ChangelogEntry(
+    version: '0.22.0-beta.2',
+    date: '2026-09-28',
+    sections: [
+      ChangelogSection(
+        title: 'Distribution Update',
+        bullets: [
+          '**Google Play builds no longer request All Files Access** — Play policy requires MediaStore/SAF for media apps. Scans still pick up DSD/DSF/WavPack through the fallback path.',
+          '**GitHub builds keep Full Library Access** — the Settings entry appears only in builds that declare the permission.',
+        ],
+      ),
+    ],
+  ),
+  ChangelogEntry(
     version: '0.22.0-beta.1',
     date: '2026-09-10',
     sections: [

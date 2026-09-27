@@ -144,6 +144,20 @@ class PermissionService {
     }
   }
 
+  /// Whether this build declares All Files Access at all (`full` flavor does,
+  /// `play` does not). Granting UI must be hidden when unsupported.
+  Future<bool> isAllFilesAccessSupported() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    try {
+      return await _channel.invokeMethod<bool>('isAllFilesAccessSupported') ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// All Files Access (Android 11+) or legacy storage permission (Android 10-).
   /// Unlocks raw-filesystem scanning of every volume, including DSD formats
   /// the OEM MediaScanner refuses to index.
