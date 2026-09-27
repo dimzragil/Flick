@@ -654,7 +654,10 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
                             _buildSectionTitle(context, 'About'),
                          if (appleBio != null && appleBio.isNotEmpty)
                            SliverToBoxAdapter(
-                             child: FetchedDescription(text: appleBio),
+                             child: FetchedDescription(
+                               text: appleBio,
+                               sheetTitle: 'About',
+                             ),
                            ),
                          const SliverToBoxAdapter(
                            child: SizedBox(height: AppConstants.spacingLg),

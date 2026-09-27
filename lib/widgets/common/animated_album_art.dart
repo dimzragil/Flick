@@ -130,6 +130,7 @@ class _AnimatedAlbumArtState extends State<AnimatedAlbumArt>
       representativeSongTitle: widget.representativeSongTitle,
       preferVertical: widget.preferVertical,
       enabled: !MediaQuery.of(context).disableAnimations,
+      loadingFallback: image,
       fallback: kenBurns,
     );
   }
