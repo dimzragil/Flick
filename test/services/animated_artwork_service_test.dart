@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flick/services/apple_music/apple_music_metadata_service.dart';
 import 'package:flick/services/motion_art/animated_artwork_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -326,6 +327,120 @@ void main() {
       expect(refreshed, isNotNull);
       expect(refreshed!.hasMotion, isTrue);
       expect(boiduCalls, greaterThan(callsAfterFirst));
+    });
+  });
+
+  group('AnimatedArtworkService.lookupAnimatedArtwork', () {
+    test('reports a definitive miss as final', () async {
+      final client = MockClient((request) async {
+        final url = request.url;
+        if (url.host == 'itunes.apple.com') {
+          return _json({
+            'resultCount': 1,
+            'results': [
+              {
+                'collectionId': 42,
+                'collectionName': 'DRIVE',
+                'artistName': 'Tiësto',
+              },
+            ],
+          });
+        }
+        if (url.host == 'artwork.boidu.dev') {
+          final id = url.queryParameters['id'] ?? '42';
+          return _staticOnly(id, 'DRIVE', 'Tiësto');
+        }
+        return _json({'error': 'unexpected $url'}, 500);
+      });
+
+      final service = AnimatedArtworkService.create(client: client);
+      final lookup = await service.lookupAnimatedArtworkForAlbum(
+        albumName: 'DRIVE',
+        artist: 'Tiësto',
+      );
+
+      expect(lookup.artwork, isNull);
+      expect(lookup.transient, isFalse);
+    });
+
+    test('reports a rate-limited lookup as transient, even from cache', () async {
+      final client = MockClient((request) async {
+        final url = request.url;
+        if (url.host == 'itunes.apple.com') {
+          return _json({
+            'resultCount': 1,
+            'results': [
+              {
+                'collectionId': 42,
+                'collectionName': 'DRIVE',
+                'artistName': 'Tiësto',
+              },
+            ],
+          });
+        }
+        if (url.host == 'artwork.boidu.dev') {
+          return _json({'error': 'busy'}, 503);
+        }
+        return _json({'error': 'unexpected $url'}, 500);
+      });
+
+      final service = AnimatedArtworkService.create(client: client);
+      final first = await service.lookupAnimatedArtworkForAlbum(
+        albumName: 'DRIVE',
+        artist: 'Tiësto',
+      );
+      expect(first.artwork, isNull);
+      expect(first.transient, isTrue);
+
+      // The 30s transient entry must stay flagged as retryable.
+      final cached = await service.lookupAnimatedArtworkForAlbum(
+        albumName: 'DRIVE',
+        artist: 'Tiësto',
+      );
+      expect(cached.artwork, isNull);
+      expect(cached.transient, isTrue);
+    });
+  });
+
+  group('AnimatedArtworkService storefront', () {
+    test('defaults to the device storefront', () async {
+      final expected = AppleMusicMetadataService.instance.deviceStorefront;
+      final requests = <Uri>[];
+      final client = MockClient((request) async {
+        requests.add(request.url);
+        if (request.url.host == 'itunes.apple.com') {
+          return _json({'resultCount': 0, 'results': []});
+        }
+        return _json({'error': 'not found'}, 404);
+      });
+
+      final service = AnimatedArtworkService.create(client: client);
+      await service.lookupAnimatedArtworkForAlbum(
+        albumName: 'DRIVE',
+        artist: 'Tiësto',
+      );
+
+      expect(requests.first.queryParameters['country'], expected);
+      final boidu = requests.where((u) => u.host == 'artwork.boidu.dev');
+      expect(boidu, isNotEmpty);
+      expect(boidu.first.queryParameters['storefront'], expected);
+    });
+
+    test('an explicit storefront overrides the device locale', () async {
+      final requests = <Uri>[];
+      final client = MockClient((request) async {
+        requests.add(request.url);
+        return _json({'resultCount': 0, 'results': []});
+      });
+
+      final service = AnimatedArtworkService.create(client: client);
+      await service.lookupAnimatedArtworkForAlbum(
+        albumName: 'DRIVE',
+        artist: 'Tiësto',
+        storefront: 'gb',
+      );
+
+      expect(requests.first.queryParameters['country'], 'gb');
     });
   });
 }

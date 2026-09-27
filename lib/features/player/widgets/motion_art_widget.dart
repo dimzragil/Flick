@@ -34,6 +34,8 @@ class MotionArtView extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.borderRadius,
     this.suppressionOverride,
+    this.serviceOverride,
+    this.loadingFallback,
   });
 
   /// Song title, or the album name when [albumMode] is true.
@@ -44,6 +46,11 @@ class MotionArtView extends StatefulWidget {
 
   /// Always rendered when no video is available or [enabled] is false.
   final Widget fallback;
+
+  /// Rendered while the first lookup is still in flight, so a static cover can
+  /// wait for the motion art without visibly swapping widgets. Settles to
+  /// [fallback] once the lookup concludes there is no motion art.
+  final Widget? loadingFallback;
 
   final bool enabled;
 
@@ -61,6 +68,10 @@ class MotionArtView extends StatefulWidget {
   @visibleForTesting
   final ValueListenable<bool>? suppressionOverride;
 
+  /// Test hook: replaces the shared [AnimatedArtworkService] instance.
+  @visibleForTesting
+  final AnimatedArtworkService? serviceOverride;
+
   @override
   State<MotionArtView> createState() => _MotionArtViewState();
 }
@@ -74,6 +85,7 @@ class _MotionArtViewState extends State<MotionArtView> {
 
   VideoPlayerController? _controller;
   bool _hasVideo = false;
+  bool _settledWithoutMotion = false;
   bool _suppressed = false;
   bool _routeIsCurrent = true;
   bool _listeningToSuppression = false;
@@ -182,6 +194,7 @@ class _MotionArtViewState extends State<MotionArtView> {
     _retryTimer?.cancel();
     _retryTimer = null;
     _hasVideo = false;
+    _settledWithoutMotion = false;
     final controller = _controller;
     _controller = null;
     unawaited(_disposeVideo(controller));
@@ -211,6 +224,7 @@ class _MotionArtViewState extends State<MotionArtView> {
     if (!widget.enabled || _suppressed || !_routeIsCurrent) return;
     if (_attempt >= _maxAttempts) {
       _logLifecycle('gave up after $_attempt attempt(s)');
+      _settle();
       return;
     }
     _attempt++;
@@ -221,6 +235,14 @@ class _MotionArtViewState extends State<MotionArtView> {
     });
   }
 
+  /// Marks the lookup as concluded with no motion art, so the regular
+  /// [MotionArtView.fallback] replaces [MotionArtView.loadingFallback].
+  void _settle() {
+    if (_settledWithoutMotion) return;
+    _settledWithoutMotion = true;
+    if (mounted) setState(() {});
+  }
+
   void _logFailureOnce(String stage, Object error) {
     if (_attempt == 0) {
       _logLifecycle('$stage failed: $error');
@@ -228,17 +250,18 @@ class _MotionArtViewState extends State<MotionArtView> {
   }
 
   Future<void> _loadOnce(int generation) async {
-    AnimatedArtwork? artwork;
+    MotionArtLookup? lookup;
     try {
-      final service = AnimatedArtworkService.instance;
+      final service =
+          widget.serviceOverride ?? AnimatedArtworkService.instance;
       if (widget.albumMode) {
-        artwork = await service.getAnimatedArtworkForAlbum(
+        lookup = await service.lookupAnimatedArtworkForAlbum(
           albumName: widget.album ?? widget.title,
           artist: widget.artist,
           representativeSongTitle: widget.representativeSongTitle,
         );
       } else {
-        artwork = await service.getAnimatedArtwork(
+        lookup = await service.lookupAnimatedArtwork(
           songTitle: widget.title,
           artist: widget.artist,
           albumName: widget.album,
@@ -251,14 +274,20 @@ class _MotionArtViewState extends State<MotionArtView> {
     }
 
     if (!mounted || generation != _generation) return;
+    final artwork = lookup?.artwork;
     final url = widget.preferVertical
         ? artwork?.verticalPlaybackUrl
         : artwork?.playbackUrl;
     if (url == null) {
-      // Could be a definitive "no motion art" (cache hit, no network) or a
-      // transient boidu 503; a bounded retry covers the transient case and is
-      // cheap for the definitive case because the negative is cached.
-      _scheduleRetry();
+      if (lookup?.transient ?? true) {
+        // Network hiccup, 429/503, timeout: a later attempt may still find
+        // motion art, so keep showing the loading fallback and retry.
+        _scheduleRetry();
+      } else {
+        // Definitive "no motion art": settle immediately instead of keeping a
+        // static cover in the loading state through pointless retries.
+        _settle();
+      }
       return;
     }
 
@@ -311,10 +340,12 @@ class _MotionArtViewState extends State<MotionArtView> {
 
   @override
   Widget build(BuildContext context) {
-    if (_suppressed) return widget.fallback;
+    if (_suppressed || !widget.enabled) return widget.fallback;
     final controller = _controller;
     if (!_hasVideo || controller == null || !controller.value.isInitialized) {
-      return widget.fallback;
+      final loading = widget.loadingFallback;
+      if (_settledWithoutMotion || loading == null) return widget.fallback;
+      return loading;
     }
 
     final size = controller.value.size;

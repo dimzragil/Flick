@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/services/apple_music/apple_music_metadata_service.dart';
 import 'package:flick/services/motion_art/motion_art_album_matcher.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -97,10 +98,28 @@ class AnimatedArtwork {
   };
 }
 
+/// Outcome of a motion-art lookup.
+///
+/// A null [artwork] is not always final: when [transient] is true the lookup
+/// failed for a retryable reason (network error, timeout, rate limit) and a
+/// later attempt may still find motion art.
+class MotionArtLookup {
+  const MotionArtLookup({this.artwork, this.transient = false});
+
+  final AnimatedArtwork? artwork;
+  final bool transient;
+}
+
 class _CacheEntry {
-  const _CacheEntry({required this.artwork, required this.expiresAtMs});
+  const _CacheEntry({
+    required this.artwork,
+    required this.expiresAtMs,
+    this.transient = false,
+  });
+
   final AnimatedArtwork? artwork;
   final int expiresAtMs;
+  final bool transient;
 }
 
 /// Thrown when a lookup failed for a reason that may succeed later (timeout,
@@ -166,7 +185,7 @@ class AnimatedArtworkService {
   static const int _boiduMaxConcurrent = 2;
 
   final Map<String, _CacheEntry> _mem = {};
-  final Map<String, Future<AnimatedArtwork?>> _inflight = {};
+  final Map<String, Future<MotionArtLookup>> _inflight = {};
 
   /// Per-key generation used to drop results of lookups that were invalidated
   /// while still in flight.
@@ -188,14 +207,35 @@ class AnimatedArtworkService {
     required String artist,
     String? albumName,
     Duration? duration,
-    String storefront = 'us',
+    String? storefront,
+  }) async {
+    final lookup = await lookupAnimatedArtwork(
+      songTitle: songTitle,
+      artist: artist,
+      albumName: albumName,
+      duration: duration,
+      storefront: storefront,
+    );
+    return lookup.artwork;
+  }
+
+  /// Like [getAnimatedArtwork] but reports whether a null result is final.
+  ///
+  /// The storefront defaults to the device locale, falling back to `us`.
+  Future<MotionArtLookup> lookupAnimatedArtwork({
+    required String songTitle,
+    required String artist,
+    String? albumName,
+    Duration? duration,
+    String? storefront,
   }) {
     final album = albumName?.trim() ?? '';
+    final sf = _resolveStorefront(storefront);
     final key = _cacheKey(
       'song:${songTitle.trim()}',
       artist,
       album,
-      storefront,
+      sf,
     );
     return _resolve(
       key,
@@ -203,7 +243,7 @@ class AnimatedArtworkService {
         songTitle: songTitle,
         artist: artist,
         albumName: album,
-        storefront: storefront,
+        storefront: sf,
       ),
     );
   }
@@ -213,14 +253,34 @@ class AnimatedArtworkService {
     required String albumName,
     required String artist,
     String? representativeSongTitle,
-    String storefront = 'us',
+    String? storefront,
+  }) async {
+    final lookup = await lookupAnimatedArtworkForAlbum(
+      albumName: albumName,
+      artist: artist,
+      representativeSongTitle: representativeSongTitle,
+      storefront: storefront,
+    );
+    return lookup.artwork;
+  }
+
+  /// Like [getAnimatedArtworkForAlbum] but reports whether a null result is
+  /// final.
+  ///
+  /// The storefront defaults to the device locale, falling back to `us`.
+  Future<MotionArtLookup> lookupAnimatedArtworkForAlbum({
+    required String albumName,
+    required String artist,
+    String? representativeSongTitle,
+    String? storefront,
   }) {
-    final key = _cacheKey('album:${albumName.trim()}', artist, '', storefront);
+    final sf = _resolveStorefront(storefront);
+    final key = _cacheKey('album:${albumName.trim()}', artist, '', sf);
     return _resolve(key, () async {
       final byAlbum = await _resolveAlbum(
         albumName,
         artist,
-        storefront,
+        sf,
         representativeSongTitle: representativeSongTitle,
       );
       if (byAlbum != null) return byAlbum;
@@ -230,7 +290,7 @@ class AnimatedArtworkService {
         songTitle: song,
         artist: artist,
         albumName: albumName,
-        storefront: storefront,
+        storefront: sf,
       );
     });
   }
@@ -238,17 +298,19 @@ class AnimatedArtworkService {
   /// Drops cached lookups (positive or negative) for an album and optionally
   /// one of its songs, then notifies [revision] listeners so visible widgets
   /// reload. Backs the manual "Refresh Motion Art" action.
+  /// [storefront] defaults to the device locale, falling back to `us`.
   Future<void> refreshAlbumArtwork({
     required String artist,
     String? albumName,
     String? songTitle,
-    String storefront = 'us',
+    String? storefront,
   }) async {
     final album = albumName?.trim() ?? '';
     final song = songTitle?.trim() ?? '';
+    final sf = _resolveStorefront(storefront);
     final keys = <String>{
-      if (album.isNotEmpty) _cacheKey('album:$album', artist, '', storefront),
-      if (song.isNotEmpty) _cacheKey('song:$song', artist, album, storefront),
+      if (album.isNotEmpty) _cacheKey('album:$album', artist, '', sf),
+      if (song.isNotEmpty) _cacheKey('song:$song', artist, album, sf),
     };
     for (final key in keys) {
       _epoch[key] = _epochFor(key) + 1;
@@ -376,6 +438,16 @@ class AnimatedArtworkService {
     storefront,
     if (storefront != 'us') 'us',
   ];
+
+  static final RegExp _storefrontRe = RegExp(r'^[a-z]{2}$');
+
+  /// Explicit storefront wins; otherwise the device locale's country, falling
+  /// back to `us` (same policy as the Apple Music metadata service).
+  String _resolveStorefront(String? override) {
+    final value = override?.trim().toLowerCase() ?? '';
+    if (_storefrontRe.hasMatch(value)) return value;
+    return AppleMusicMetadataService.instance.deviceStorefront;
+  }
 
   Future<List<Map<String, dynamic>>> _itunesSearch({
     required String term,
@@ -579,14 +651,16 @@ class AnimatedArtworkService {
   }
 
   /// Memory cache -> disk cache -> in-flight dedupe -> network.
-  Future<AnimatedArtwork?> _resolve(
+  Future<MotionArtLookup> _resolve(
     String key,
     Future<AnimatedArtwork?> Function() loader,
   ) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final cached = _mem[key];
     if (cached != null && now < cached.expiresAtMs) {
-      return Future.value(cached.artwork);
+      return Future.value(
+        MotionArtLookup(artwork: cached.artwork, transient: cached.transient),
+      );
     }
 
     final existing = _inflight[key];
@@ -597,7 +671,7 @@ class AnimatedArtworkService {
       final disk = await _readDiskCache(key);
       if (disk != null) {
         _mem[key] = disk;
-        return disk.artwork;
+        return MotionArtLookup(artwork: disk.artwork);
       }
 
       AnimatedArtwork? artwork;
@@ -614,7 +688,9 @@ class AnimatedArtworkService {
 
       // A manual refresh may have invalidated this lookup while it was in
       // flight; hand the result back but do not cache it.
-      if (_epochFor(key) != epoch) return artwork;
+      if (_epochFor(key) != epoch) {
+        return MotionArtLookup(artwork: artwork, transient: transient);
+      }
 
       final hasMotion = artwork != null && artwork.hasMotion;
       final ttl = hasMotion
@@ -623,11 +699,12 @@ class AnimatedArtworkService {
       final entry = _CacheEntry(
         artwork: hasMotion ? artwork : null,
         expiresAtMs: DateTime.now().millisecondsSinceEpoch + ttl.inMilliseconds,
+        transient: transient,
       );
       _mem[key] = entry;
       // Only persist definitive outcomes; transient failures retry next launch.
       if (!transient) unawaited(_writeDiskCache(key, entry));
-      return entry.artwork;
+      return MotionArtLookup(artwork: entry.artwork, transient: transient);
     }();
 
     _inflight[key] = future;

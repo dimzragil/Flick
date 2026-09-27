@@ -373,6 +373,7 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
       representativeSongTitle: useAlbum ? widget.song.title : null,
       duration: widget.song.duration,
       enabled: widget.motionArtEnabled && motionEnabled && !_isVinyl,
+      loadingFallback: staticArt,
       fallback: fallback,
     );
   }
