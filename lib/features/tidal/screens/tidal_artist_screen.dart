@@ -135,6 +135,8 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
           final artist = data.artist;
           final topTracks = data.topTracks;
           final albums = data.albums;
+          final singlesAndEPs = data.singlesAndEPs;
+          final compilations = data.compilations;
           final name =
               (artist['name'] as String?) ??
               widget.initialArtistData?['name'] ??
@@ -397,69 +399,95 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                           mainAxisSpacing: 12,
                         ),
                     delegate: SliverChildBuilderDelegate((context, index) {
-                      final album = albums[index];
-                      final title =
-                          album['title'] as String? ?? 'Unknown Album';
-                      final coverUuid = album['cover'] as String?;
-                      final coverUrl = coverUuid != null
-                          ? TidalService.coverUrl(coverUuid, size: 640)
-                          : null;
-                      final releaseDate = album['releaseDate'] as String?;
-                      final year =
-                          releaseDate != null && releaseDate.length >= 4
-                          ? releaseDate.substring(0, 4)
-                          : null;
-
-                      return GestureDetector(
-                        onTap: () => _openAlbum(album),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  AppConstants.radiusMd,
-                                ),
-                                child: AspectRatio(
-                                  aspectRatio: 1,
-                                  child: coverUrl != null
-                                      ? CachedImageWidget(
-                                          imagePath: coverUrl,
-                                          fit: BoxFit.cover,
-                                          placeholder:
-                                              const FlickArtworkPlaceholder(),
-                                          errorWidget:
-                                              const FlickArtworkPlaceholder(),
-                                        )
-                                      : const FlickArtworkPlaceholder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (year != null)
-                              Text(
-                                year,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                          ],
-                        ),
+                      return _buildAlbumGridCard(
+                        context,
+                        albums[index],
                       );
                     }, childCount: albums.length),
+                  ),
+                ),
+              ],
+
+              // Singles & EPs Section
+              if (singlesAndEPs.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingSm),
+                    ),
+                    child: Text(
+                      'Singles & EPs',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: context.scaleSize(18),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: EdgeInsets.all(
+                    context.scaleSize(AppConstants.spacingMd),
+                  ),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.8,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      return _buildAlbumGridCard(
+                        context,
+                        singlesAndEPs[index],
+                      );
+                    }, childCount: singlesAndEPs.length),
+                  ),
+                ),
+              ],
+
+              // Compilations Section
+              if (compilations.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingLg),
+                      context.scaleSize(AppConstants.spacingSm),
+                    ),
+                    child: Text(
+                      'Compilations',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: context.scaleSize(18),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: EdgeInsets.all(
+                    context.scaleSize(AppConstants.spacingMd),
+                  ),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.8,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      return _buildAlbumGridCard(
+                        context,
+                        compilations[index],
+                      );
+                    }, childCount: compilations.length),
                   ),
                 ),
               ],
@@ -472,6 +500,68 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildAlbumGridCard(
+    BuildContext context,
+    Map<String, dynamic> album,
+  ) {
+    final title = album['title'] as String? ?? 'Unknown Album';
+    final coverUuid = album['cover'] as String?;
+    final coverUrl =
+        coverUuid != null ? TidalService.coverUrl(coverUuid, size: 640) : null;
+    final releaseDate = album['releaseDate'] as String?;
+    final year = releaseDate != null && releaseDate.length >= 4
+        ? releaseDate.substring(0, 4)
+        : null;
+
+    return GestureDetector(
+      onTap: () => _openAlbum(album),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(
+                AppConstants.radiusMd,
+              ),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: coverUrl != null
+                    ? CachedImageWidget(
+                        imagePath: coverUrl,
+                        fit: BoxFit.cover,
+                        placeholder: const FlickArtworkPlaceholder(),
+                        errorWidget: const FlickArtworkPlaceholder(),
+                      )
+                    : const FlickArtworkPlaceholder(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (year != null)
+            Text(
+              year,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+        ],
       ),
     );
   }

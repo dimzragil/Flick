@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -15,6 +18,7 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
+import '../widgets/tidal_import_playlist_dialog.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
 import '../../favorites/screens/favorites_screen.dart';
 import 'tidal_album_screen.dart';
@@ -551,6 +555,86 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     }
   }
 
+  Future<void> _importPlaylistFromJson() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+
+      if (result == null ||
+          result.files.isEmpty ||
+          result.files.single.path == null) {
+        return;
+      }
+
+      final file = File(result.files.single.path!);
+      final content = await file.readAsString();
+      final decoded = jsonDecode(content);
+
+      List<dynamic> items;
+      if (decoded is List) {
+        items = decoded;
+      } else if (decoded is Map<String, dynamic> && decoded['tracks'] is List) {
+        items = decoded['tracks'] as List;
+      } else if (decoded is Map<String, dynamic> && decoded['items'] is List) {
+        items = decoded['items'] as List;
+      } else {
+        throw const FormatException('Expected a JSON array of tracks.');
+      }
+
+      final parsedTracks = <JsonPlaylistTrack>[];
+      for (final item in items) {
+        if (item is Map<String, dynamic>) {
+          parsedTracks.add(JsonPlaylistTrack.fromJson(item));
+        }
+      }
+
+      if (parsedTracks.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No valid track metadata found in the JSON file.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Derive clean default playlist name from file name
+      String defaultName = result.files.single.name;
+      if (defaultName.toLowerCase().endsWith('.json')) {
+        defaultName = defaultName.substring(0, defaultName.length - 5);
+      }
+      defaultName = defaultName
+          .replaceAll(RegExp(r'[\-_]'), ' ')
+          .replaceAll(RegExp(r'\s*\([^)]*\)'), '')
+          .trim();
+      if (defaultName.isEmpty) defaultName = 'Imported Playlist';
+
+      if (mounted) {
+        final success = await TidalImportPlaylistDialog.show(
+          context,
+          tracks: parsedTracks,
+          defaultPlaylistName: defaultName,
+        );
+        if (success == true && mounted) {
+          ref.invalidate(tidalUserPlaylistsProvider);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to read JSON: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLoggedIn = ref.watch(tidalAuthStateProvider);
@@ -929,6 +1013,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 children: [
                   IconButton(
                     icon: const Icon(
+                      LucideIcons.fileSpreadsheet,
+                      size: 19,
+                      color: Color(0xFF00FFFF),
+                    ),
+                    tooltip: 'Import Playlist from JSON',
+                    onPressed: _importPlaylistFromJson,
+                  ),
+                  IconButton(
+                    icon: const Icon(
                       LucideIcons.plus,
                       size: 20,
                       color: Color(0xFF00FFFF),
@@ -990,25 +1083,52 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _showCreatePlaylistDialog,
-                        icon: const Icon(
-                          LucideIcons.plus,
-                          size: 16,
-                          color: Color(0xFF00FFFF),
-                        ),
-                        label: const Text(
-                          'Create TIDAL Playlist',
-                          style: TextStyle(color: Color(0xFF00FFFF)),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF00FFFF)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppConstants.radiusSm,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _showCreatePlaylistDialog,
+                            icon: const Icon(
+                              LucideIcons.plus,
+                              size: 16,
+                              color: Color(0xFF00FFFF),
+                            ),
+                            label: const Text(
+                              'Create Playlist',
+                              style: TextStyle(color: Color(0xFF00FFFF)),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF00FFFF)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusSm,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          OutlinedButton.icon(
+                            onPressed: _importPlaylistFromJson,
+                            icon: const Icon(
+                              LucideIcons.fileSpreadsheet,
+                              size: 16,
+                              color: Color(0xFF00FFFF),
+                            ),
+                            label: const Text(
+                              'Import JSON',
+                              style: TextStyle(color: Color(0xFF00FFFF)),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF00FFFF)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusSm,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

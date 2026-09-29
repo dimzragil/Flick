@@ -42,10 +42,10 @@ class TidalService implements NetworkSourceService {
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
     Future<bool> Function(Uri)? urlOpener,
-  })  : _client = client ?? http.Client(),
-        _songRepository = songRepository,
-        _networkCache = networkCache,
-        _urlOpener = urlOpener ?? _defaultOpenUrl;
+  }) : _client = client ?? http.Client(),
+       _songRepository = songRepository,
+       _networkCache = networkCache,
+       _urlOpener = urlOpener ?? _defaultOpenUrl;
 
   static TidalService instance = TidalService._();
 
@@ -55,13 +55,12 @@ class TidalService implements NetworkSourceService {
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
     Future<bool> Function(Uri)? urlOpener,
-  }) =>
-      TidalService._(
-        client: client,
-        songRepository: songRepository,
-        networkCache: networkCache,
-        urlOpener: urlOpener,
-      );
+  }) => TidalService._(
+    client: client,
+    songRepository: songRepository,
+    networkCache: networkCache,
+    urlOpener: urlOpener,
+  );
 
   // ponytail: Tidal desktop/TV app OAuth2 client credentials, scraped from the
   // app and published by the RE community (EbbLabs/python-tidal). NOT an official
@@ -69,7 +68,8 @@ class TidalService implements NetworkSourceService {
   // `invalid_client`, pull a fresh client_id/client_secret pair from the same
   // source.
   static const String clientId = 'fX2JxdmntZWK0ixT';
-  static const String clientSecret = '1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=';
+  static const String clientSecret =
+      '1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=';
   static const String _scope = 'r_usr w_usr w_sub';
 
   static const String _authBase = 'https://auth.tidal.com/v1/oauth2';
@@ -93,7 +93,8 @@ class TidalService implements NetworkSourceService {
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
 
   /// Retrieve cached stream resolution (sampleRate, bitDepth, quality, codec) for a track.
-  TidalStreamResolution? getResolvedStream(String trackId) => _resolvedStreams[trackId];
+  TidalStreamResolution? getResolvedStream(String trackId) =>
+      _resolvedStreams[trackId];
 
   /// Cancel in-flight download for a specific track.
   void cancelActiveDownload(String remoteId) {
@@ -143,10 +144,7 @@ class TidalService implements NetworkSourceService {
   // --- OAuth2 device-code login ------------------------------------------
 
   @override
-  Future<String?> resolveToken(
-    NetworkServerEntity server,
-    String password,
-  ) =>
+  Future<String?> resolveToken(NetworkServerEntity server, String password) =>
       signIn();
 
   /// OAuth2 device-code sign-in. The browser is auto-launched best-effort; if
@@ -163,13 +161,15 @@ class TidalService implements NetworkSourceService {
       'scope': _scope,
     });
     final deviceCode = dev['deviceCode'] as String?;
-    final rawUri = (dev['verificationUriComplete'] as String?) ??
+    final rawUri =
+        (dev['verificationUriComplete'] as String?) ??
         (dev['verificationUri'] as String?);
     // Tidal returns the verification URL scheme-less (link.tidal.com/CODE);
     // url_launcher needs https:// or the VIEW intent matches nothing and
     // throws ACTIVITY_NOT_FOUND.
-    final verificationUri =
-        rawUri == null || rawUri.startsWith('http') ? rawUri : 'https://$rawUri';
+    final verificationUri = rawUri == null || rawUri.startsWith('http')
+        ? rawUri
+        : 'https://$rawUri';
     final intervalSec = (dev['interval'] as num?)?.toInt() ?? 5;
     final expiresInSec = (dev['expiresIn'] as num?)?.toInt() ?? 300;
     if (deviceCode == null || verificationUri == null) {
@@ -262,7 +262,9 @@ class TidalService implements NetworkSourceService {
           );
         }
       }
-    } catch (_) {/* fall through to defaults */}
+    } catch (_) {
+      /* fall through to defaults */
+    }
     return (userId: '', countryCode: 'US');
   }
 
@@ -273,7 +275,8 @@ class TidalService implements NetworkSourceService {
     if (creds == null) {
       throw TidalException('No Tidal sign-in. Tap "Sign in with Tidal".');
     }
-    final nearExpiry = creds.expiresAtMs == null ||
+    final nearExpiry =
+        creds.expiresAtMs == null ||
         DateTime.now().millisecondsSinceEpoch > creds.expiresAtMs! - 60000;
     if (nearExpiry && creds.refreshToken != null) {
       return _refresh(server, creds);
@@ -342,14 +345,18 @@ class TidalService implements NetworkSourceService {
     bool retry = true,
   }) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse('$_apiBase$path').replace(queryParameters: {
-      'countryCode': creds.countryCode,
-      ...?query,
-    });
-    final response = await _client.get(uri, headers: {
-      'Authorization': 'Bearer ${creds.accessToken}',
-      'Accept': 'application/json',
-    }).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(
+      '$_apiBase$path',
+    ).replace(queryParameters: {'countryCode': creds.countryCode, ...?query});
+    final response = await _client
+        .get(
+          uri,
+          headers: {
+            'Authorization': 'Bearer ${creds.accessToken}',
+            'Accept': 'application/json',
+          },
+        )
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiGet(server, path, query: query, retry: false);
@@ -373,7 +380,9 @@ class TidalService implements NetworkSourceService {
     if (body.isNotEmpty) {
       try {
         parsed = jsonDecode(body) as Map<String, dynamic>;
-      } catch (_) {/* parsed stays null */}
+      } catch (_) {
+        /* parsed stays null */
+      }
     }
     if (response.statusCode != 200 && !raw) {
       // Raw detail only for developers; the user sees a friendly message.
@@ -390,17 +399,24 @@ class TidalService implements NetworkSourceService {
     bool retry = true,
   }) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse('$_apiV2Base$path').replace(queryParameters: {
-      'countryCode': creds.countryCode,
-      'locale': 'en_US',
-      'deviceType': 'BROWSER',
-      'platform': 'WEB',
-      ...?query,
-    });
-    final response = await _client.get(uri, headers: {
-      'Authorization': 'Bearer ${creds.accessToken}',
-      'Accept': 'application/json',
-    }).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse('$_apiV2Base$path').replace(
+      queryParameters: {
+        'countryCode': creds.countryCode,
+        'locale': 'en_US',
+        'deviceType': 'BROWSER',
+        'platform': 'WEB',
+        ...?query,
+      },
+    );
+    final response = await _client
+        .get(
+          uri,
+          headers: {
+            'Authorization': 'Bearer ${creds.accessToken}',
+            'Accept': 'application/json',
+          },
+        )
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiV2Get(server, path, query: query, retry: false);
@@ -419,20 +435,28 @@ class TidalService implements NetworkSourceService {
     bool retry = true,
   }) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse(url).replace(queryParameters: {
-      'countryCode': creds.countryCode,
-    });
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Authorization': 'Bearer ${creds.accessToken}',
-        ...?headers,
-      },
-      body: fields,
-    ).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(
+      url,
+    ).replace(queryParameters: {'countryCode': creds.countryCode});
+    final response = await _client
+        .post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer ${creds.accessToken}',
+            ...?headers,
+          },
+          body: fields,
+        )
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
-      return _apiAuthPostForm(server, url, fields, headers: headers, retry: false);
+      return _apiAuthPostForm(
+        server,
+        url,
+        fields,
+        headers: headers,
+        retry: false,
+      );
     }
     return response;
   }
@@ -444,17 +468,19 @@ class TidalService implements NetworkSourceService {
     bool retry = true,
   }) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse(url).replace(queryParameters: {
-      'countryCode': creds.countryCode,
-    });
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Authorization': 'Bearer ${creds.accessToken}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(
+      url,
+    ).replace(queryParameters: {'countryCode': creds.countryCode});
+    final response = await _client
+        .post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer ${creds.accessToken}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiAuthPostJson(server, url, body, retry: false);
@@ -468,15 +494,12 @@ class TidalService implements NetworkSourceService {
     bool retry = true,
   }) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse(url).replace(queryParameters: {
-      'countryCode': creds.countryCode,
-    });
-    final response = await _client.delete(
-      uri,
-      headers: {
-        'Authorization': 'Bearer ${creds.accessToken}',
-      },
-    ).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(
+      url,
+    ).replace(queryParameters: {'countryCode': creds.countryCode});
+    final response = await _client
+        .delete(uri, headers: {'Authorization': 'Bearer ${creds.accessToken}'})
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiAuthDelete(server, url, retry: false);
@@ -489,13 +512,18 @@ class TidalService implements NetworkSourceService {
     String playlistId,
   ) async {
     final creds = await _ensureValidToken(server);
-    final uri = Uri.parse('$_apiBase/playlists/$playlistId').replace(queryParameters: {
-      'countryCode': creds.countryCode,
-    });
-    final response = await _client.get(uri, headers: {
-      'Authorization': 'Bearer ${creds.accessToken}',
-      'Accept': 'application/json',
-    }).timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(
+      '$_apiBase/playlists/$playlistId',
+    ).replace(queryParameters: {'countryCode': creds.countryCode});
+    final response = await _client
+        .get(
+          uri,
+          headers: {
+            'Authorization': 'Bearer ${creds.accessToken}',
+            'Accept': 'application/json',
+          },
+        )
+        .timeout(const Duration(seconds: 20));
     final etag = response.headers['etag'];
     Map<String, dynamic> parsed = {};
     if (response.body.isNotEmpty) {
@@ -555,8 +583,9 @@ class TidalService implements NetworkSourceService {
     if (url.isEmpty) {
       throw TidalException('No Tidal cover for $marker');
     }
-    final response =
-        await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(Uri.parse(url))
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for cover $marker');
     }
@@ -590,7 +619,11 @@ class TidalService implements NetworkSourceService {
   }) async {
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
-      final cached = await _cache.getPath(server.id, remoteId, extension: extension ?? 'mp4');
+      final cached = await _cache.getPath(
+        server.id,
+        remoteId,
+        extension: extension ?? 'mp4',
+      );
       if (cached != null) return null;
     } catch (_) {}
 
@@ -599,8 +632,11 @@ class TidalService implements NetworkSourceService {
 
     // 2. For DASH: start or prepare the progressive local stream session (~300ms)
     if (resolved.isDash && resolved.dashInfo != null) {
-      final targetPath =
-          await _cache.pathFor(server.id, remoteId, extension: 'mp4');
+      final targetPath = await _cache.pathFor(
+        server.id,
+        remoteId,
+        extension: 'mp4',
+      );
       final streamUrl = await TidalStreamProxy.instance.prepareStream(
         trackId: remoteId,
         dashInfo: resolved.dashInfo!,
@@ -633,7 +669,11 @@ class TidalService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached = await _cache.getPath(server.id, remoteId, extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      remoteId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     final resolved = await _resolveStreamable(server, remoteId);
@@ -651,8 +691,9 @@ class TidalService implements NetworkSourceService {
     }
 
     final request = http.Request('GET', Uri.parse(resolved.url));
-    final response =
-        await _client.send(request).timeout(const Duration(minutes: 5));
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 5));
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for stream $remoteId');
     }
@@ -680,8 +721,11 @@ class TidalService implements NetworkSourceService {
     DashTrackInfo dashInfo, {
     void Function(double progress)? onProgress,
   }) async {
-    final targetPath =
-        await _cache.pathFor(server.id, remoteId, extension: 'mp4');
+    final targetPath = await _cache.pathFor(
+      server.id,
+      remoteId,
+      extension: 'mp4',
+    );
     final partFile = File('$targetPath.part');
     final sink = partFile.openWrite();
 
@@ -692,9 +736,9 @@ class TidalService implements NetworkSourceService {
 
     try {
       // 1. Download initialization segment
-      final initResp = await _client.get(
-        Uri.parse(dashInfo.initializationUrl),
-      ).timeout(const Duration(seconds: 30));
+      final initResp = await _client
+          .get(Uri.parse(dashInfo.initializationUrl))
+          .timeout(const Duration(seconds: 30));
       if (initResp.statusCode != 200) {
         throw TidalException(
           'Failed to download DASH init segment: HTTP ${initResp.statusCode}',
@@ -711,8 +755,9 @@ class TidalService implements NetworkSourceService {
       Object? downloadError;
 
       const workerCount = 8;
-      final concurrency =
-          totalSegments < workerCount ? totalSegments : workerCount;
+      final concurrency = totalSegments < workerCount
+          ? totalSegments
+          : workerCount;
       var currentIndex = 0;
 
       Future<void> worker() async {
@@ -723,9 +768,9 @@ class TidalService implements NetworkSourceService {
           final myUrl = dashInfo.segmentUrls[myIndex];
 
           try {
-            final resp = await _client.get(
-              Uri.parse(myUrl),
-            ).timeout(const Duration(seconds: 30));
+            final resp = await _client
+                .get(Uri.parse(myUrl))
+                .timeout(const Duration(seconds: 30));
             if (resp.statusCode != 200) {
               throw TidalException(
                 'Failed segment $myIndex: HTTP ${resp.statusCode}',
@@ -847,8 +892,9 @@ class TidalService implements NetworkSourceService {
         if (mime == 'application/vnd.tidal.bts') {
           final Map<String, dynamic> decoded;
           try {
-            decoded = jsonDecode(utf8.decode(base64Decode(manifest)))
-                as Map<String, dynamic>;
+            decoded =
+                jsonDecode(utf8.decode(base64Decode(manifest)))
+                    as Map<String, dynamic>;
           } catch (_) {
             continue;
           }
@@ -862,7 +908,8 @@ class TidalService implements NetworkSourceService {
 
           final btsSampleRate = (decoded['sampleRate'] as num?)?.toInt();
           final btsBitDepth = (decoded['bitDepth'] as num?)?.toInt();
-          final btsBitrate = (decoded['bitRate'] as num?)?.toInt() ??
+          final btsBitrate =
+              (decoded['bitRate'] as num?)?.toInt() ??
               (info['bitRate'] as num?)?.toInt();
 
           final res = TidalStreamResolution(
@@ -946,11 +993,13 @@ class TidalService implements NetworkSourceService {
       final items = (payload['items'] as List<dynamic>?) ?? const [];
       if (items.isEmpty) break;
       totalEstimate =
-          (payload['totalNumberOfItems'] as num?)?.toInt() ?? (offset + items.length);
+          (payload['totalNumberOfItems'] as num?)?.toInt() ??
+          (offset + items.length);
 
       final entities = <SongEntity>[];
       for (final raw in items) {
-        final item = (raw as Map<String, dynamic>)['item'] as Map<String, dynamic>?;
+        final item =
+            (raw as Map<String, dynamic>)['item'] as Map<String, dynamic>?;
         if (item == null) continue;
         final entity = buildSongEntity(server, item);
         if (entity != null) entities.add(entity);
@@ -985,10 +1034,14 @@ class TidalService implements NetworkSourceService {
   /// Map a Tidal track object to a [SongEntity]. Returns null when the track
   /// lacks an id. Pure (no network/DB) so it can be unit-tested directly.
   @visibleForTesting
-  static SongEntity? buildSongEntity(NetworkServerEntity server, Map<String, dynamic> t) {
+  static SongEntity? buildSongEntity(
+    NetworkServerEntity server,
+    Map<String, dynamic> t,
+  ) {
     final remoteId = t['id']?.toString();
     if (remoteId == null) return null;
-    final artists = (t['artists'] as List<dynamic>?)?.cast<Map<String, dynamic>?>();
+    final artists = (t['artists'] as List<dynamic>?)
+        ?.cast<Map<String, dynamic>?>();
     final album = t['album'] as Map<String, dynamic>?;
     final durationSec = (t['duration'] as num?)?.toInt();
     final cover = (album?['cover'] as String?) ?? (t['cover'] as String?);
@@ -998,7 +1051,7 @@ class TidalService implements NetworkSourceService {
       ..artist = (artists != null && artists.isNotEmpty)
           ? (artists.first?['name'] as String? ?? 'Unknown')
           : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?) ??
-              'Unknown'
+                'Unknown'
       ..album = (album?['title'] as String?)
       ..albumArtist =
           ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?)
@@ -1049,12 +1102,16 @@ class TidalService implements NetworkSourceService {
     int offset = 0,
     String types = 'TRACKS,ALBUMS,ARTISTS,PLAYLISTS',
   }) async {
-    return _apiGet(server, '/search', query: {
-      'query': query,
-      'limit': '$limit',
-      'offset': '$offset',
-      'types': types,
-    });
+    return _apiGet(
+      server,
+      '/search',
+      query: {
+        'query': query,
+        'limit': '$limit',
+        'offset': '$offset',
+        'types': types,
+      },
+    );
   }
 
   /// Get details for a specific album by its [albumId].
@@ -1091,13 +1148,23 @@ class TidalService implements NetworkSourceService {
     // Official TIDAL API uses /playlists/{id}/items (wrapping each entry in {"item": ..., "type": "track"}),
     // NOT /playlists/{id}/tracks.
     try {
-      final res = await _apiGet(server, '/playlists/$playlistId/items', query: {'limit': '100', 'offset': '0'});
+      final res = await _apiGet(
+        server,
+        '/playlists/$playlistId/items',
+        query: {'limit': '100', 'offset': '0'},
+      );
       final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
       return rawList.whereType<Map<String, dynamic>>().toList();
     } catch (e) {
-      devLog('[Tidal] /playlists/$playlistId/items failed ($e), trying /tracks fallback...');
+      devLog(
+        '[Tidal] /playlists/$playlistId/items failed ($e), trying /tracks fallback...',
+      );
       try {
-        final res = await _apiGet(server, '/playlists/$playlistId/tracks', query: {'limit': '100', 'offset': '0'});
+        final res = await _apiGet(
+          server,
+          '/playlists/$playlistId/tracks',
+          query: {'limit': '100', 'offset': '0'},
+        );
         final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
         return rawList.whereType<Map<String, dynamic>>().toList();
       } catch (e2) {
@@ -1126,16 +1193,27 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Get albums for a specific artist by [artistId].
+  ///
+  /// Pass [filter] to narrow results:
+  /// - omit or `null` → full-length albums only (TIDAL default)
+  /// - `'EPSANDSINGLES'` → EPs and singles
+  /// - `'COMPILATIONS'` → compilation albums
   Future<List<Map<String, dynamic>>> getArtistAlbums(
     NetworkServerEntity server,
     String artistId, {
+    String? filter,
     int limit = 50,
     int offset = 0,
   }) async {
-    final res = await _apiGet(server, '/artists/$artistId/albums', query: {
-      'limit': '$limit',
-      'offset': '$offset',
-    });
+    final query = <String, String>{'limit': '$limit', 'offset': '$offset'};
+    if (filter != null && filter.isNotEmpty) {
+      query['filter'] = filter;
+    }
+    final res = await _apiGet(
+      server,
+      '/artists/$artistId/albums',
+      query: query,
+    );
     final items = (res['items'] as List<dynamic>?) ?? [];
     return items.cast<Map<String, dynamic>>();
   }
@@ -1147,7 +1225,11 @@ class TidalService implements NetworkSourceService {
     final creds = _creds(server.token);
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return [];
-    final res = await _apiGet(server, '/users/$userId/playlists', query: {'limit': '50', 'offset': '0'});
+    final res = await _apiGet(
+      server,
+      '/users/$userId/playlists',
+      query: {'limit': '50', 'offset': '0'},
+    );
     final items = (res['items'] as List<dynamic>?) ?? [];
     return items.cast<Map<String, dynamic>>();
   }
@@ -1170,12 +1252,15 @@ class TidalService implements NetworkSourceService {
     try {
       raw = await _apiV2Get(server, '/home/feed/$feedSlug', query: query);
     } catch (e) {
-      devLog('[Tidal] v2 home feed failed ($e), falling back to v1 /pages/home...');
+      devLog(
+        '[Tidal] v2 home feed failed ($e), falling back to v1 /pages/home...',
+      );
       try {
-        raw = await _apiGet(server, '/pages/home', query: {
-          'deviceType': 'BROWSER',
-          'locale': 'en_US',
-        });
+        raw = await _apiGet(
+          server,
+          '/pages/home',
+          query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
+        );
       } catch (e2) {
         devLog('[Tidal] v1 /pages/home failed ($e2)');
         rethrow;
@@ -1200,7 +1285,9 @@ class TidalService implements NetworkSourceService {
       }
     }
     if (tabs.isEmpty) {
-      tabs.add(const TidalHomeTab(name: 'Suggested', type: 'STATIC', slug: 'static'));
+      tabs.add(
+        const TidalHomeTab(name: 'Suggested', type: 'STATIC', slug: 'static'),
+      );
     }
 
     // 2. Cursor
@@ -1250,13 +1337,15 @@ class TidalService implements NetworkSourceService {
           }
           apiPath ??= (rawSec['showMore'] as Map?)?['apiPath'] as String?;
 
-          sections.add(TidalHomeSection(
-            title: title,
-            sectionType: secType,
-            items: items,
-            hasMore: apiPath != null,
-            apiPath: apiPath,
-          ));
+          sections.add(
+            TidalHomeSection(
+              title: title,
+              sectionType: secType,
+              items: items,
+              hasMore: apiPath != null,
+              apiPath: apiPath,
+            ),
+          );
         }
       }
     }
@@ -1301,22 +1390,20 @@ class TidalService implements NetworkSourceService {
             }
 
             if (items.isNotEmpty) {
-              sections.add(TidalHomeSection(
-                title: title.isNotEmpty ? title : 'Featured',
-                sectionType: secType,
-                items: items,
-              ));
+              sections.add(
+                TidalHomeSection(
+                  title: title.isNotEmpty ? title : 'Featured',
+                  sectionType: secType,
+                  items: items,
+                ),
+              );
             }
           }
         }
       }
     }
 
-    return TidalHomeFeed(
-      tabs: tabs,
-      sections: sections,
-      cursor: cursor,
-    );
+    return TidalHomeFeed(tabs: tabs, sections: sections, cursor: cursor);
   }
 
   static String _extractSectionTitle(Map<String, dynamic> sec) {
@@ -1340,12 +1427,16 @@ class TidalService implements NetworkSourceService {
   Future<TidalMix> getMix(NetworkServerEntity server, String mixId) async {
     // 1. Primary: /pages/mix?mixId={mixId}
     try {
-      final res = await _apiGet(server, '/pages/mix', query: {
-        'mixId': mixId,
-        'countryCode': _countryCode(server.token),
-        'deviceType': 'BROWSER',
-        'locale': 'en_US',
-      });
+      final res = await _apiGet(
+        server,
+        '/pages/mix',
+        query: {
+          'mixId': mixId,
+          'countryCode': _countryCode(server.token),
+          'deviceType': 'BROWSER',
+          'locale': 'en_US',
+        },
+      );
       final rows = res['rows'] as List<dynamic>?;
       if (rows != null && rows.isNotEmpty) {
         String title = 'Mix';
@@ -1367,7 +1458,8 @@ class TidalService implements NetworkSourceService {
                 subtitle = mixObj['subTitle'] as String?;
                 mixType = mixObj['mixType'] as String?;
                 final images = mixObj['images'] as Map<String, dynamic>?;
-                image = (images?['LARGE']?['url'] as String?) ??
+                image =
+                    (images?['LARGE']?['url'] as String?) ??
                     (images?['MEDIUM']?['url'] as String?) ??
                     (images?['SMALL']?['url'] as String?);
               }
@@ -1376,7 +1468,8 @@ class TidalService implements NetworkSourceService {
               if (items != null) {
                 for (final item in items) {
                   if (item is Map<String, dynamic>) {
-                    final trackData = (item['item'] as Map<String, dynamic>?) ?? item;
+                    final trackData =
+                        (item['item'] as Map<String, dynamic>?) ?? item;
                     tracks.add(makeEphemeralSong(server, trackData));
                   }
                 }
@@ -1397,13 +1490,17 @@ class TidalService implements NetworkSourceService {
         }
       }
     } catch (e) {
-      devLog('[Tidal] /pages/mix failed for $mixId ($e), falling back to /mixes/$mixId/items');
+      devLog(
+        '[Tidal] /pages/mix failed for $mixId ($e), falling back to /mixes/$mixId/items',
+      );
     }
 
     // 2. Fallback: /mixes/{id}/items
-    final fallbackRes = await _apiGet(server, '/mixes/$mixId/items', query: {
-      'countryCode': _countryCode(server.token),
-    });
+    final fallbackRes = await _apiGet(
+      server,
+      '/mixes/$mixId/items',
+      query: {'countryCode': _countryCode(server.token)},
+    );
     final items = (fallbackRes['items'] as List<dynamic>?) ?? [];
     final tracks = <Song>[];
     for (final item in items) {
@@ -1412,11 +1509,7 @@ class TidalService implements NetworkSourceService {
         tracks.add(makeEphemeralSong(server, trackData));
       }
     }
-    return TidalMix(
-      mixId: mixId,
-      title: 'Mix',
-      tracks: tracks,
-    );
+    return TidalMix(mixId: mixId, title: 'Mix', tracks: tracks);
   }
 
   /// Get the list of favorite track IDs in the user's TIDAL account.
@@ -1425,9 +1518,11 @@ class TidalService implements NetworkSourceService {
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return {};
     try {
-      final res = await _apiGet(server, '/users/$userId/favorites/tracks', query: {
-        'limit': '2000',
-      });
+      final res = await _apiGet(
+        server,
+        '/users/$userId/favorites/tracks',
+        query: {'limit': '2000'},
+      );
       final items = res['items'] as List<dynamic>?;
       if (items == null) return {};
       final ids = <String>{};
@@ -1448,28 +1543,42 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Add a track to TIDAL favorites.
-  Future<void> addFavoriteTrack(NetworkServerEntity server, String trackId) async {
+  Future<void> addFavoriteTrack(
+    NetworkServerEntity server,
+    String trackId,
+  ) async {
     final creds = _creds(server.token);
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return;
     final url = '$_apiBase/users/$userId/favorites/tracks';
     final res = await _apiAuthPostForm(server, url, {'trackId': trackId});
     if (res.statusCode >= 400) {
-      devLog('[Tidal] addFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}');
-      throw TidalException('Failed to add to TIDAL favorites: HTTP ${res.statusCode}');
+      devLog(
+        '[Tidal] addFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException(
+        'Failed to add to TIDAL favorites: HTTP ${res.statusCode}',
+      );
     }
   }
 
   /// Remove a track from TIDAL favorites.
-  Future<void> removeFavoriteTrack(NetworkServerEntity server, String trackId) async {
+  Future<void> removeFavoriteTrack(
+    NetworkServerEntity server,
+    String trackId,
+  ) async {
     final creds = _creds(server.token);
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return;
     final url = '$_apiBase/users/$userId/favorites/tracks/$trackId';
     final res = await _apiAuthDelete(server, url);
     if (res.statusCode >= 400) {
-      devLog('[Tidal] removeFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}');
-      throw TidalException('Failed to remove from TIDAL favorites: HTTP ${res.statusCode}');
+      devLog(
+        '[Tidal] removeFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException(
+        'Failed to remove from TIDAL favorites: HTTP ${res.statusCode}',
+      );
     }
   }
 
@@ -1502,7 +1611,9 @@ class TidalService implements NetworkSourceService {
         final data = parsed['data'] as Map<String, dynamic>? ?? parsed;
         return data;
       }
-      devLog('[Tidal] OpenAPI createPlaylist returned HTTP ${res.statusCode}: ${res.body}');
+      devLog(
+        '[Tidal] OpenAPI createPlaylist returned HTTP ${res.statusCode}: ${res.body}',
+      );
     } catch (e) {
       devLog('[Tidal] OpenAPI createPlaylist error: $e');
     }
@@ -1516,12 +1627,18 @@ class TidalService implements NetworkSourceService {
           'title': title,
           'description': description,
         };
-        final v1Res = await _apiAuthPostForm(server, '$_apiBase/users/$userId/playlists', form);
+        final v1Res = await _apiAuthPostForm(
+          server,
+          '$_apiBase/users/$userId/playlists',
+          form,
+        );
         if (v1Res.statusCode < 300) {
           final parsed = jsonDecode(v1Res.body) as Map<String, dynamic>;
           return parsed;
         }
-        devLog('[Tidal] V1 createPlaylist returned HTTP ${v1Res.statusCode}: ${v1Res.body}');
+        devLog(
+          '[Tidal] V1 createPlaylist returned HTTP ${v1Res.statusCode}: ${v1Res.body}',
+        );
       } catch (e2) {
         devLog('[Tidal] V1 createPlaylist error: $e2');
       }
@@ -1537,7 +1654,9 @@ class TidalService implements NetworkSourceService {
     required String trackId,
   }) async {
     // Sanitize trackId: if passed with 'tidal_xxx_' prefix, extract pure numeric id
-    final cleanTrackId = trackId.contains('_') ? trackId.split('_').last : trackId;
+    final cleanTrackId = trackId.contains('_')
+        ? trackId.split('_').last
+        : trackId;
 
     // 1. Get playlist ETag
     final playlistInfo = await _getPlaylistWithEtag(server, playlistId);
@@ -1553,14 +1672,370 @@ class TidalService implements NetworkSourceService {
         'onDupes': 'SKIP',
         'onArtifactNotFound': 'FAIL',
       },
-      headers: {
-        'If-None-Match': etag,
-      },
+      headers: {'If-None-Match': etag},
     );
     if (res.statusCode >= 400) {
-      devLog('[Tidal] addTrackToPlaylist failed: HTTP ${res.statusCode} ${res.body}');
-      throw TidalException('Failed to add track to playlist: HTTP ${res.statusCode}');
+      devLog(
+        '[Tidal] addTrackToPlaylist failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException(
+        'Failed to add track to playlist: HTTP ${res.statusCode}',
+      );
     }
+  }
+
+  /// Add multiple tracks to a TIDAL playlist in batches (chunked by 50).
+  Future<void> addTracksToPlaylist(
+    NetworkServerEntity server, {
+    required String playlistId,
+    required List<String> trackIds,
+  }) async {
+    if (trackIds.isEmpty) return;
+
+    final cleanTrackIds = trackIds
+        .map((id) {
+          return id.contains('_') ? id.split('_').last : id;
+        })
+        .where((id) => id.trim().isNotEmpty)
+        .toList();
+
+    if (cleanTrackIds.isEmpty) return;
+
+    const chunkSize = 50;
+    for (int i = 0; i < cleanTrackIds.length; i += chunkSize) {
+      final end = (i + chunkSize < cleanTrackIds.length)
+          ? i + chunkSize
+          : cleanTrackIds.length;
+      final chunk = cleanTrackIds.sublist(i, end);
+
+      // 1. Get latest playlist ETag for this batch
+      final playlistInfo = await _getPlaylistWithEtag(server, playlistId);
+      final etag = playlistInfo.etag ?? '*';
+
+      // 2. Post batch of items with If-None-Match header
+      final url = '$_apiBase/playlists/$playlistId/items';
+      final res = await _apiAuthPostForm(
+        server,
+        url,
+        {
+          'trackIds': chunk.join(','),
+          'onDupes': 'SKIP',
+          'onArtifactNotFound': 'FAIL',
+        },
+        headers: {'If-None-Match': etag},
+      );
+      if (res.statusCode >= 400) {
+        devLog(
+          '[Tidal] addTracksToPlaylist batch failed: HTTP ${res.statusCode} ${res.body}',
+        );
+        throw TidalException(
+          'Failed to add tracks to playlist: HTTP ${res.statusCode}',
+        );
+      }
+    }
+  }
+
+  /// Clean song title by stripping extraneous version/edition noise.
+  static String _cleanSongTitle(String title) {
+    var t = title.trim();
+    // Remove featured artists: (feat. ...), [feat. ...], (ft. ...), [ft. ...]
+    t = t.replaceAll(
+      RegExp(r'\s*[\(\[](?:feat|ft)\.?\s+[^\)\]]+[\)\]]', caseSensitive: false),
+      '',
+    );
+    // Remove common edition suffixes in parentheses/brackets
+    t = t.replaceAll(
+      RegExp(
+        r'\s*[\(\[][^\)\]]*(?:single|ep|remaster|edit|version|official|bonus|ost|soundtrack)[^\)\]]*[\)\]]',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    // Remove " - Single", " - EP", " - Remastered..." at the end of string
+    t = t.replaceAll(
+      RegExp(
+        r'\s*-\s*(?:single|ep|remastered|remaster|radio edit|edit|version)\b.*$',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    // Remove double quotes and collapse excessive whitespace
+    t = t
+        .replaceAll('"', '')
+        .replaceAll("'", "'")
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return t.isNotEmpty ? t : title.trim();
+  }
+
+  /// Clean artist name by stripping bracketed CV/role information.
+  static String _cleanArtistName(String artist) {
+    var a = artist.trim();
+    // Remove bracketed CV info, e.g. "桜高軽音部 [平沢唯... (CV:...)]"
+    a = a.replaceAll(RegExp(r'\s*\[[^\]]*\]'), '');
+    a = a.replaceAll(RegExp(r'\s*\([^)]*CV:[^)]*\)', caseSensitive: false), '');
+    // If there is " & ", prioritize primary artist for catalog search
+    if (a.contains(' & ')) {
+      final parts = a.split(' & ');
+      if (parts.first.trim().isNotEmpty) {
+        a = parts.first.trim();
+      }
+    }
+    a = a.replaceAll('"', '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    return a.isNotEmpty ? a : artist.trim();
+  }
+
+  /// Evaluates track candidate similarity score (0 to 100+).
+  static int _evaluateTrackMatch(
+    Map<String, dynamic> track, {
+    required String rawTitle,
+    required String cleanTitle,
+    required String rawArtist,
+    required String cleanArtist,
+    int? expectedDurationMs,
+    String? expectedIsrc,
+  }) {
+    int score = 0;
+
+    // 1. Direct ISRC check on candidate metadata if present
+    final candIsrc = track['isrc']?.toString().trim();
+    if (expectedIsrc != null &&
+        expectedIsrc.isNotEmpty &&
+        candIsrc != null &&
+        candIsrc.isNotEmpty) {
+      if (candIsrc.toUpperCase() == expectedIsrc.toUpperCase()) {
+        return 100;
+      }
+    }
+
+    final candTitle = (track['title']?.toString() ?? '').toLowerCase().trim();
+    final candArtistsList =
+        (track['artists'] as List<dynamic>?)
+            ?.map(
+              (e) =>
+                  (e as Map?)?['name']?.toString().toLowerCase().trim() ?? '',
+            )
+            .where((s) => s.isNotEmpty)
+            .toList() ??
+        [];
+    final primaryCandArtist = candArtistsList.isNotEmpty
+        ? candArtistsList.first
+        : ((track['artist'] as Map?)?['name']
+                  ?.toString()
+                  .toLowerCase()
+                  .trim() ??
+              '');
+
+    final targetCleanTitle = cleanTitle.toLowerCase();
+    final targetCleanArtist = cleanArtist.toLowerCase();
+    final targetRawArtist = rawArtist.toLowerCase().trim();
+
+    // 2. Title matching
+    if (candTitle == targetCleanTitle ||
+        candTitle == rawTitle.toLowerCase().trim()) {
+      score += 45;
+    } else if (candTitle.contains(targetCleanTitle) ||
+        targetCleanTitle.contains(candTitle)) {
+      score += 35;
+    } else {
+      final targetWords = targetCleanTitle
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 1)
+          .toSet();
+      final candWords = candTitle
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 1)
+          .toSet();
+      final commonWords = targetWords.intersection(candWords);
+      if (commonWords.isNotEmpty &&
+          commonWords.length >= (targetWords.length * 0.5)) {
+        score += 25;
+      } else {
+        score -= 20; // Major title mismatch
+      }
+    }
+
+    // 3. Artist matching
+    bool artistMatched = false;
+    for (final a in candArtistsList) {
+      if (a == targetCleanArtist ||
+          a == targetRawArtist ||
+          a.contains(targetCleanArtist) ||
+          targetCleanArtist.contains(a) ||
+          targetRawArtist.contains(a)) {
+        artistMatched = true;
+        break;
+      }
+    }
+    if (!artistMatched && primaryCandArtist.isNotEmpty) {
+      if (primaryCandArtist == targetCleanArtist ||
+          primaryCandArtist == targetRawArtist ||
+          primaryCandArtist.contains(targetCleanArtist) ||
+          targetCleanArtist.contains(primaryCandArtist) ||
+          targetRawArtist.contains(primaryCandArtist)) {
+        artistMatched = true;
+      }
+    }
+
+    if (artistMatched) {
+      score += 35;
+    } else {
+      final targetArtistWords = targetCleanArtist
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 1)
+          .toSet();
+      final candArtistWords = primaryCandArtist
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 1)
+          .toSet();
+      final commonArtistWords = targetArtistWords.intersection(candArtistWords);
+      if (commonArtistWords.isNotEmpty) {
+        score += 15;
+      } else {
+        score -= 25; // Artist mismatch penalty
+      }
+    }
+
+    // 4. Duration validation
+    if (expectedDurationMs != null && expectedDurationMs > 0) {
+      final expectedSec = (expectedDurationMs / 1000).round();
+      final candSec = (track['duration'] as num?)?.toInt() ?? 0;
+      if (candSec > 0) {
+        final diff = (candSec - expectedSec).abs();
+        if (diff <= 3) {
+          score += 20; // Exact duration match bonus
+        } else if (diff <= 8) {
+          score += 10;
+        } else if (diff > 20) {
+          score -= 30; // Heavy penalty for mismatched version
+        }
+      }
+    }
+
+    return score;
+  }
+
+  /// Search a track on TIDAL with smart sanitization, multi-query candidate pooling,
+  /// confidence scoring, and duration verification.
+  /// Returns the TIDAL numeric trackId if a high-confidence match is found, or null otherwise.
+  Future<String?> searchTrackByIsrcOrText(
+    NetworkServerEntity server, {
+    String? isrc,
+    required String title,
+    required String artist,
+    int? expectedDurationMs,
+  }) async {
+    final cleanIsrc = isrc?.trim();
+    final cleanTitle = _cleanSongTitle(title);
+    final cleanArtist = _cleanArtistName(artist);
+
+    // Strategy 1: Search by ISRC if available
+    if (cleanIsrc != null && cleanIsrc.isNotEmpty) {
+      try {
+        final res = await _apiGet(
+          server,
+          '/search',
+          query: {'query': cleanIsrc, 'types': 'TRACKS', 'limit': '3'},
+        );
+        final tracks = (res['tracks']?['items'] as List<dynamic>?) ?? [];
+        for (final t in tracks) {
+          if (t is Map<String, dynamic>) {
+            final score = _evaluateTrackMatch(
+              t,
+              rawTitle: title,
+              cleanTitle: cleanTitle,
+              rawArtist: artist,
+              cleanArtist: cleanArtist,
+              expectedDurationMs: expectedDurationMs,
+              expectedIsrc: cleanIsrc,
+            );
+            // If the ISRC result is verified with high confidence, accept immediately!
+            if (score >= 65) {
+              return t['id']?.toString();
+            }
+          }
+        }
+      } catch (e) {
+        devLog('[Tidal] search by ISRC ($cleanIsrc) failed: $e');
+      }
+    }
+
+    final candidatePool = <Map<String, dynamic>>[];
+    final seenTrackIds = <String>{};
+
+    void addCandidates(List<dynamic>? tracks) {
+      if (tracks == null) return;
+      for (final t in tracks) {
+        if (t is Map<String, dynamic>) {
+          final id = t['id']?.toString();
+          if (id != null && seenTrackIds.add(id)) {
+            candidatePool.add(t);
+          }
+        }
+      }
+    }
+
+    // Strategy 2: Search by Clean Title + Clean Artist
+    if (cleanTitle.isNotEmpty) {
+      try {
+        final queryText = '$cleanTitle $cleanArtist'.trim();
+        final res = await _apiGet(
+          server,
+          '/search',
+          query: {'query': queryText, 'types': 'TRACKS', 'limit': '5'},
+        );
+        addCandidates(res['tracks']?['items'] as List<dynamic>?);
+      } catch (e) {
+        devLog('[Tidal] search by text ($cleanTitle $cleanArtist) failed: $e');
+      }
+    }
+
+    // Strategy 3: Fallback search by Clean Title alone if pool is empty
+    if (candidatePool.isEmpty && cleanTitle.isNotEmpty) {
+      try {
+        final res = await _apiGet(
+          server,
+          '/search',
+          query: {'query': cleanTitle, 'types': 'TRACKS', 'limit': '5'},
+        );
+        addCandidates(res['tracks']?['items'] as List<dynamic>?);
+      } catch (e) {
+        devLog('[Tidal] search by title ($cleanTitle) failed: $e');
+      }
+    }
+
+    if (candidatePool.isEmpty) return null;
+
+    // Evaluate all candidates and pick the highest scoring candidate
+    Map<String, dynamic>? bestCandidate;
+    int highestScore = -100;
+
+    for (final cand in candidatePool) {
+      final score = _evaluateTrackMatch(
+        cand,
+        rawTitle: title,
+        cleanTitle: cleanTitle,
+        rawArtist: artist,
+        cleanArtist: cleanArtist,
+        expectedDurationMs: expectedDurationMs,
+        expectedIsrc: cleanIsrc,
+      );
+
+      if (score > highestScore) {
+        highestScore = score;
+        bestCandidate = cand;
+      }
+    }
+
+    // Reject low-confidence candidates (score < 50) to prevent adding random songs
+    if (bestCandidate != null && highestScore >= 50) {
+      return bestCandidate['id']?.toString();
+    }
+
+    devLog(
+      '[Tidal] Match rejected for "$title" by "$artist" (best candidate: ${bestCandidate?['title']} by ${bestCandidate?['artist']?['name']}, score: $highestScore < 50)',
+    );
+    return null;
   }
 
   /// Build an on-the-fly ephemeral [Song] from a TIDAL track JSON object.
@@ -1570,8 +2045,7 @@ class TidalService implements NetworkSourceService {
   Song buildEphemeralSong(
     NetworkServerEntity server,
     Map<String, dynamic> trackJson,
-  ) =>
-      makeEphemeralSong(server, trackJson);
+  ) => makeEphemeralSong(server, trackJson);
 
   /// Static helper to construct an ephemeral [Song] from a TIDAL track JSON object.
   static Song makeEphemeralSong(
@@ -1579,23 +2053,28 @@ class TidalService implements NetworkSourceService {
     Map<String, dynamic> rawTrackJson,
   ) {
     final trackJson =
-        rawTrackJson.containsKey('item') && rawTrackJson['item'] is Map<String, dynamic>
-            ? rawTrackJson['item'] as Map<String, dynamic>
-            : rawTrackJson;
+        rawTrackJson.containsKey('item') &&
+            rawTrackJson['item'] is Map<String, dynamic>
+        ? rawTrackJson['item'] as Map<String, dynamic>
+        : rawTrackJson;
     final rawId = trackJson['id'];
     final remoteId = rawId?.toString() ?? '';
-    final artists = (trackJson['artists'] as List<dynamic>?)?.cast<Map<String, dynamic>?>();
+    final artists = (trackJson['artists'] as List<dynamic>?)
+        ?.cast<Map<String, dynamic>?>();
     final album = trackJson['album'] as Map<String, dynamic>?;
     final durationSec = (trackJson['duration'] as num?)?.toInt() ?? 0;
-    final cover = (album?['cover'] as String?) ??
+    final cover =
+        (album?['cover'] as String?) ??
         (trackJson['cover'] as String?) ??
         (trackJson['imageId'] as String?) ??
         (rawTrackJson['imageId'] as String?) ??
         (album?['picture'] as String?);
     final quality = trackJson['audioQuality'] as String?;
     final mediaMetadata = trackJson['mediaMetadata'] as Map<String, dynamic>?;
-    final tags = (mediaMetadata?['tags'] as List<dynamic>?)?.cast<String>() ?? [];
-    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
+    final tags =
+        (mediaMetadata?['tags'] as List<dynamic>?)?.cast<String>() ?? [];
+    final isHiRes =
+        tags.contains('HIRES_LOSSLESS') ||
         tags.contains('HIRES_LOSSLESS_MQA') ||
         quality == 'HI_RES_LOSSLESS';
     final initialSampleRate = isHiRes ? 96000 : 44100;
@@ -1613,7 +2092,8 @@ class TidalService implements NetworkSourceService {
       title: (trackJson['title'] as String?) ?? 'Unknown Track',
       artist: (artists != null && artists.isNotEmpty)
           ? (artists.first?['name'] as String? ?? 'Unknown Artist')
-          : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String? ?? 'Unknown Artist'),
+          : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String? ??
+                'Unknown Artist'),
       album: album?['title'] as String?,
       albumArt: (coverUrl != null && coverUrl.isNotEmpty) ? coverUrl : null,
       duration: Duration(seconds: durationSec),
@@ -1649,6 +2129,7 @@ class _TidalCreds {
 
 class TidalException implements Exception {
   final String message;
+
   /// For device-flow launch failures (no callback path): the verification URL
   /// the user can open manually to finish signing in.
   final String? verificationUri;
@@ -1686,10 +2167,12 @@ class TidalStreamResolution {
     final parts = <String>[];
     parts.add('$bitDepth-bit');
     final khz = sampleRate / 1000;
-    final khzStr =
-        sampleRate % 1000 == 0 ? khz.toStringAsFixed(0) : khz.toStringAsFixed(1);
+    final khzStr = sampleRate % 1000 == 0
+        ? khz.toStringAsFixed(0)
+        : khz.toStringAsFixed(1);
     parts.add('${khzStr}kHz');
-    final effectiveBitrate = bitrate ??
+    final effectiveBitrate =
+        bitrate ??
         (dashInfo?.bandwidth != null
             ? (dashInfo!.bandwidth! / 1000).round()
             : null);
@@ -1699,4 +2182,3 @@ class TidalStreamResolution {
     return parts.join(' / ');
   }
 }
-

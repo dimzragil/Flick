@@ -280,13 +280,15 @@ final tidalPlaylistDetailsProvider =
       return (playlist: playlist, tracks: tracks);
     });
 
-/// Fetches artist details, top tracks, and albums for a given artist ID.
+/// Fetches artist details, top tracks, albums, singles & EPs, and compilations for a given artist ID.
 final tidalArtistDetailsProvider =
     FutureProvider.family<
       ({
         Map<String, dynamic> artist,
         List<Song> topTracks,
         List<Map<String, dynamic>> albums,
+        List<Map<String, dynamic>> singlesAndEPs,
+        List<Map<String, dynamic>> compilations,
       }),
       String
     >((ref, artistId) async {
@@ -295,13 +297,32 @@ final tidalArtistDetailsProvider =
         throw StateError('Tidal server not found');
       }
       final tidal = ref.read(tidalServiceProvider);
-      final artist = await tidal.getArtist(server, artistId);
-      final rawTopTracks = await tidal.getArtistTopTracks(server, artistId);
+
+      // Fetch all sections in parallel for faster loading.
+      final results = await Future.wait([
+        tidal.getArtist(server, artistId),
+        tidal.getArtistTopTracks(server, artistId),
+        tidal.getArtistAlbums(server, artistId),
+        tidal.getArtistAlbums(server, artistId, filter: 'EPSANDSINGLES'),
+        tidal.getArtistAlbums(server, artistId, filter: 'COMPILATIONS'),
+      ]);
+
+      final artist = results[0] as Map<String, dynamic>;
+      final rawTopTracks = results[1] as List<Map<String, dynamic>>;
       final topTracks = rawTopTracks
           .map((t) => TidalService.makeEphemeralSong(server, t))
           .toList();
-      final albums = await tidal.getArtistAlbums(server, artistId);
-      return (artist: artist, topTracks: topTracks, albums: albums);
+      final albums = results[2] as List<Map<String, dynamic>>;
+      final singlesAndEPs = results[3] as List<Map<String, dynamic>>;
+      final compilations = results[4] as List<Map<String, dynamic>>;
+
+      return (
+        artist: artist,
+        topTracks: topTracks,
+        albums: albums,
+        singlesAndEPs: singlesAndEPs,
+        compilations: compilations,
+      );
     });
 
 /// Fetches the official TIDAL home feed for a given vibe/category slug (e.g. 'static', 'relax', 'workout').

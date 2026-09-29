@@ -842,4 +842,173 @@ void main() {
       expect(TidalService.extForQuality('UNKNOWN'), isNull);
     });
   });
+
+  group('Playlist Import & ISRC Search', () {
+    test('searchTrackByIsrcOrText finds track by ISRC', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/search');
+        expect(request.url.queryParameters['query'], 'TCJPE1680100');
+        expect(request.url.queryParameters['types'], 'TRACKS');
+        return http.Response(
+          jsonEncode({
+            'tracks': {
+              'items': [
+                {
+                  'id': 998877,
+                  'title': 'Glory',
+                  'artists': [
+                    {'name': 'deneb'},
+                  ],
+                },
+              ],
+            },
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+      final trackId = await service.searchTrackByIsrcOrText(
+        _server(token: _validToken()),
+        isrc: 'TCJPE1680100',
+        title: 'Glory',
+        artist: 'deneb',
+      );
+      expect(trackId, '998877');
+    });
+
+    test(
+      'searchTrackByIsrcOrText falls back to text search if ISRC returns empty',
+      () async {
+        int callCount = 0;
+        final client = MockClient((request) async {
+          callCount++;
+          if (callCount == 1) {
+            // ISRC returns empty
+            return http.Response(
+              jsonEncode({
+                'tracks': {'items': []},
+              }),
+              200,
+            );
+          } else {
+            // Title + Artist search
+            expect(request.url.queryParameters['query'], 'Glory deneb');
+            return http.Response(
+              jsonEncode({
+                'tracks': {
+                  'items': [
+                    {
+                      'id': 112233,
+                      'title': 'Glory',
+                      'artists': [
+                        {'name': 'deneb'},
+                      ],
+                    },
+                  ],
+                },
+              }),
+              200,
+            );
+          }
+        });
+        final service = TidalService.create(client: client);
+        final trackId = await service.searchTrackByIsrcOrText(
+          _server(token: _validToken()),
+          isrc: 'TCJPE1680100',
+          title: 'Glory',
+          artist: 'deneb',
+        );
+        expect(trackId, '112233');
+        expect(callCount, 2);
+      },
+    );
+
+    test(
+      'searchTrackByIsrcOrText rejects unrelated random candidate from ISRC query and picks matching track from text query',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.queryParameters['query'] == 'FAKE_ISRC') {
+            // TIDAL search returns a random track for the ISRC string
+            return http.Response(
+              jsonEncode({
+                'tracks': {
+                  'items': [
+                    {
+                      'id': 666,
+                      'title': 'Totally Random Track',
+                      'artists': [
+                        {'name': 'Random Artist'},
+                      ],
+                    },
+                  ],
+                },
+              }),
+              200,
+            );
+          } else {
+            // Clean title + artist query returns the genuine track
+            final jsonStr = jsonEncode({
+              'tracks': {
+                'items': [
+                  {
+                    'id': 777,
+                    'title': "Don't say lazy",
+                    'artists': [
+                      {'name': '桜高軽音部'},
+                    ],
+                    'duration': 264,
+                  },
+                ],
+              },
+            });
+            return http.Response.bytes(
+              utf8.encode(jsonStr),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+        });
+        final service = TidalService.create(client: client);
+        final trackId = await service.searchTrackByIsrcOrText(
+          _server(token: _validToken()),
+          isrc: 'FAKE_ISRC',
+          title: 'Don\'t say "lazy"',
+          artist: '桜高軽音部 [平沢唯・秋山澪(CV:豊崎愛生)]',
+          expectedDurationMs: 263973,
+        );
+        // It must NOT pick the random track 666; it must pick the authentic track 777!
+        expect(trackId, '777');
+      },
+    );
+
+    test(
+      'addTracksToPlaylist batches track IDs and includes ETag header',
+      () async {
+        int requestIndex = 0;
+        final client = MockClient((request) async {
+          requestIndex++;
+          if (request.url.path == '/v1/playlists/pl-import') {
+            return http.Response(
+              '{"title": "Import"}',
+              200,
+              headers: {'etag': '"etag-123"'},
+            );
+          } else if (request.url.path == '/v1/playlists/pl-import/items') {
+            expect(request.headers['If-None-Match'], '"etag-123"');
+            expect(request.bodyFields['trackIds'], '101,102,103');
+            expect(request.bodyFields['onDupes'], 'SKIP');
+            return http.Response('{"status": "ok"}', 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+        final service = TidalService.create(client: client);
+        await service.addTracksToPlaylist(
+          _server(token: _validToken()),
+          playlistId: 'pl-import',
+          trackIds: ['tidal_9_101', '102', 'tidal_9_103'],
+        );
+        expect(requestIndex, 2);
+      },
+    );
+  });
 }
