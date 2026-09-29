@@ -62,9 +62,13 @@ class MusicNotificationService : Service() {
     private var castDeviceName: String? = null
     private var castVolumePercent: Int = 70
     private var castVolumeProvider: VolumeProviderCompat? = null
+    private var isDirectUsb: Boolean = false
+    private var usbVolumePercent: Int = 100
+    private var usbVolumeProvider: VolumeProviderCompat? = null
 
     private var cachedAlbumArt: Bitmap? = null
     private var cachedAlbumArtPath: String? = null
+    private var lastNetworkFetchUrl: String? = null
 
     private var floatingOverlay: FloatingPlayerOverlay? = null
 
@@ -200,6 +204,10 @@ class MusicNotificationService : Service() {
             if (it.hasExtra("castVolume")) {
                 castVolumePercent = it.getIntExtra("castVolume", 70).coerceIn(0, 100)
             }
+            if (it.hasExtra("isDirectUsb")) isDirectUsb = it.getBooleanExtra("isDirectUsb", false)
+            if (it.hasExtra("usbVolume")) {
+                usbVolumePercent = (it.getDoubleExtra("usbVolume", 1.0) * 100).toInt().coerceIn(0, 100)
+            }
 
             it.getStringExtra("floating")?.let { action ->
                 when (action) {
@@ -217,7 +225,7 @@ class MusicNotificationService : Service() {
         }
 
         syncAudioFocusState()
-        syncCastRouting()
+        syncVolumeRouting()
 
         val notification = buildNotification()
 
@@ -280,6 +288,7 @@ class MusicNotificationService : Service() {
         }
         wakeLock = null
         detachCastVolume()
+        detachUsbVolume()
         mediaSession.release()
         isForegroundServiceStarted = false
         hideFloatingOverlay()
@@ -323,11 +332,36 @@ class MusicNotificationService : Service() {
         if (path.isNullOrEmpty()) {
             cachedAlbumArt = null
             cachedAlbumArtPath = null
+            lastNetworkFetchUrl = null
             return null
         }
         if (path == cachedAlbumArtPath && cachedAlbumArt != null) {
             return cachedAlbumArt
         }
+
+        val networkUrl = when {
+            path.startsWith("http://") || path.startsWith("https://") -> path
+            path.startsWith("tidal-cover://") -> {
+                val uuid = path.removePrefix("tidal-cover://")
+                val clean = uuid.replace("-", "")
+                val formattedPath = if (clean.length == 32) {
+                    "${clean.substring(0, 8)}/${clean.substring(8, 12)}/${clean.substring(12, 16)}/${clean.substring(16, 20)}/${clean.substring(20)}"
+                } else {
+                    uuid.replace("-", "/")
+                }
+                "https://resources.tidal.com/images/$formattedPath/640x640.jpg"
+            }
+            else -> null
+        }
+
+        if (networkUrl != null) {
+            if (lastNetworkFetchUrl != networkUrl) {
+                lastNetworkFetchUrl = networkUrl
+                fetchNetworkAlbumArt(path, networkUrl)
+            }
+            return cachedAlbumArt
+        }
+
         return try {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(path, options)
@@ -350,6 +384,57 @@ class MusicNotificationService : Service() {
             android.util.Log.w("MusicNotification", "Failed to decode album art: ${e.message}")
             cachedAlbumArt
         }
+    }
+
+    private fun fetchNetworkAlbumArt(originalPath: String, urlStr: String) {
+        Thread {
+            try {
+                val url = java.net.URL(urlStr)
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.instanceFollowRedirects = true
+                conn.doInput = true
+                conn.connect()
+                if (conn.responseCode == 200) {
+                    val stream = conn.inputStream
+                    val bytes = stream.readBytes()
+                    stream.close()
+
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    val maxDim = maxOf(options.outWidth, options.outHeight)
+                    var sampleSize = 1
+                    while (maxDim / sampleSize > 512) {
+                        sampleSize *= 2
+                    }
+                    val decodeOptions = BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+                    if (bitmap != null) {
+                        Handler(Looper.getMainLooper()).post {
+                            if (currentAlbumArtPath == originalPath) {
+                                cachedAlbumArt = bitmap
+                                cachedAlbumArtPath = originalPath
+                                updateMediaSessionMetadata()
+                                val notification = buildNotification()
+                                notificationManager.notify(NOTIFICATION_ID, notification)
+                                if (floatingOverlay?.shown == true) {
+                                    floatingOverlay?.update(
+                                        currentTitle, currentArtist, bitmap, isPlaying,
+                                        currentDuration, currentPosition
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MusicNotification", "Failed to download network album art: ${e.message}")
+            }
+        }.start()
     }
 
     private fun createNotificationChannel() {
@@ -517,16 +602,25 @@ class MusicNotificationService : Service() {
         )
     }
 
-    // ponytail: setPlaybackToRemote is what flips the system volume panel to the
-    // cast target (TV icon, remote slider, hardware keys forwarded to us).
-    // Route descriptor publishing alone doesn't do that.
-    private fun syncCastRouting() {
-        if (isCasting && castVolumeProvider == null) {
-            attachCastVolume()
-        } else if (!isCasting && castVolumeProvider != null) {
+    // setPlaybackToRemote flips the system volume panel to the target (Cast or USB DAC)
+    // and forwards phone hardware volume keys to the app even when locked / backgrounded.
+    private fun syncVolumeRouting() {
+        if (isCasting) {
+            detachUsbVolume()
+            if (castVolumeProvider == null) {
+                attachCastVolume()
+            }
+            castVolumeProvider?.setCurrentVolume(castVolumePercent)
+        } else if (isDirectUsb) {
             detachCastVolume()
+            if (usbVolumeProvider == null) {
+                attachUsbVolume()
+            }
+            usbVolumeProvider?.setCurrentVolume(usbVolumePercent)
+        } else {
+            detachCastVolume()
+            detachUsbVolume()
         }
-        castVolumeProvider?.setCurrentVolume(castVolumePercent)
     }
 
     private fun attachCastVolume() {
@@ -555,6 +649,38 @@ class MusicNotificationService : Service() {
         mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
         castVolumeProvider = null
         android.util.Log.d("MusicNotification", "[Cast] MediaSession → local volume")
+    }
+
+    private fun attachUsbVolume() {
+        val provider = object : VolumeProviderCompat(
+            VOLUME_CONTROL_ABSOLUTE,
+            100,
+            usbVolumePercent
+        ) {
+            override fun onSetVolumeTo(volumeIndex: Int) {
+                val clamped = volumeIndex.coerceIn(0, 100)
+                usbVolumePercent = clamped
+                setCurrentVolume(clamped)
+                sendCommandToFlutter("setUsbVolume", mapOf("volume" to clamped / 100.0))
+            }
+
+            override fun onAdjustVolume(direction: Int) {
+                val next = (usbVolumePercent + direction * 3).coerceIn(0, 100)
+                usbVolumePercent = next
+                setCurrentVolume(next)
+                sendCommandToFlutter("stepUsbVolume", mapOf("direction" to direction))
+            }
+        }
+        usbVolumeProvider = provider
+        mediaSession.setPlaybackToRemote(provider)
+        android.util.Log.d("MusicNotification", "[USB] MediaSession → remote volume ($usbVolumePercent%)")
+    }
+
+    private fun detachUsbVolume() {
+        if (usbVolumeProvider == null) return
+        mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+        usbVolumeProvider = null
+        android.util.Log.d("MusicNotification", "[USB] MediaSession → local volume")
     }
 
     private fun buildNotification(): Notification {

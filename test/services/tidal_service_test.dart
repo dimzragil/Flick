@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flick/data/entities/network_server_entity.dart';
+import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -19,55 +21,62 @@ NetworkServerEntity _server({String? token}) {
 /// A far-future token blob so [TidalService._ensureValidToken] skips refresh
 /// (and therefore skips the DB write inside [_persist]).
 String _validToken() => jsonEncode({
-      'access_token': 'acc-xyz',
-      'refresh_token': 'ref-xyz',
-      'user_id': 'user-1',
-      'country_code': 'NO',
-      'expires_at_ms':
-          DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
-    });
+  'access_token': 'acc-xyz',
+  'refresh_token': 'ref-xyz',
+  'user_id': 'user-1',
+  'country_code': 'NO',
+  'expires_at_ms': DateTime.now()
+      .add(const Duration(hours: 1))
+      .millisecondsSinceEpoch,
+});
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('buildSongEntity', () {
-    test('maps a Tidal track to a SongEntity with tidal:// path + cover marker',
-        () {
-      final server = _server();
-      final track = {
-        'id': 1234567,
-        'title': 'Nightcall',
-        'duration': 250,
-        'trackNumber': 1,
-        'volumeNumber': 1,
-        'artists': [
-          {'name': 'Kavinsky'}
-        ],
-        'album': {
-          'title': 'OutRun',
-          'releaseDate': '2013-02-25',
-          'cover': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab',
-          'artist': {'name': 'Kavinsky'},
-        },
-        'audioQuality': 'LOSSLESS',
-      };
+    test(
+      'maps a Tidal track to a SongEntity with tidal:// path + cover marker',
+      () {
+        final server = _server();
+        final track = {
+          'id': 1234567,
+          'title': 'Nightcall',
+          'duration': 250,
+          'trackNumber': 1,
+          'volumeNumber': 1,
+          'artists': [
+            {'name': 'Kavinsky'},
+          ],
+          'album': {
+            'title': 'OutRun',
+            'releaseDate': '2013-02-25',
+            'cover': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab',
+            'artist': {'name': 'Kavinsky'},
+          },
+          'audioQuality': 'LOSSLESS',
+        };
 
-      final entity = TidalService.buildSongEntity(server, track);
+        final entity = TidalService.buildSongEntity(server, track);
 
-      expect(entity, isNotNull);
-      expect(entity!.filePath, 'tidal://9/1234567');
-      expect(entity.title, 'Nightcall');
-      expect(entity.artist, 'Kavinsky');
-      expect(entity.album, 'OutRun');
-      expect(entity.albumArtist, 'Kavinsky');
-      expect(entity.durationMs, 250000); // seconds -> milliseconds
-      expect(entity.trackNumber, 1);
-      expect(entity.discNumber, 1);
-      expect(entity.year, 2013);
-      expect(entity.fileType, 'flac');
-      expect(entity.albumArtPath, 'tidal-cover://1bce0bf4-a3b9-4c0a-9f2e-1234567890ab');
-      expect(entity.sourceType, 'tidal');
-      expect(entity.remoteId, '1234567');
-      expect(entity.remoteServerId, 9);
-    });
+        expect(entity, isNotNull);
+        expect(entity!.filePath, 'tidal://9/1234567');
+        expect(entity.title, 'Nightcall');
+        expect(entity.artist, 'Kavinsky');
+        expect(entity.album, 'OutRun');
+        expect(entity.albumArtist, 'Kavinsky');
+        expect(entity.durationMs, 250000); // seconds -> milliseconds
+        expect(entity.trackNumber, 1);
+        expect(entity.discNumber, 1);
+        expect(entity.year, 2013);
+        expect(entity.fileType, 'flac');
+        expect(
+          entity.albumArtPath,
+          'tidal-cover://1bce0bf4-a3b9-4c0a-9f2e-1234567890ab',
+        );
+        expect(entity.sourceType, 'tidal');
+        expect(entity.remoteId, '1234567');
+        expect(entity.remoteServerId, 9);
+      },
+    );
 
     test('returns null when the track has no id', () {
       expect(TidalService.buildSongEntity(_server(), {'title': 'x'}), isNull);
@@ -75,16 +84,24 @@ void main() {
   });
 
   group('coverUrl', () {
-    test('slashes the hyphen-stripped uuid into a resources.tidal.com jpg', () {
-      final url = TidalService.coverUrl('1bce0bf4-a3b9-4c0a', size: 640);
+    test('slashes the uuid into a resources.tidal.com jpg', () {
+      final url = TidalService.coverUrl(
+        '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab',
+        size: 640,
+      );
       expect(
         url,
-        'https://resources.tidal.com/images/1b/ce/0bf4a3b94c0a/640x640.jpg',
+        'https://resources.tidal.com/images/1bce0bf4/a3b9/4c0a/9f2e/1234567890ab/640x640.jpg',
       );
     });
 
     test('returns empty for a too-short id', () {
       expect(TidalService.coverUrl('ab'), '');
+    });
+
+    test('returns empty for nil UUID', () {
+      expect(TidalService.coverUrl('00000000-0000-0000-0000-000000000000'), '');
+      expect(TidalService.coverUrl('00000000000000000000000000000000'), '');
     });
   });
 
@@ -98,80 +115,84 @@ void main() {
   });
 
   group('resolveToken (device flow)', () {
-    test('posts device_authorization, opens browser, polls until access_token',
-        () async {
-      var tokenCalls = 0;
-      Uri? openedUrl;
-      final client = MockClient((request) async {
-        if (request.url.path.endsWith('/device_authorization')) {
-          return http.Response(
-            jsonEncode({
-              'deviceCode': 'dev-1',
-              'userCode': 'AB12CD',
-              'verificationUriComplete':
-                  'https://tidal.com/activate?code=AB12CD',
-              'interval': 0,
-              'expiresIn': 60,
-            }),
-            200,
-          );
-        }
-        if (request.url.path.endsWith('/sessions')) {
-          return http.Response(
-            jsonEncode({'userId': 'user-1', 'countryCode': 'NO'}),
-            200,
-          );
-        }
-        if (request.url.path.endsWith('/token')) {
-          tokenCalls++;
-          if (tokenCalls == 1) {
-            // Still waiting for the user to authorize.
+    test(
+      'posts device_authorization, opens browser, polls until access_token',
+      () async {
+        var tokenCalls = 0;
+        Uri? openedUrl;
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/device_authorization')) {
             return http.Response(
-              jsonEncode({'error': 'authorization_pending'}),
-              400,
+              jsonEncode({
+                'deviceCode': 'dev-1',
+                'userCode': 'AB12CD',
+                'verificationUriComplete':
+                    'https://tidal.com/activate?code=AB12CD',
+                'interval': 0,
+                'expiresIn': 60,
+              }),
+              200,
             );
           }
-          return http.Response(
-            jsonEncode({
-              'access_token': 'acc-1',
-              'refresh_token': 'ref-1',
-              'expires_in': 3600,
-            }),
-            200,
-          );
-        }
-        return http.Response('', 404);
-      });
+          if (request.url.path.endsWith('/sessions')) {
+            return http.Response(
+              jsonEncode({'userId': 'user-1', 'countryCode': 'NO'}),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/token')) {
+            tokenCalls++;
+            if (tokenCalls == 1) {
+              // Still waiting for the user to authorize.
+              return http.Response(
+                jsonEncode({'error': 'authorization_pending'}),
+                400,
+              );
+            }
+            return http.Response(
+              jsonEncode({
+                'access_token': 'acc-1',
+                'refresh_token': 'ref-1',
+                'expires_in': 3600,
+              }),
+              200,
+            );
+          }
+          return http.Response('', 404);
+        });
 
-      final service = TidalService.create(
-        client: client,
-        urlOpener: (url) async {
-          openedUrl = url;
-          return true;
-        },
-      );
+        final service = TidalService.create(
+          client: client,
+          urlOpener: (url) async {
+            openedUrl = url;
+            return true;
+          },
+        );
 
-      final token = await service.resolveToken(_server(), '');
+        final token = await service.resolveToken(_server(), '');
 
-      expect(token, isNotNull);
-      final decoded = jsonDecode(token!) as Map<String, dynamic>;
-      expect(decoded['access_token'], 'acc-1');
-      expect(decoded['refresh_token'], 'ref-1');
-      expect(decoded['user_id'], 'user-1');
-      expect(openedUrl?.toString(),
-          'https://tidal.com/activate?code=AB12CD');
-      expect(tokenCalls, 2);
-    });
+        expect(token, isNotNull);
+        final decoded = jsonDecode(token!) as Map<String, dynamic>;
+        expect(decoded['access_token'], 'acc-1');
+        expect(decoded['refresh_token'], 'ref-1');
+        expect(decoded['user_id'], 'user-1');
+        expect(openedUrl?.toString(), 'https://tidal.com/activate?code=AB12CD');
+        expect(tokenCalls, 2);
+      },
+    );
 
     test('throws when the browser cannot open', () async {
-      final client = MockClient((request) async => http.Response(
+      final client = MockClient(
+        (request) async => http.Response(
           jsonEncode({
             'deviceCode': 'dev-1',
             'verificationUriComplete': 'https://tidal.com/activate',
             'interval': 0,
             'expiresIn': 60,
           }),
-          200));
+          200,
+        ),
+      );
       final service = TidalService.create(
         client: client,
         urlOpener: (_) async => false,
@@ -182,89 +203,96 @@ void main() {
       );
     });
 
-    test('catches a launcher exception and surfaces the link (not the crash)',
-        () async {
-      final client = MockClient((request) async => http.Response(
-          jsonEncode({
-            'deviceCode': 'dev-1',
-            'verificationUriComplete': 'https://link.tidal.com/AB12CD',
-            'interval': 0,
-            'expiresIn': 60,
-          }),
-          200));
-      // The launcher throws (e.g. Android ACTIVITY_NOT_FOUND PlatformException).
-      final service = TidalService.create(
-        client: client,
-        urlOpener: (_) async => throw Exception('ACTIVITY_NOT_FOUND'),
-      );
-
-      String? message;
-      try {
-        await service.resolveToken(_server(), '');
-      } on TidalException catch (e) {
-        message = e.message;
-      }
-
-      expect(message, isNotNull);
-      expect(message, contains('https://link.tidal.com/AB12CD'));
-      expect(message!.contains('ACTIVITY_NOT_FOUND'), isFalse);
-    });
-
-    test('signIn keeps polling after launch failure and reports the link',
-        () async {
-      var tokenCalls = 0;
-      String? reportedLink;
-      final client = MockClient((request) async {
-        if (request.url.path.endsWith('/device_authorization')) {
-          return http.Response(
+    test(
+      'catches a launcher exception and surfaces the link (not the crash)',
+      () async {
+        final client = MockClient(
+          (request) async => http.Response(
             jsonEncode({
               'deviceCode': 'dev-1',
-              'verificationUriComplete': 'https://link.tidal.com/ZZ',
+              'verificationUriComplete': 'https://link.tidal.com/AB12CD',
               'interval': 0,
               'expiresIn': 60,
             }),
             200,
-          );
+          ),
+        );
+        // The launcher throws (e.g. Android ACTIVITY_NOT_FOUND PlatformException).
+        final service = TidalService.create(
+          client: client,
+          urlOpener: (_) async => throw Exception('ACTIVITY_NOT_FOUND'),
+        );
+
+        String? message;
+        try {
+          await service.resolveToken(_server(), '');
+        } on TidalException catch (e) {
+          message = e.message;
         }
-        if (request.url.path.endsWith('/sessions')) {
-          return http.Response(
-            jsonEncode({'userId': 'u', 'countryCode': 'US'}),
-            200,
-          );
-        }
-        if (request.url.path.endsWith('/token')) {
-          tokenCalls++;
-          if (tokenCalls == 1) {
+
+        expect(message, isNotNull);
+        expect(message, contains('https://link.tidal.com/AB12CD'));
+        expect(message!.contains('ACTIVITY_NOT_FOUND'), isFalse);
+      },
+    );
+
+    test(
+      'signIn keeps polling after launch failure and reports the link',
+      () async {
+        var tokenCalls = 0;
+        String? reportedLink;
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/device_authorization')) {
             return http.Response(
-              jsonEncode({'error': 'authorization_pending'}),
-              400,
+              jsonEncode({
+                'deviceCode': 'dev-1',
+                'verificationUriComplete': 'https://link.tidal.com/ZZ',
+                'interval': 0,
+                'expiresIn': 60,
+              }),
+              200,
             );
           }
-          return http.Response(
-            jsonEncode({
-              'access_token': 'a',
-              'refresh_token': 'r',
-              'expires_in': 3600,
-            }),
-            200,
-          );
-        }
-        return http.Response('', 404);
-      });
-      final service = TidalService.create(
-        client: client,
-        urlOpener: (_) async => throw Exception('ACTIVITY_NOT_FOUND'),
-      );
+          if (request.url.path.endsWith('/sessions')) {
+            return http.Response(
+              jsonEncode({'userId': 'u', 'countryCode': 'US'}),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/token')) {
+            tokenCalls++;
+            if (tokenCalls == 1) {
+              return http.Response(
+                jsonEncode({'error': 'authorization_pending'}),
+                400,
+              );
+            }
+            return http.Response(
+              jsonEncode({
+                'access_token': 'a',
+                'refresh_token': 'r',
+                'expires_in': 3600,
+              }),
+              200,
+            );
+          }
+          return http.Response('', 404);
+        });
+        final service = TidalService.create(
+          client: client,
+          urlOpener: (_) async => throw Exception('ACTIVITY_NOT_FOUND'),
+        );
 
-      final token = await service.signIn(
-        onVerificationLink: (uri) => reportedLink = uri,
-      );
+        final token = await service.signIn(
+          onVerificationLink: (uri) => reportedLink = uri,
+        );
 
-      expect(reportedLink, 'https://link.tidal.com/ZZ');
-      expect(tokenCalls, 2); // one pending, then success
-      final decoded = jsonDecode(token!) as Map<String, dynamic>;
-      expect(decoded['access_token'], 'a');
-    });
+        expect(reportedLink, 'https://link.tidal.com/ZZ');
+        expect(tokenCalls, 2); // one pending, then success
+        final decoded = jsonDecode(token!) as Map<String, dynamic>;
+        expect(decoded['access_token'], 'a');
+      },
+    );
 
     test('shows a friendly error (no raw body/URL) on invalid_client', () async {
       final client = MockClient((request) async {
@@ -302,18 +330,19 @@ void main() {
 
   group('streamDescriptor', () {
     test('decodes a NONE-encryption bts manifest to the CDN url', () async {
-      final manifest = base64Encode(utf8.encode(jsonEncode({
-        'mimeType': 'audio/flac',
-        'codecs': 'flac',
-        'encryptionType': 'NONE',
-        'urls': ['https://cdn.tidal.com/track/flac/abc'],
-      })));
+      final manifest = base64Encode(
+        utf8.encode(
+          jsonEncode({
+            'mimeType': 'audio/flac',
+            'codecs': 'flac',
+            'encryptionType': 'NONE',
+            'urls': ['https://cdn.tidal.com/track/flac/abc'],
+          }),
+        ),
+      );
       final client = MockClient((request) async {
         expect(request.url.path, contains('/playbackinfopostpaywall'));
-        expect(
-          request.headers['Authorization'],
-          'Bearer acc-xyz',
-        );
+        expect(request.headers['Authorization'], 'Bearer acc-xyz');
         return http.Response(
           jsonEncode({
             'manifest': manifest,
@@ -332,22 +361,30 @@ void main() {
 
       expect(desc, isNotNull);
       expect(desc!.url, 'https://cdn.tidal.com/track/flac/abc');
-      expect(desc.headers, isEmpty);
+      expect(desc.headers['x-flick-sample-rate'], '44100');
+      expect(desc.headers['x-flick-bit-depth'], '16');
     });
 
     test('throws a clear error for encrypted (MQA/HiRes) content', () async {
-      final manifest = base64Encode(utf8.encode(jsonEncode({
-        'mimeType': 'audio/flac',
-        'encryptionType': 'OLD',
-        'keyId': 'k1',
-        'urls': ['https://cdn.tidal.com/enc'],
-      })));
-      final client = MockClient((request) async => http.Response(
+      final manifest = base64Encode(
+        utf8.encode(
+          jsonEncode({
+            'mimeType': 'audio/flac',
+            'encryptionType': 'OLD',
+            'keyId': 'k1',
+            'urls': ['https://cdn.tidal.com/enc'],
+          }),
+        ),
+      );
+      final client = MockClient(
+        (request) async => http.Response(
           jsonEncode({
             'manifest': manifest,
             'manifestMimeType': 'application/vnd.tidal.bts',
           }),
-          200));
+          200,
+        ),
+      );
       final service = TidalService.create(client: client);
 
       expect(
@@ -355,13 +392,454 @@ void main() {
         throwsA(isA<TidalException>()),
       );
     });
+
+    test(
+      'returns local stream URL via TidalStreamProxy for DASH manifest',
+      () async {
+        const mpdXml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4" codecs="flac">
+      <Representation id="rep1" audioSamplingRate="96000" bandwidth="2000000">
+        <SegmentTemplate initialization="https://cdn.tidal.com/init.mp4" media="https://cdn.tidal.com/seg_\$Number\$.mp4" startNumber="1">
+          <SegmentTimeline><S d="1000" r="1" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+        final manifest = base64Encode(utf8.encode(mpdXml));
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/init.mp4')) {
+            return http.Response.bytes([1, 2, 3, 4], 200);
+          }
+          if (request.url.path.contains('/seg_')) {
+            return http.Response.bytes([5, 6, 7, 8], 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/dash+xml',
+              'audioQuality': 'HI_RES_LOSSLESS',
+            }),
+            200,
+          );
+        });
+        final tempDir = await Directory.systemTemp.createTemp(
+          'tidal_dash_test',
+        );
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final cache = NetworkCacheService(rootDirectory: tempDir);
+        final service = TidalService.create(
+          client: client,
+          networkCache: cache,
+        );
+        final desc = await service.streamDescriptor(
+          _server(token: _validToken()),
+          'hires_track_1',
+        );
+        expect(desc, isNotNull);
+        expect(desc!.url, contains('http://127.0.0.1:'));
+        expect(desc.url, endsWith('.mp4'));
+      },
+    );
+
+    test(
+      'downloads and stitches DASH initialization and segments into cache',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'tidal_dash_test',
+        );
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final cache = NetworkCacheService(rootDirectory: tempDir);
+
+        const mpdXml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4" codecs="flac">
+      <Representation id="rep1" audioSamplingRate="96000">
+        <SegmentTemplate initialization="https://cdn.tidal.com/init.mp4" media="https://cdn.tidal.com/seg_\$Number\$.mp4" startNumber="1">
+          <SegmentTimeline><S d="1000" r="1" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+        final manifest = base64Encode(utf8.encode(mpdXml));
+
+        final client = MockClient((request) async {
+          if (request.url.path.contains('/playbackinfopostpaywall')) {
+            return http.Response(
+              jsonEncode({
+                'manifest': manifest,
+                'manifestMimeType': 'application/dash+xml',
+                'audioQuality': 'HI_RES_LOSSLESS',
+              }),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/init.mp4')) {
+            return http.Response.bytes([1, 2, 3], 200);
+          }
+          if (request.url.path.endsWith('/seg_1.mp4')) {
+            return http.Response.bytes([4, 5], 200);
+          }
+          if (request.url.path.endsWith('/seg_2.mp4')) {
+            return http.Response.bytes([6, 7], 200);
+          }
+          return http.Response('not found', 404);
+        });
+
+        final service = TidalService.create(
+          client: client,
+          networkCache: cache,
+        );
+        final filePath = await service.stream(
+          _server(token: _validToken()),
+          'hires_track_1',
+        );
+
+        expect(filePath, isNotNull);
+        final file = File(filePath);
+        expect(file.existsSync(), isTrue);
+        expect(file.readAsBytesSync(), [1, 2, 3, 4, 5, 6, 7]);
+      },
+    );
   });
 
   group('ping', () {
     test('returns false when no token is stored', () async {
-      final service =
-          TidalService.create(client: MockClient((_) async => http.Response('{}', 200)));
+      final service = TidalService.create(
+        client: MockClient((_) async => http.Response('{}', 200)),
+      );
       expect(await service.ping(_server(token: null)), isFalse);
+    });
+  });
+
+  group('Catalog & Search APIs', () {
+    test('searchCatalog passes query params and countryCode', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/search');
+        expect(request.url.queryParameters['query'], 'Daft Punk');
+        expect(request.url.queryParameters['limit'], '10');
+        expect(request.url.queryParameters['offset'], '5');
+        expect(request.url.queryParameters['types'], 'TRACKS,ALBUMS');
+        expect(request.url.queryParameters['countryCode'], 'NO');
+        expect(request.headers['Authorization'], 'Bearer acc-xyz');
+        return http.Response(
+          jsonEncode({
+            'tracks': {
+              'items': [
+                {'id': 1, 'title': 'Get Lucky'},
+              ],
+            },
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+      final res = await service.searchCatalog(
+        _server(token: _validToken()),
+        'Daft Punk',
+        limit: 10,
+        offset: 5,
+        types: 'TRACKS,ALBUMS',
+      );
+      expect(res['tracks']['items'], isNotEmpty);
+      expect(res['tracks']['items'][0]['title'], 'Get Lucky');
+    });
+
+    test('getAlbum and getAlbumTracks hit correct endpoints', () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/albums/alb-1') {
+          return http.Response(
+            jsonEncode({'id': 'alb-1', 'title': 'Random Access Memories'}),
+            200,
+          );
+        }
+        if (request.url.path == '/v1/albums/alb-1/tracks') {
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {'id': 1, 'title': 'Give Life Back to Music'},
+                {'id': 2, 'title': 'Giorgio by Moroder'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('', 404);
+      });
+      final service = TidalService.create(client: client);
+      final album = await service.getAlbum(
+        _server(token: _validToken()),
+        'alb-1',
+      );
+      expect(album['title'], 'Random Access Memories');
+
+      final tracks = await service.getAlbumTracks(
+        _server(token: _validToken()),
+        'alb-1',
+      );
+      expect(tracks.length, 2);
+      expect(tracks.first['title'], 'Give Life Back to Music');
+    });
+
+    test('getPlaylist and getPlaylistTracks hit correct endpoints', () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/playlists/pl-1') {
+          return http.Response(
+            jsonEncode({'uuid': 'pl-1', 'title': 'Audiophile Favorites'}),
+            200,
+          );
+        }
+        if (request.url.path == '/v1/playlists/pl-1/tracks') {
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'item': {'id': 100, 'title': 'Hotel California'},
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('', 404);
+      });
+      final service = TidalService.create(client: client);
+      final playlist = await service.getPlaylist(
+        _server(token: _validToken()),
+        'pl-1',
+      );
+      expect(playlist['title'], 'Audiophile Favorites');
+
+      final tracks = await service.getPlaylistTracks(
+        _server(token: _validToken()),
+        'pl-1',
+      );
+      expect(tracks.length, 1);
+      expect(tracks.first['item']['title'], 'Hotel California');
+    });
+
+    test('getArtistTopTracks hits /artists/{id}/toptracks', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/artists/art-1/toptracks');
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {'id': 10, 'title': 'Starboy'},
+            ],
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+      final tracks = await service.getArtistTopTracks(
+        _server(token: _validToken()),
+        'art-1',
+      );
+      expect(tracks.length, 1);
+      expect(tracks.first['title'], 'Starboy');
+    });
+
+    test('getArtist and getArtistAlbums hit correct endpoints', () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/artists/art-1') {
+          return http.Response(
+            jsonEncode({'id': 1, 'name': 'The Weeknd'}),
+            200,
+          );
+        }
+        if (request.url.path == '/v1/artists/art-1/albums') {
+          expect(request.url.queryParameters['limit'], '50');
+          expect(request.url.queryParameters['offset'], '0');
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {'id': 100, 'title': 'After Hours'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('', 404);
+      });
+      final service = TidalService.create(client: client);
+      final artist = await service.getArtist(
+        _server(token: _validToken()),
+        'art-1',
+      );
+      expect(artist['name'], 'The Weeknd');
+
+      final albums = await service.getArtistAlbums(
+        _server(token: _validToken()),
+        'art-1',
+      );
+      expect(albums.length, 1);
+      expect(albums.first['title'], 'After Hours');
+    });
+
+    test('TidalStreamResolution formats resolutionString properly', () {
+      const res1 = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 96000,
+        bitDepth: 24,
+        audioQuality: 'HI_RES_LOSSLESS',
+        bitrate: 2814,
+      );
+      expect(res1.resolutionString, '24-bit / 96kHz / 2814kbps');
+
+      const res2 = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        bitrate: 1411,
+      );
+      expect(res2.resolutionString, '16-bit / 44.1kHz / 1411kbps');
+    });
+
+    test(
+      'getUserPlaylists returns user playlists and handles missing user_id',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path == '/v1/users/user-1/playlists') {
+            return http.Response(
+              jsonEncode({
+                'items': [
+                  {'uuid': 'p-user', 'title': 'My Playlist'},
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('', 404);
+        });
+        final service = TidalService.create(client: client);
+
+        final playlists = await service.getUserPlaylists(
+          _server(token: _validToken()),
+        );
+        expect(playlists.length, 1);
+        expect(playlists.first['title'], 'My Playlist');
+
+        final empty = await service.getUserPlaylists(_server(token: null));
+        expect(empty, isEmpty);
+      },
+    );
+  });
+
+  group('buildEphemeralSong', () {
+    test('builds ephemeral Song with LOSSLESS audio metadata', () {
+      final server = _server();
+      final track = {
+        'id': 9999,
+        'title': 'Instant Crush',
+        'duration': 337,
+        'trackNumber': 5,
+        'volumeNumber': 1,
+        'artists': [
+          {'name': 'Daft Punk'},
+          {'name': 'Julian Casablancas'},
+        ],
+        'album': {
+          'title': 'Random Access Memories',
+          'releaseDate': '2013-05-17',
+          'cover': 'abc-123',
+        },
+        'audioQuality': 'LOSSLESS',
+      };
+
+      final song = TidalService.makeEphemeralSong(server, track);
+
+      expect(song.id, 'tidal_9_9999');
+      expect(song.title, 'Instant Crush');
+      expect(song.artist, 'Daft Punk');
+      expect(song.album, 'Random Access Memories');
+      expect(song.albumArt, TidalService.coverUrl('abc-123', size: 640));
+      expect(song.duration, const Duration(seconds: 337));
+      expect(song.fileType, 'flac');
+      expect(song.sampleRate, 44100);
+      expect(song.bitDepth, 16);
+      expect(song.trackNumber, 5);
+      expect(song.discNumber, 1);
+      expect(song.year, 2013);
+      expect(song.filePath, 'tidal://9/9999');
+      expect(song.sourceType, 'tidal');
+      expect(song.remoteId, '9999');
+      expect(song.remoteServerId, 9);
+      expect(song.isNetworkSource, isTrue);
+    });
+
+    test('builds ephemeral Song with HI_RES_LOSSLESS (24-bit/96kHz)', () {
+      final server = _server();
+      final track = {
+        'id': 8888,
+        'title': 'High Res Track',
+        'duration': 200,
+        'artists': [
+          {'name': 'Audiophile Artist'},
+        ],
+        'audioQuality': 'HI_RES_LOSSLESS',
+      };
+
+      final song = TidalService.instance.buildEphemeralSong(server, track);
+
+      expect(song.id, 'tidal_9_8888');
+      expect(song.sampleRate, 96000);
+      expect(song.bitDepth, 24);
+      expect(song.fileType, 'flac');
+      expect(song.artist, 'Audiophile Artist');
+    });
+
+    test('unwraps playlist item container when building ephemeral song', () {
+      final server = _server();
+      final wrapped = {
+        'type': 'track',
+        'item': {
+          'id': 7777,
+          'title': 'Wrapped Item',
+          'duration': 180,
+          'artists': [
+            {'name': 'Wrapped Artist'},
+          ],
+          'audioQuality': 'LOSSLESS',
+        },
+      };
+
+      final song = TidalService.makeEphemeralSong(server, wrapped);
+
+      expect(song.id, 'tidal_9_7777');
+      expect(song.title, 'Wrapped Item');
+      expect(song.artist, 'Wrapped Artist');
+    });
+
+    test('falls back to album artist when track artists are absent', () {
+      final server = _server();
+      final track = {
+        'id': 6666,
+        'title': 'No Track Artist',
+        'album': {
+          'artist': {'name': 'Album Level Artist'},
+        },
+      };
+
+      final song = TidalService.makeEphemeralSong(server, track);
+
+      expect(song.artist, 'Album Level Artist');
+    });
+  });
+
+  group('extForQuality', () {
+    test('maps audioQuality to file extension', () {
+      expect(TidalService.extForQuality('HIGH'), 'm4a');
+      expect(TidalService.extForQuality('LOSSLESS'), 'flac');
+      expect(TidalService.extForQuality('HI_RES_LOSSLESS'), 'flac');
+      expect(TidalService.extForQuality('HI_RES'), 'flac');
+      expect(TidalService.extForQuality('UNKNOWN'), isNull);
     });
   });
 }

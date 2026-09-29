@@ -8,6 +8,7 @@ import '../data/repositories/song_repository.dart';
 import '../models/song.dart';
 import '../src/rust/api/audio_api.dart' as rust_audio;
 import 'sources/network_source_service.dart';
+import 'sources/tidal_service.dart';
 
 /// Bridges playback/download for network-sourced songs.
 ///
@@ -74,20 +75,33 @@ class RemoteSourceService {
     }
   }
 
+  /// Cancel any active in-flight network stream downloads.
+  void cancelAllDownloads() {
+    try {
+      final tidal = networkSourceServiceFor(NetworkProtocol.tidal);
+      if (tidal is TidalService) {
+        tidal.cancelAllDownloads();
+      }
+    } catch (_) {}
+  }
+
   /// ponytail: probe-once backfill for sources whose sync can't read tags
-  /// (SMB/WebDAV listing has no sampleRate/bitDepth). Runs after the file is
-  /// local either way; HTTP-direct streams skip it. Full tag read at sync time
-  /// is the upgrade path if users want quality labels before first play.
+  /// (SMB/WebDAV listing has no sampleRate/bitDepth, or TIDAL DASH master).
+  /// Runs after the file is local either way; HTTP-direct streams skip it.
   Future<void> _backfillAudioFormat(Song song, String localPath) async {
-    if (song.sampleRate != null || song.bitDepth != null) return;
     if (_probeFailed.contains(song.id)) return;
     try {
       final probed = await rust_audio.audioProbeFormat(path: localPath);
-      await SongRepository().updateAudioFormat(
-        song.filePath!,
-        sampleRate: probed.sampleRate,
-        bitDepth: probed.bitsPerSample,
-      );
+      final realRate = probed.sampleRate;
+      final realBits = probed.bitsPerSample ?? 16;
+      if (song.sampleRate == realRate && song.bitDepth == realBits) return;
+      if (song.filePath != null) {
+        await SongRepository().updateAudioFormat(
+          song.filePath!,
+          sampleRate: realRate,
+          bitDepth: realBits,
+        );
+      }
     } catch (e) {
       _probeFailed.add(song.id);
       AppLog.instance.add('Format backfill failed for "${song.title}": $e');
@@ -118,9 +132,33 @@ class RemoteSourceService {
     }
   }
 
+  /// Format resolution for network sources (Tidal etc.) without downloading.
+  ({int sampleRate, int bitDepth, String? resolution})? getAudioFormat(Song song) {
+    if (!song.isNetworkSource) return null;
+    final remoteId = song.remoteId;
+    if (remoteId == null) return null;
+    try {
+      final tidal = networkSourceServiceFor(NetworkProtocol.tidal);
+      if (tidal is TidalService) {
+        final res = tidal.getResolvedStream(remoteId);
+        if (res != null) {
+          return (
+            sampleRate: res.sampleRate,
+            bitDepth: res.bitDepth,
+            resolution: res.resolutionString,
+          );
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Background prefetch for the next queue entry. Best effort: never throws,
   /// does not touch [downloadProgressNotifier] (interactive downloads own it).
   Future<void> prefetch(Song song) async {
+    // Direct streaming sources (Tidal) stream on-demand with <1s latency via
+    // queueNextHttp; avoid downloading 80-100 MB in the background.
+    if (song.sourceType == NetworkProtocol.tidal) return;
     try {
       await ensureLocal(song, reportProgress: false);
     } catch (e) {

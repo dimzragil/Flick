@@ -51,11 +51,14 @@ impl DeviceInfoExtractor {
         };
 
         for fu in feature_units {
+            let is_uac2 = fu.b_control_size == 4;
+            let vol_mask = crate::uac2::constants::feature_volume_mask(is_uac2);
+            let mute_mask = crate::uac2::constants::feature_mute_mask(is_uac2);
             for &control in &fu.bma_controls {
-                if control & FEATURE_VOLUME != 0 {
+                if control & vol_mask != 0 {
                     capabilities.has_volume = true;
                 }
-                if control & FEATURE_MUTE != 0 {
+                if control & mute_mask != 0 {
                     capabilities.has_mute = true;
                 }
                 if control & FEATURE_BASS != 0 {

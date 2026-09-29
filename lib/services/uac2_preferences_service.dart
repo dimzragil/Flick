@@ -43,6 +43,7 @@ class Uac2PreferencesService {
   static const _keyDeveloperModeEnabled = 'developer_mode_enabled';
   static const _keyAudioFormatEnabled = 'uac2_audio_format_enabled';
   static const _keyUsbSoftwareVolume = 'uac2_usb_software_volume';
+  static const _keyUsbHardwareVolume = 'uac2_usb_hardware_volume';
   static const _keyKillIsochronousUsbOnQuit = 'uac2_kill_isochronous_usb_on_quit';
   static const _keyGaplessPlaybackEnabled = 'gapless_playback_enabled';
   static const _keyDuckOnInterruption = 'duck_on_interruption_enabled';
@@ -397,6 +398,35 @@ class Uac2PreferencesService {
       return prefs.containsKey(_keyUsbSoftwareVolume);
     } catch (e) {
       devLog('Failed to check USB software volume key: $e');
+      return false;
+    }
+  }
+
+  Future<void> setUsbHardwareVolume(double volume) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_keyUsbHardwareVolume, volume.clamp(0.0, 1.0));
+    } catch (e) {
+      devLog('Failed to save USB hardware volume: $e');
+    }
+  }
+
+  Future<double?> getUsbHardwareVolume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble(_keyUsbHardwareVolume);
+    } catch (e) {
+      devLog('Failed to load USB hardware volume: $e');
+      return null;
+    }
+  }
+
+  Future<bool> hasUsbHardwareVolume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.containsKey(_keyUsbHardwareVolume);
+    } catch (e) {
+      devLog('Failed to check USB hardware volume key: $e');
       return false;
     }
   }
@@ -817,6 +847,7 @@ await prefs.remove(_keyAudioEnginePreference);
     await prefs.remove(_keyDeveloperModeEnabled);
       await prefs.remove(_keyAudioFormatEnabled);
       await prefs.remove(_keyUsbSoftwareVolume);
+      await prefs.remove(_keyUsbHardwareVolume);
     await prefs.remove(_keyKillIsochronousUsbOnQuit);
     await prefs.remove(_keyGaplessPlaybackEnabled);
     await prefs.remove(_keyDuckOnInterruption);

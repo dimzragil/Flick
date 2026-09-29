@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -66,15 +64,8 @@ class SongTileThumbnail extends ConsumerWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-            ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: 3.0,
-                sigmaY: 3.0,
-                tileMode: TileMode.clamp,
-              ),
-              child: _artwork,
-            ),
-            ColoredBox(color: Colors.black.withValues(alpha: 0.35)),
+            _artwork,
+            ColoredBox(color: Colors.black.withValues(alpha: 0.50)),
             if (trackNumber != null)
               Center(
                 child: Text(

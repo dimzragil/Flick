@@ -30,6 +30,7 @@ import 'package:flick/features/player/widgets/sleep_timer_bottom_sheet.dart';
 import 'package:flick/features/songs/widgets/song_actions_button.dart';
 import 'package:flick/providers/favorites_provider.dart';
 import 'package:flick/providers/app_preferences_provider.dart';
+import 'package:flick/providers/songs_provider.dart';
 
 /// Album detail screen showing songs, album info, and more from the artist.
 class AlbumDetailScreen extends ConsumerStatefulWidget {
@@ -59,7 +60,6 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen>
   static const Color _darkBase = Color(0xFF121212);
   static const double _backgroundBlend = 0.22;
 
-  final SongRepository _songRepository = SongRepository();
   final ColorExtractionService _colorService = ColorExtractionService();
 
   final ScrollController _scrollController = ScrollController();
@@ -73,8 +73,12 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen>
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadExtras();
-    _extractAlbumColor();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadExtras();
+        _extractAlbumColor();
+      }
+    });
   }
 
   @override
@@ -93,8 +97,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen>
   }
 
   Future<void> _loadExtras() async {
-    final allAlbums = await _songRepository.getAlbumGroups();
-    final allArtists = await _songRepository.getSongsByArtist();
+    final allAlbums = await ref.read(songsByAlbumProvider.future);
+    final allArtists = await ref.read(songsByArtistProvider.future);
 
     final moreAlbums =
         allAlbums

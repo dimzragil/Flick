@@ -20,6 +20,7 @@ import 'package:flick/features/folders/screens/folders_screen.dart';
 import 'package:flick/features/playlists/screens/playlists_screen.dart';
 import 'package:flick/features/favorites/screens/favorites_screen.dart';
 import 'package:flick/features/search/screens/search_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
 import 'package:flick/core/navigation/nav_bar_visibility_observer.dart';
 import 'package:flick/core/navigation/root_navigator.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
@@ -288,15 +289,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
           _programmaticPageTarget = position;
           _lastHapticPage = position;
-          if (AppConstants.animationNormal == Duration.zero) {
-            _pageController.jumpToPage(position);
-          } else {
-            _pageController.animateToPage(
-              position,
-              duration: AppConstants.animationNormal,
-              curve: Curves.easeOutCubic,
-            );
-          }
+          _pageController.jumpToPage(position);
         }
 
         if (_pageController.hasClients) {
@@ -944,6 +937,7 @@ class _MainShellState extends ConsumerState<MainShell>
         key: ValueKey('favorites'),
       ),
       NavBarButton.search => const SearchScreen(key: ValueKey('search')),
+      NavBarButton.tidal => const TidalHubScreen(key: ValueKey('tidal')),
     };
   }
 
@@ -952,9 +946,12 @@ class _MainShellState extends ConsumerState<MainShell>
     required int currentIndex,
     required Widget child,
   }) {
-    return RepaintBoundary(
-      child: AmbientBackgroundScope(
-        child: TickerMode(enabled: currentIndex == tabIndex, child: child),
+    return _KeepAliveTab(
+      key: ValueKey('tab_keepalive_$tabIndex'),
+      child: RepaintBoundary(
+        child: AmbientBackgroundScope(
+          child: TickerMode(enabled: currentIndex == tabIndex, child: child),
+        ),
       ),
     );
   }
@@ -1005,6 +1002,26 @@ class _MainShellState extends ConsumerState<MainShell>
         ),
       ),
     );
+  }
+}
+
+class _KeepAliveTab extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveTab({super.key, required this.child});
+
+  @override
+  State<_KeepAliveTab> createState() => _KeepAliveTabState();
+}
+
+class _KeepAliveTabState extends State<_KeepAliveTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 

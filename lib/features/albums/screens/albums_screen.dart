@@ -31,7 +31,11 @@ class AlbumsScreen extends ConsumerStatefulWidget {
   ConsumerState<AlbumsScreen> createState() => _AlbumsScreenState();
 }
 
-class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
+class _AlbumsScreenState extends ConsumerState<AlbumsScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final SongRepository _songRepository = SongRepository();
   final PlayerService _playerService = PlayerService();
   List<AlbumGroup> _albums = [];
@@ -185,6 +189,7 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final currentSong = ref.watch(currentSongProvider);
 
     // Post-scan artwork/metadata writes land after the initial load; reload so
@@ -476,6 +481,9 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
     const textBudget = 72.0;
     final aspectRatio = cardWidth / (cardWidth + textBudget);
 
+    final stretchArtwork =
+        ref.watch(appPreferencesProvider).albumsStretchArtwork;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -518,9 +526,7 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
                   songs: album.songs,
                   albumArt: _getAlbumArt(album.songs),
                   albumArtSourcePath: _getArtworkSourcePath(album.songs),
-                  stretchArtwork: ref
-                      .watch(appPreferencesProvider)
-                      .albumsStretchArtwork,
+                  stretchArtwork: stretchArtwork,
                   onTap: () => _openAlbumDetail(album),
                 );
               },

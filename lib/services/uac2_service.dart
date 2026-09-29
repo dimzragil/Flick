@@ -234,6 +234,9 @@ class Uac2Service {
   final StreamController<void> _deviceAttachedController =
       StreamController<void>.broadcast();
   Stream<void> get deviceAttachedEvents => _deviceAttachedController.stream;
+  final StreamController<int> _volumeStepController =
+      StreamController<int>.broadcast();
+  Stream<int> get volumeStepEvents => _volumeStepController.stream;
   bool _androidChannelConfigured = false;
   Future<void>? _initializeInFlight;
   Uac2AudioFormat? _lastKnownFormat;
@@ -361,6 +364,13 @@ class Uac2Service {
                 muted: muted ?? _currentDeviceStatus!.muted,
               ),
             );
+          }
+          return;
+        case 'onVolumeStep':
+          final args = call.arguments as Map<dynamic, dynamic>?;
+          final direction = (args?['direction'] as num?)?.toInt() ?? 0;
+          if (direction != 0) {
+            _volumeStepController.add(direction);
           }
           return;
         default:

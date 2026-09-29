@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -9,9 +10,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/utils/dev_log.dart';
 import '../../data/database.dart';
 import '../../data/repositories/song_repository.dart';
+import '../../models/song.dart';
+import '../../models/sources/tidal_models.dart';
 import '../library_scanner_service.dart' show ScanProgress;
 import '../network_cache_service.dart';
+import 'dash_manifest_parser.dart';
 import 'network_source_service.dart';
+import 'tidal_stream_proxy.dart';
 
 /// Tidal client over the reverse-engineered web/OAuth2 surface.
 ///
@@ -69,6 +74,8 @@ class TidalService implements NetworkSourceService {
 
   static const String _authBase = 'https://auth.tidal.com/v1/oauth2';
   static const String _apiBase = 'https://api.tidal.com/v1';
+  static const String _apiV2Base = 'https://api.tidal.com/v2';
+  static const String _openapiBase = 'https://openapi.tidal.com/v2';
   static const String _coverMarkerScheme = 'tidal-cover://';
   static const String _coverHost = 'https://resources.tidal.com/images';
 
@@ -79,9 +86,30 @@ class TidalService implements NetworkSourceService {
   SongRepository? _songRepository;
   NetworkCacheService? _networkCache;
   final Future<bool> Function(Uri) _urlOpener;
+  final Map<String, TidalStreamResolution> _resolvedStreams = {};
+  final Map<String, void Function()> _activeDownloads = {};
 
   SongRepository get _repo => _songRepository ??= SongRepository();
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
+
+  /// Retrieve cached stream resolution (sampleRate, bitDepth, quality, codec) for a track.
+  TidalStreamResolution? getResolvedStream(String trackId) => _resolvedStreams[trackId];
+
+  /// Cancel in-flight download for a specific track.
+  void cancelActiveDownload(String remoteId) {
+    _activeDownloads[remoteId]?.call();
+    _activeDownloads.remove(remoteId);
+    TidalStreamProxy.instance.cancelTrack(remoteId);
+  }
+
+  /// Cancel all in-flight downloads (e.g. when changing songs immediately).
+  void cancelAllDownloads() {
+    for (final cancel in _activeDownloads.values.toList()) {
+      cancel();
+    }
+    _activeDownloads.clear();
+    TidalStreamProxy.instance.cancelAllSessions();
+  }
 
   static Future<bool> _defaultOpenUrl(Uri url) =>
       launchUrl(url, mode: LaunchMode.externalApplication);
@@ -109,6 +137,8 @@ class TidalService implements NetworkSourceService {
       return null;
     }
   }
+
+  String _countryCode(String? token) => _creds(token)?.countryCode ?? 'US';
 
   // --- OAuth2 device-code login ------------------------------------------
 
@@ -353,6 +383,129 @@ class TidalService implements NetworkSourceService {
     return parsed ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> _apiV2Get(
+    NetworkServerEntity server,
+    String path, {
+    Map<String, String>? query,
+    bool retry = true,
+  }) async {
+    final creds = await _ensureValidToken(server);
+    final uri = Uri.parse('$_apiV2Base$path').replace(queryParameters: {
+      'countryCode': creds.countryCode,
+      'locale': 'en_US',
+      'deviceType': 'BROWSER',
+      'platform': 'WEB',
+      ...?query,
+    });
+    final response = await _client.get(uri, headers: {
+      'Authorization': 'Bearer ${creds.accessToken}',
+      'Accept': 'application/json',
+    }).timeout(const Duration(seconds: 20));
+    if (response.statusCode == 401 && retry && creds.refreshToken != null) {
+      await _refresh(server, creds);
+      return _apiV2Get(server, path, query: query, retry: false);
+    }
+    if (response.statusCode != 200) {
+      throw TidalException('HTTP ${response.statusCode} for $path');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<http.Response> _apiAuthPostForm(
+    NetworkServerEntity server,
+    String url,
+    Map<String, String> fields, {
+    Map<String, String>? headers,
+    bool retry = true,
+  }) async {
+    final creds = await _ensureValidToken(server);
+    final uri = Uri.parse(url).replace(queryParameters: {
+      'countryCode': creds.countryCode,
+    });
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer ${creds.accessToken}',
+        ...?headers,
+      },
+      body: fields,
+    ).timeout(const Duration(seconds: 20));
+    if (response.statusCode == 401 && retry && creds.refreshToken != null) {
+      await _refresh(server, creds);
+      return _apiAuthPostForm(server, url, fields, headers: headers, retry: false);
+    }
+    return response;
+  }
+
+  Future<http.Response> _apiAuthPostJson(
+    NetworkServerEntity server,
+    String url,
+    Map<String, dynamic> body, {
+    bool retry = true,
+  }) async {
+    final creds = await _ensureValidToken(server);
+    final uri = Uri.parse(url).replace(queryParameters: {
+      'countryCode': creds.countryCode,
+    });
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer ${creds.accessToken}',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    ).timeout(const Duration(seconds: 20));
+    if (response.statusCode == 401 && retry && creds.refreshToken != null) {
+      await _refresh(server, creds);
+      return _apiAuthPostJson(server, url, body, retry: false);
+    }
+    return response;
+  }
+
+  Future<http.Response> _apiAuthDelete(
+    NetworkServerEntity server,
+    String url, {
+    bool retry = true,
+  }) async {
+    final creds = await _ensureValidToken(server);
+    final uri = Uri.parse(url).replace(queryParameters: {
+      'countryCode': creds.countryCode,
+    });
+    final response = await _client.delete(
+      uri,
+      headers: {
+        'Authorization': 'Bearer ${creds.accessToken}',
+      },
+    ).timeout(const Duration(seconds: 20));
+    if (response.statusCode == 401 && retry && creds.refreshToken != null) {
+      await _refresh(server, creds);
+      return _apiAuthDelete(server, url, retry: false);
+    }
+    return response;
+  }
+
+  Future<({String? etag, Map<String, dynamic> body})> _getPlaylistWithEtag(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
+    final creds = await _ensureValidToken(server);
+    final uri = Uri.parse('$_apiBase/playlists/$playlistId').replace(queryParameters: {
+      'countryCode': creds.countryCode,
+    });
+    final response = await _client.get(uri, headers: {
+      'Authorization': 'Bearer ${creds.accessToken}',
+      'Accept': 'application/json',
+    }).timeout(const Duration(seconds: 20));
+    final etag = response.headers['etag'];
+    Map<String, dynamic> parsed = {};
+    if (response.body.isNotEmpty) {
+      try {
+        parsed = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    return (etag: etag, body: parsed);
+  }
+
   /// Map a raw HTTP failure to a short, user-facing message. The raw body is
   /// logged separately via [devLog] (developer mode only).
   static String _friendlyHttp(int status, Map<String, dynamic>? parsed) {
@@ -411,12 +564,20 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Build a `resources.tidal.com` cover URL from a Tidal cover uuid.
-  @visibleForTesting
   static String coverUrl(String coverUuid, {int size = 1280}) {
-    final id = coverUuid.replaceAll('-', '');
-    if (id.length < 5) return '';
-    final part = '${id.substring(0, 2)}/${id.substring(2, 4)}/${id.substring(4)}';
-    return '$_coverHost/$part/${size}x$size.jpg';
+    if (coverUuid.isEmpty) return '';
+    final clean = coverUuid.replaceAll('-', '');
+    if (clean.length < 5) return '';
+    // Nil UUID (all zeros e.g. 00000000-0000-0000-0000-000000000000) or non-content placeholder
+    if (clean.replaceAll('0', '').isEmpty) return '';
+    final String path;
+    if (clean.length == 32) {
+      path =
+          '${clean.substring(0, 8)}/${clean.substring(8, 12)}/${clean.substring(12, 16)}/${clean.substring(16, 20)}/${clean.substring(20)}';
+    } else {
+      path = coverUuid.replaceAll('-', '/');
+    }
+    return '$_coverHost/$path/${size}x$size.jpg';
   }
 
   // --- Stream ----------------------------------------------------------
@@ -427,9 +588,42 @@ class TidalService implements NetworkSourceService {
     String remoteId, {
     String? extension,
   }) async {
+    // 1. If already cached locally, return null so playback uses the local file directly.
+    try {
+      final cached = await _cache.getPath(server.id, remoteId, extension: extension ?? 'mp4');
+      if (cached != null) return null;
+    } catch (_) {}
+
     final resolved = await _resolveStreamable(server, remoteId);
     if (resolved == null) return null;
-    return (url: resolved.url, headers: const <String, String>{});
+
+    // 2. For DASH: start or prepare the progressive local stream session (~300ms)
+    if (resolved.isDash && resolved.dashInfo != null) {
+      final targetPath =
+          await _cache.pathFor(server.id, remoteId, extension: 'mp4');
+      final streamUrl = await TidalStreamProxy.instance.prepareStream(
+        trackId: remoteId,
+        dashInfo: resolved.dashInfo!,
+        targetPath: targetPath,
+        client: _client,
+      );
+      return (
+        url: streamUrl,
+        headers: <String, String>{
+          'x-flick-sample-rate': resolved.sampleRate.toString(),
+          'x-flick-bit-depth': resolved.bitDepth.toString(),
+        },
+      );
+    }
+
+    // 3. For direct BTS (unencrypted FLAC):
+    return (
+      url: resolved.url,
+      headers: <String, String>{
+        'x-flick-sample-rate': resolved.sampleRate.toString(),
+        'x-flick-bit-depth': resolved.bitDepth.toString(),
+      },
+    );
   }
 
   @override
@@ -446,6 +640,16 @@ class TidalService implements NetworkSourceService {
     if (resolved == null) {
       throw TidalException('No playable stream for $remoteId.');
     }
+
+    if (resolved.isDash && resolved.dashInfo != null) {
+      return _downloadAndAssembleDash(
+        server,
+        remoteId,
+        resolved.dashInfo!,
+        onProgress: onProgress,
+      );
+    }
+
     final request = http.Request('GET', Uri.parse(resolved.url));
     final response =
         await _client.send(request).timeout(const Duration(minutes: 5));
@@ -470,45 +674,223 @@ class TidalService implements NetworkSourceService {
     );
   }
 
-  /// Resolve a directly streamable CDN url + extension for a track, or null
-  /// when the content is not in a playable-unencrypted form.
-  Future<({String url, String? ext})?> _resolveStreamable(
+  Future<String> _downloadAndAssembleDash(
+    NetworkServerEntity server,
+    String remoteId,
+    DashTrackInfo dashInfo, {
+    void Function(double progress)? onProgress,
+  }) async {
+    final targetPath =
+        await _cache.pathFor(server.id, remoteId, extension: 'mp4');
+    final partFile = File('$targetPath.part');
+    final sink = partFile.openWrite();
+
+    var isCancelled = false;
+    _activeDownloads[remoteId] = () {
+      isCancelled = true;
+    };
+
+    try {
+      // 1. Download initialization segment
+      final initResp = await _client.get(
+        Uri.parse(dashInfo.initializationUrl),
+      ).timeout(const Duration(seconds: 30));
+      if (initResp.statusCode != 200) {
+        throw TidalException(
+          'Failed to download DASH init segment: HTTP ${initResp.statusCode}',
+        );
+      }
+      if (isCancelled) throw TidalException('Download cancelled');
+      sink.add(initResp.bodyBytes);
+
+      // 2. Download media segments in a pipelined worker pool (up to 8 concurrent workers)
+      final totalSegments = dashInfo.segmentUrls.length;
+      final completedBuffers = <int, List<int>>{};
+      var nextIndexToWrite = 0;
+      var hasError = false;
+      Object? downloadError;
+
+      const workerCount = 8;
+      final concurrency =
+          totalSegments < workerCount ? totalSegments : workerCount;
+      var currentIndex = 0;
+
+      Future<void> worker() async {
+        while (!isCancelled && !hasError) {
+          int myIndex;
+          if (currentIndex >= totalSegments) break;
+          myIndex = currentIndex++;
+          final myUrl = dashInfo.segmentUrls[myIndex];
+
+          try {
+            final resp = await _client.get(
+              Uri.parse(myUrl),
+            ).timeout(const Duration(seconds: 30));
+            if (resp.statusCode != 200) {
+              throw TidalException(
+                'Failed segment $myIndex: HTTP ${resp.statusCode}',
+              );
+            }
+            if (isCancelled) return;
+
+            completedBuffers[myIndex] = resp.bodyBytes;
+
+            // Stream out contiguous segments in exact playback order
+            while (completedBuffers.containsKey(nextIndexToWrite)) {
+              final segmentData = completedBuffers.remove(nextIndexToWrite)!;
+              sink.add(segmentData);
+              nextIndexToWrite++;
+              if (onProgress != null) {
+                onProgress(nextIndexToWrite / (totalSegments + 1));
+              }
+            }
+          } catch (e) {
+            hasError = true;
+            downloadError = e;
+            return;
+          }
+        }
+      }
+
+      await Future.wait(List.generate(concurrency, (_) => worker()));
+
+      if (isCancelled) {
+        throw TidalException('Playback download cancelled');
+      }
+      if (hasError && downloadError != null) {
+        throw downloadError!;
+      }
+
+      await sink.flush();
+      await sink.close();
+
+      final targetFile = File(targetPath);
+      if (await targetFile.exists()) {
+        try {
+          await targetFile.delete();
+        } catch (_) {}
+      }
+      await partFile.rename(targetPath);
+      return targetPath;
+    } catch (e) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (await partFile.exists()) {
+        try {
+          await partFile.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    } finally {
+      _activeDownloads.remove(remoteId);
+    }
+  }
+
+  /// Resolve a directly streamable CDN url or DASH track info.
+  /// Uses a quality cascade (HI_RES_LOSSLESS -> HI_RES -> LOSSLESS -> HIGH)
+  /// to play at maximum available quality.
+  Future<TidalStreamResolution?> _resolveStreamable(
     NetworkServerEntity server,
     String trackId,
   ) async {
-    final info = await _apiGet(
-      server,
-      '/tracks/$trackId/playbackinfopostpaywall',
-      query: {'playbackmode': 'STREAM', 'assetpresentation': 'FULL'},
-    );
-    final mime = info['manifestMimeType'] as String?;
-    final manifest = info['manifest'] as String?;
-    if (mime != 'application/vnd.tidal.bts' || manifest == null) {
-      throw TidalException(
-        'Track $trackId uses an unsupported Tidal format (HiRes/MQA/Atmos). '
-        'Only unencrypted HiFi lossless is supported.',
-      );
+    const qualityTiers = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
+    Object? lastError;
+
+    for (final tier in qualityTiers) {
+      try {
+        final info = await _apiGet(
+          server,
+          '/tracks/$trackId/playbackinfopostpaywall',
+          query: {
+            'playbackmode': 'STREAM',
+            'assetpresentation': 'FULL',
+            'audioquality': tier,
+          },
+        );
+
+        final mime = info['manifestMimeType'] as String?;
+        final manifest = info['manifest'] as String?;
+        if (manifest == null) continue;
+
+        final rawSampleRate = (info['sampleRate'] as num?)?.toInt();
+        final rawBitDepth = (info['bitDepth'] as num?)?.toInt();
+        final rawQuality = (info['audioQuality'] as String?) ?? tier;
+        final rawCodec = info['codec'] as String?;
+
+        // 1. DASH manifest (Hi-Res Lossless fMP4 FLAC)
+        if (mime == 'application/dash+xml') {
+          final manifestXml = utf8.decode(base64Decode(manifest));
+          final dashInfo = DashManifestParser.parse(manifestXml);
+          if (dashInfo != null && dashInfo.segmentUrls.isNotEmpty) {
+            final effectiveBandwidth = dashInfo.bandwidth != null
+                ? (dashInfo.bandwidth! / 1000).round()
+                : null;
+            final res = TidalStreamResolution(
+              url: '',
+              ext: 'mp4',
+              isDash: true,
+              dashInfo: dashInfo,
+              sampleRate: dashInfo.sampleRate ?? rawSampleRate ?? 96000,
+              bitDepth: dashInfo.bitDepth ?? rawBitDepth ?? 24,
+              audioQuality: rawQuality,
+              codec: rawCodec ?? dashInfo.codec ?? 'flac',
+              bitrate: effectiveBandwidth,
+            );
+            _resolvedStreams[trackId] = res;
+            return res;
+          }
+          continue;
+        }
+
+        // 2. BTS manifest (Direct unencrypted FLAC/AAC)
+        if (mime == 'application/vnd.tidal.bts') {
+          final Map<String, dynamic> decoded;
+          try {
+            decoded = jsonDecode(utf8.decode(base64Decode(manifest)))
+                as Map<String, dynamic>;
+          } catch (_) {
+            continue;
+          }
+
+          if (decoded['encryptionType'] != 'NONE') {
+            continue; // Skip encrypted streams (DRM/legacy MQA)
+          }
+
+          final urls = decoded['urls'] as List<dynamic>?;
+          if (urls == null || urls.isEmpty) continue;
+
+          final btsSampleRate = (decoded['sampleRate'] as num?)?.toInt();
+          final btsBitDepth = (decoded['bitDepth'] as num?)?.toInt();
+          final btsBitrate = (decoded['bitRate'] as num?)?.toInt() ??
+              (info['bitRate'] as num?)?.toInt();
+
+          final res = TidalStreamResolution(
+            url: urls.first as String,
+            ext: _extFromMime(decoded['mimeType'] as String?),
+            isDash: false,
+            dashInfo: null,
+            sampleRate: rawSampleRate ?? btsSampleRate ?? 44100,
+            bitDepth: rawBitDepth ?? btsBitDepth ?? 16,
+            audioQuality: rawQuality,
+            codec: rawCodec ?? (decoded['codec'] as String?),
+            bitrate: btsBitrate != null && btsBitrate > 10000
+                ? (btsBitrate / 1000).round()
+                : btsBitrate,
+          );
+          _resolvedStreams[trackId] = res;
+          return res;
+        }
+      } catch (e) {
+        lastError = e;
+      }
     }
-    final Map<String, dynamic> decoded;
-    try {
-      decoded =
-          jsonDecode(utf8.decode(base64Decode(manifest))) as Map<String, dynamic>;
-    } catch (e) {
-      throw TidalException('Could not decode Tidal manifest for $trackId: $e');
+
+    if (lastError != null) {
+      throw TidalException('No playable stream for $trackId: $lastError');
     }
-    if (decoded['encryptionType'] != 'NONE') {
-      throw TidalException(
-        'Track $trackId is encrypted (HiRes/MQA). Only unencrypted HiFi '
-        'lossless is supported.',
-      );
-    }
-    final urls = decoded['urls'] as List<dynamic>?;
-    if (urls == null || urls.isEmpty) {
-      throw TidalException('Track $trackId manifest has no stream URL.');
-    }
-    return (
-      url: urls.first as String,
-      ext: _extFromMime(decoded['mimeType'] as String?),
+    throw TidalException(
+      'Track $trackId uses an unsupported or encrypted Tidal format (HiRes/MQA/Atmos).',
     );
   }
 
@@ -641,6 +1023,8 @@ class TidalService implements NetworkSourceService {
     return int.tryParse(isoDate.substring(0, 4));
   }
 
+  static String? extForQuality(String? quality) => _extForQuality(quality);
+
   static String? _extForQuality(String? quality) {
     switch (quality) {
       case 'HIGH':
@@ -653,6 +1037,598 @@ class TidalService implements NetworkSourceService {
       default:
         return null;
     }
+  }
+
+  // --- Catalog & Search ---------------------------------------------------
+
+  /// Search TIDAL catalog for tracks, albums, artists, and playlists.
+  Future<Map<String, dynamic>> searchCatalog(
+    NetworkServerEntity server,
+    String query, {
+    int limit = 25,
+    int offset = 0,
+    String types = 'TRACKS,ALBUMS,ARTISTS,PLAYLISTS',
+  }) async {
+    return _apiGet(server, '/search', query: {
+      'query': query,
+      'limit': '$limit',
+      'offset': '$offset',
+      'types': types,
+    });
+  }
+
+  /// Get details for a specific album by its [albumId].
+  Future<Map<String, dynamic>> getAlbum(
+    NetworkServerEntity server,
+    String albumId,
+  ) async {
+    return _apiGet(server, '/albums/$albumId');
+  }
+
+  /// Get track items for a specific album by its [albumId].
+  Future<List<Map<String, dynamic>>> getAlbumTracks(
+    NetworkServerEntity server,
+    String albumId,
+  ) async {
+    final res = await _apiGet(server, '/albums/$albumId/tracks');
+    final items = (res['items'] as List<dynamic>?) ?? [];
+    return items.cast<Map<String, dynamic>>();
+  }
+
+  /// Get metadata for a specific playlist by its [playlistId].
+  Future<Map<String, dynamic>> getPlaylist(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
+    return _apiGet(server, '/playlists/$playlistId');
+  }
+
+  /// Get track items for a specific playlist by its [playlistId].
+  Future<List<Map<String, dynamic>>> getPlaylistTracks(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
+    // Official TIDAL API uses /playlists/{id}/items (wrapping each entry in {"item": ..., "type": "track"}),
+    // NOT /playlists/{id}/tracks.
+    try {
+      final res = await _apiGet(server, '/playlists/$playlistId/items', query: {'limit': '100', 'offset': '0'});
+      final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
+      return rawList.whereType<Map<String, dynamic>>().toList();
+    } catch (e) {
+      devLog('[Tidal] /playlists/$playlistId/items failed ($e), trying /tracks fallback...');
+      try {
+        final res = await _apiGet(server, '/playlists/$playlistId/tracks', query: {'limit': '100', 'offset': '0'});
+        final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
+        return rawList.whereType<Map<String, dynamic>>().toList();
+      } catch (e2) {
+        devLog('[Tidal] /playlists/$playlistId/tracks failed ($e2)');
+        return [];
+      }
+    }
+  }
+
+  /// Get top tracks for a specific artist by [artistId].
+  Future<List<Map<String, dynamic>>> getArtistTopTracks(
+    NetworkServerEntity server,
+    String artistId,
+  ) async {
+    final res = await _apiGet(server, '/artists/$artistId/toptracks');
+    final items = (res['items'] as List<dynamic>?) ?? [];
+    return items.cast<Map<String, dynamic>>();
+  }
+
+  /// Get details for a specific artist by [artistId].
+  Future<Map<String, dynamic>> getArtist(
+    NetworkServerEntity server,
+    String artistId,
+  ) async {
+    return _apiGet(server, '/artists/$artistId');
+  }
+
+  /// Get albums for a specific artist by [artistId].
+  Future<List<Map<String, dynamic>>> getArtistAlbums(
+    NetworkServerEntity server,
+    String artistId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final res = await _apiGet(server, '/artists/$artistId/albums', query: {
+      'limit': '$limit',
+      'offset': '$offset',
+    });
+    final items = (res['items'] as List<dynamic>?) ?? [];
+    return items.cast<Map<String, dynamic>>();
+  }
+
+  /// Get playlists owned or saved by the authenticated user.
+  Future<List<Map<String, dynamic>>> getUserPlaylists(
+    NetworkServerEntity server,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return [];
+    final res = await _apiGet(server, '/users/$userId/playlists', query: {'limit': '50', 'offset': '0'});
+    final items = (res['items'] as List<dynamic>?) ?? [];
+    return items.cast<Map<String, dynamic>>();
+  }
+
+  /// Fetch the official TIDAL home feed.
+  ///
+  /// Calls `GET https://api.tidal.com/v2/home/feed/{feedSlug}` with fallback to
+  /// `/pages/home` or `/pages/for_you` if V2 is unavailable.
+  Future<TidalHomeFeed> getHomeFeed(
+    NetworkServerEntity server, {
+    String feedSlug = 'static',
+    String? cursor,
+  }) async {
+    final query = <String, String>{};
+    if (cursor != null && cursor.isNotEmpty) {
+      query['cursor'] = cursor;
+    }
+
+    Map<String, dynamic>? raw;
+    try {
+      raw = await _apiV2Get(server, '/home/feed/$feedSlug', query: query);
+    } catch (e) {
+      devLog('[Tidal] v2 home feed failed ($e), falling back to v1 /pages/home...');
+      try {
+        raw = await _apiGet(server, '/pages/home', query: {
+          'deviceType': 'BROWSER',
+          'locale': 'en_US',
+        });
+      } catch (e2) {
+        devLog('[Tidal] v1 /pages/home failed ($e2)');
+        rethrow;
+      }
+    }
+
+    return _parseHomeFeed(raw);
+  }
+
+  /// Parses a home feed response, handling V2 and V1 module structures.
+  TidalHomeFeed _parseHomeFeed(Map<String, dynamic> json) {
+    // 1. Vibes tabs
+    final tabs = <TidalHomeTab>[];
+    final header = json['header'] as Map<String, dynamic>?;
+    final vibes = header?['vibes'] as Map<String, dynamic>?;
+    final vibeItems = vibes?['items'] as List<dynamic>?;
+    if (vibeItems != null) {
+      for (final it in vibeItems) {
+        if (it is Map<String, dynamic>) {
+          tabs.add(TidalHomeTab.fromJson(it));
+        }
+      }
+    }
+    if (tabs.isEmpty) {
+      tabs.add(const TidalHomeTab(name: 'Suggested', type: 'STATIC', slug: 'static'));
+    }
+
+    // 2. Cursor
+    final page = json['page'] as Map<String, dynamic>?;
+    final cursor = page?['cursor'] as String?;
+
+    // 3. Sections
+    final sections = <TidalHomeSection>[];
+
+    // Check V2 format (items as list of sections)
+    final topItems = json['items'] as List<dynamic>?;
+    if (topItems != null && topItems.isNotEmpty) {
+      for (final rawSec in topItems) {
+        if (rawSec is! Map<String, dynamic>) continue;
+        final secType = rawSec['type'] as String? ?? '';
+        final title = _extractSectionTitle(rawSec);
+        if (title.isEmpty) continue;
+
+        // Skip non-content promo sections
+        if (secType == 'TEXT_BLOCK' ||
+            secType == 'SOCIAL' ||
+            secType == 'ARTICLE_LIST' ||
+            secType == 'FEATURED_PROMOTIONS') {
+          continue;
+        }
+
+        final secItemsRaw = rawSec['items'] as List<dynamic>?;
+        if (secItemsRaw == null || secItemsRaw.isEmpty) continue;
+
+        final items = <TidalHomeItem>[];
+        for (final item in secItemsRaw) {
+          if (item is Map<String, dynamic>) {
+            final parsed = TidalHomeItem.fromJson(item, typeHint: secType);
+            if (parsed.id.isNotEmpty || parsed.title.isNotEmpty) {
+              items.add(parsed);
+            }
+          }
+        }
+
+        if (items.isNotEmpty) {
+          final viewAll = rawSec['viewAll'];
+          String? apiPath;
+          if (viewAll is String) {
+            apiPath = viewAll;
+          } else if (viewAll is Map) {
+            apiPath = viewAll['apiPath'] as String?;
+          }
+          apiPath ??= (rawSec['showMore'] as Map?)?['apiPath'] as String?;
+
+          sections.add(TidalHomeSection(
+            title: title,
+            sectionType: secType,
+            items: items,
+            hasMore: apiPath != null,
+            apiPath: apiPath,
+          ));
+        }
+      }
+    }
+
+    // Check V1 rows format if sections is empty
+    if (sections.isEmpty) {
+      final rows = json['rows'] as List<dynamic>?;
+      if (rows != null) {
+        for (final r in rows) {
+          if (r is! Map<String, dynamic>) continue;
+          final modules = r['modules'] as List<dynamic>?;
+          if (modules == null) continue;
+          for (final m in modules) {
+            if (m is! Map<String, dynamic>) continue;
+            final secType = m['type'] as String? ?? '';
+            final title = _extractSectionTitle(m);
+
+            if (secType == 'TEXT_BLOCK' ||
+                secType == 'SOCIAL' ||
+                secType == 'ARTICLE_LIST' ||
+                secType == 'FEATURED_PROMOTIONS') {
+              continue;
+            }
+
+            List<dynamic>? rawList = m['pagedList']?['items'] as List<dynamic>?;
+            rawList ??= (m['highlights'] as List<dynamic>?)
+                ?.map((h) => h is Map ? h['item'] : null)
+                .where((x) => x != null)
+                .toList();
+            rawList ??= m['listItems'] as List<dynamic>?;
+
+            if (rawList == null || rawList.isEmpty) continue;
+
+            final items = <TidalHomeItem>[];
+            for (final item in rawList) {
+              if (item is Map<String, dynamic>) {
+                final parsed = TidalHomeItem.fromJson(item, typeHint: secType);
+                if (parsed.id.isNotEmpty || parsed.title.isNotEmpty) {
+                  items.add(parsed);
+                }
+              }
+            }
+
+            if (items.isNotEmpty) {
+              sections.add(TidalHomeSection(
+                title: title.isNotEmpty ? title : 'Featured',
+                sectionType: secType,
+                items: items,
+              ));
+            }
+          }
+        }
+      }
+    }
+
+    return TidalHomeFeed(
+      tabs: tabs,
+      sections: sections,
+      cursor: cursor,
+    );
+  }
+
+  static String _extractSectionTitle(Map<String, dynamic> sec) {
+    final title = sec['title'];
+    if (title is String && title.isNotEmpty) return title;
+    if (title is Map) {
+      final text = title['text'];
+      if (text is String && text.isNotEmpty) return text;
+    }
+    final textInfo = sec['titleTextInfo'] as Map<String, dynamic>?;
+    if (textInfo?['text'] is String) {
+      final text = textInfo!['text'] as String;
+      if (text.isNotEmpty) return text;
+    }
+    final header = sec['header'];
+    if (header is String && header.isNotEmpty) return header;
+    return '';
+  }
+
+  /// Fetch full mix/radio metadata and its tracklist.
+  Future<TidalMix> getMix(NetworkServerEntity server, String mixId) async {
+    // 1. Primary: /pages/mix?mixId={mixId}
+    try {
+      final res = await _apiGet(server, '/pages/mix', query: {
+        'mixId': mixId,
+        'countryCode': _countryCode(server.token),
+        'deviceType': 'BROWSER',
+        'locale': 'en_US',
+      });
+      final rows = res['rows'] as List<dynamic>?;
+      if (rows != null && rows.isNotEmpty) {
+        String title = 'Mix';
+        String? subtitle;
+        String? mixType;
+        String? image;
+        final tracks = <Song>[];
+
+        for (final row in rows) {
+          final modules = (row as Map)['modules'] as List<dynamic>?;
+          if (modules == null) continue;
+          for (final m in modules) {
+            final mod = m as Map<String, dynamic>;
+            final modType = mod['type'] as String? ?? '';
+            if (modType == 'MIX_HEADER') {
+              final mixObj = mod['mix'] as Map<String, dynamic>?;
+              if (mixObj != null) {
+                title = (mixObj['title'] as String?) ?? title;
+                subtitle = mixObj['subTitle'] as String?;
+                mixType = mixObj['mixType'] as String?;
+                final images = mixObj['images'] as Map<String, dynamic>?;
+                image = (images?['LARGE']?['url'] as String?) ??
+                    (images?['MEDIUM']?['url'] as String?) ??
+                    (images?['SMALL']?['url'] as String?);
+              }
+            } else if (modType == 'TRACK_LIST') {
+              final items = mod['pagedList']?['items'] as List<dynamic>?;
+              if (items != null) {
+                for (final item in items) {
+                  if (item is Map<String, dynamic>) {
+                    final trackData = (item['item'] as Map<String, dynamic>?) ?? item;
+                    tracks.add(makeEphemeralSong(server, trackData));
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (tracks.isNotEmpty) {
+          return TidalMix(
+            mixId: mixId,
+            title: title,
+            subTitle: subtitle,
+            imageUrl: image,
+            mixType: mixType,
+            tracks: tracks,
+          );
+        }
+      }
+    } catch (e) {
+      devLog('[Tidal] /pages/mix failed for $mixId ($e), falling back to /mixes/$mixId/items');
+    }
+
+    // 2. Fallback: /mixes/{id}/items
+    final fallbackRes = await _apiGet(server, '/mixes/$mixId/items', query: {
+      'countryCode': _countryCode(server.token),
+    });
+    final items = (fallbackRes['items'] as List<dynamic>?) ?? [];
+    final tracks = <Song>[];
+    for (final item in items) {
+      if (item is Map<String, dynamic>) {
+        final trackData = (item['item'] as Map<String, dynamic>?) ?? item;
+        tracks.add(makeEphemeralSong(server, trackData));
+      }
+    }
+    return TidalMix(
+      mixId: mixId,
+      title: 'Mix',
+      tracks: tracks,
+    );
+  }
+
+  /// Get the list of favorite track IDs in the user's TIDAL account.
+  Future<Set<String>> getFavoriteTrackIds(NetworkServerEntity server) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return {};
+    try {
+      final res = await _apiGet(server, '/users/$userId/favorites/tracks', query: {
+        'limit': '2000',
+      });
+      final items = res['items'] as List<dynamic>?;
+      if (items == null) return {};
+      final ids = <String>{};
+      for (final it in items) {
+        if (it is Map<String, dynamic>) {
+          final item = it['item'] as Map<String, dynamic>?;
+          final id = item?['id']?.toString() ?? it['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            ids.add(id);
+          }
+        }
+      }
+      return ids;
+    } catch (e) {
+      devLog('[Tidal] getFavoriteTrackIds error: $e');
+      return {};
+    }
+  }
+
+  /// Add a track to TIDAL favorites.
+  Future<void> addFavoriteTrack(NetworkServerEntity server, String trackId) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/tracks';
+    final res = await _apiAuthPostForm(server, url, {'trackId': trackId});
+    if (res.statusCode >= 400) {
+      devLog('[Tidal] addFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}');
+      throw TidalException('Failed to add to TIDAL favorites: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Remove a track from TIDAL favorites.
+  Future<void> removeFavoriteTrack(NetworkServerEntity server, String trackId) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/tracks/$trackId';
+    final res = await _apiAuthDelete(server, url);
+    if (res.statusCode >= 400) {
+      devLog('[Tidal] removeFavoriteTrack failed: HTTP ${res.statusCode} ${res.body}');
+      throw TidalException('Failed to remove from TIDAL favorites: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Create a new playlist in the user's TIDAL account.
+  Future<Map<String, dynamic>> createPlaylist(
+    NetworkServerEntity server, {
+    required String title,
+    String description = '',
+  }) async {
+    final cc = _countryCode(server.token);
+    final payload = {
+      'data': {
+        'type': 'playlists',
+        'attributes': {
+          'name': title,
+          'description': description,
+          'accessType': 'PUBLIC',
+        },
+      },
+    };
+
+    // 1. Try OpenAPI POST /v2/playlists
+    try {
+      final url = cc.isNotEmpty
+          ? '$_openapiBase/playlists?countryCode=$cc'
+          : '$_openapiBase/playlists';
+      final res = await _apiAuthPostJson(server, url, payload);
+      if (res.statusCode < 300) {
+        final parsed = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = parsed['data'] as Map<String, dynamic>? ?? parsed;
+        return data;
+      }
+      devLog('[Tidal] OpenAPI createPlaylist returned HTTP ${res.statusCode}: ${res.body}');
+    } catch (e) {
+      devLog('[Tidal] OpenAPI createPlaylist error: $e');
+    }
+
+    // 2. Fallback: V1 POST /users/{userId}/playlists
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId != null && userId.isNotEmpty) {
+      try {
+        final form = <String, String>{
+          'title': title,
+          'description': description,
+        };
+        final v1Res = await _apiAuthPostForm(server, '$_apiBase/users/$userId/playlists', form);
+        if (v1Res.statusCode < 300) {
+          final parsed = jsonDecode(v1Res.body) as Map<String, dynamic>;
+          return parsed;
+        }
+        devLog('[Tidal] V1 createPlaylist returned HTTP ${v1Res.statusCode}: ${v1Res.body}');
+      } catch (e2) {
+        devLog('[Tidal] V1 createPlaylist error: $e2');
+      }
+    }
+
+    throw TidalException('Failed to create TIDAL playlist "$title".');
+  }
+
+  /// Add a track to a TIDAL playlist using the required ETag header.
+  Future<void> addTrackToPlaylist(
+    NetworkServerEntity server, {
+    required String playlistId,
+    required String trackId,
+  }) async {
+    // Sanitize trackId: if passed with 'tidal_xxx_' prefix, extract pure numeric id
+    final cleanTrackId = trackId.contains('_') ? trackId.split('_').last : trackId;
+
+    // 1. Get playlist ETag
+    final playlistInfo = await _getPlaylistWithEtag(server, playlistId);
+    final etag = playlistInfo.etag ?? '*';
+
+    // 2. Post item with If-None-Match header
+    final url = '$_apiBase/playlists/$playlistId/items';
+    final res = await _apiAuthPostForm(
+      server,
+      url,
+      {
+        'trackIds': cleanTrackId,
+        'onDupes': 'SKIP',
+        'onArtifactNotFound': 'FAIL',
+      },
+      headers: {
+        'If-None-Match': etag,
+      },
+    );
+    if (res.statusCode >= 400) {
+      devLog('[Tidal] addTrackToPlaylist failed: HTTP ${res.statusCode} ${res.body}');
+      throw TidalException('Failed to add track to playlist: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Build an on-the-fly ephemeral [Song] from a TIDAL track JSON object.
+  ///
+  /// This allows instant playback of searched or browsed catalog tracks
+  /// without requiring prior library synchronization to the local database.
+  Song buildEphemeralSong(
+    NetworkServerEntity server,
+    Map<String, dynamic> trackJson,
+  ) =>
+      makeEphemeralSong(server, trackJson);
+
+  /// Static helper to construct an ephemeral [Song] from a TIDAL track JSON object.
+  static Song makeEphemeralSong(
+    NetworkServerEntity server,
+    Map<String, dynamic> rawTrackJson,
+  ) {
+    final trackJson =
+        rawTrackJson.containsKey('item') && rawTrackJson['item'] is Map<String, dynamic>
+            ? rawTrackJson['item'] as Map<String, dynamic>
+            : rawTrackJson;
+    final rawId = trackJson['id'];
+    final remoteId = rawId?.toString() ?? '';
+    final artists = (trackJson['artists'] as List<dynamic>?)?.cast<Map<String, dynamic>?>();
+    final album = trackJson['album'] as Map<String, dynamic>?;
+    final durationSec = (trackJson['duration'] as num?)?.toInt() ?? 0;
+    final cover = (album?['cover'] as String?) ??
+        (trackJson['cover'] as String?) ??
+        (trackJson['imageId'] as String?) ??
+        (rawTrackJson['imageId'] as String?) ??
+        (album?['picture'] as String?);
+    final quality = trackJson['audioQuality'] as String?;
+    final mediaMetadata = trackJson['mediaMetadata'] as Map<String, dynamic>?;
+    final tags = (mediaMetadata?['tags'] as List<dynamic>?)?.cast<String>() ?? [];
+    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
+        tags.contains('HIRES_LOSSLESS_MQA') ||
+        quality == 'HI_RES_LOSSLESS';
+    final initialSampleRate = isHiRes ? 96000 : 44100;
+    final initialBitDepth = isHiRes ? 24 : 16;
+    final initialResolution = isHiRes
+        ? '24-bit / 96kHz'
+        : (quality == 'HIGH' ? '320kbps' : '16-bit / 44.1kHz');
+
+    final coverUrl = (cover != null && cover.isNotEmpty)
+        ? TidalService.coverUrl(cover, size: 640)
+        : null;
+
+    return Song(
+      id: 'tidal_${server.id}_$remoteId',
+      title: (trackJson['title'] as String?) ?? 'Unknown Track',
+      artist: (artists != null && artists.isNotEmpty)
+          ? (artists.first?['name'] as String? ?? 'Unknown Artist')
+          : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String? ?? 'Unknown Artist'),
+      album: album?['title'] as String?,
+      albumArt: (coverUrl != null && coverUrl.isNotEmpty) ? coverUrl : null,
+      duration: Duration(seconds: durationSec),
+      fileType: isHiRes ? 'flac' : (extForQuality(quality) ?? 'flac'),
+      sampleRate: initialSampleRate,
+      bitDepth: initialBitDepth,
+      resolution: initialResolution,
+      trackNumber: (trackJson['trackNumber'] as num?)?.toInt(),
+      discNumber: (trackJson['volumeNumber'] as num?)?.toInt(),
+      year: _releaseYear(album?['releaseDate'] as String?),
+      filePath: '${NetworkProtocol.tidal}://${server.id}/$remoteId',
+      sourceType: NetworkProtocol.tidal,
+      remoteId: remoteId,
+      remoteServerId: server.id,
+    );
   }
 }
 
@@ -680,3 +1656,47 @@ class TidalException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Resolved stream metadata and endpoint details for a TIDAL track.
+class TidalStreamResolution {
+  final String url;
+  final String? ext;
+  final bool isDash;
+  final DashTrackInfo? dashInfo;
+  final int sampleRate;
+  final int bitDepth;
+  final String audioQuality;
+  final String? codec;
+
+  final int? bitrate;
+
+  const TidalStreamResolution({
+    required this.url,
+    this.ext,
+    required this.isDash,
+    this.dashInfo,
+    required this.sampleRate,
+    required this.bitDepth,
+    required this.audioQuality,
+    this.codec,
+    this.bitrate,
+  });
+
+  String get resolutionString {
+    final parts = <String>[];
+    parts.add('$bitDepth-bit');
+    final khz = sampleRate / 1000;
+    final khzStr =
+        sampleRate % 1000 == 0 ? khz.toStringAsFixed(0) : khz.toStringAsFixed(1);
+    parts.add('${khzStr}kHz');
+    final effectiveBitrate = bitrate ??
+        (dashInfo?.bandwidth != null
+            ? (dashInfo!.bandwidth! / 1000).round()
+            : null);
+    if (effectiveBitrate != null && effectiveBitrate > 0) {
+      parts.add('${effectiveBitrate}kbps');
+    }
+    return parts.join(' / ');
+  }
+}
+

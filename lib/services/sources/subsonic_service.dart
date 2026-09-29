@@ -234,8 +234,8 @@ class SubsonicService implements NetworkSourceService {
     List<String>? songIds,
   }) async {
     final payload = await _getJson(server, 'createPlaylist', extra: {
-      if (name != null) 'name': name,
-      if (playlistId != null) 'playlistId': playlistId,
+      'name': ?name,
+      'playlistId': ?playlistId,
       if (songIds != null && songIds.isNotEmpty) 'songId': songIds,
     });
     return payload['playlist'] as Map<String, dynamic>?;
@@ -250,7 +250,7 @@ class SubsonicService implements NetworkSourceService {
   }) async {
     await _getJson(server, 'updatePlaylist', extra: {
       'playlistId': playlistId,
-      if (name != null) 'name': name,
+      'name': ?name,
       if (songIdsToAdd != null && songIdsToAdd.isNotEmpty)
         'songIdToAdd': songIdsToAdd,
       if (songIdsToRemove != null && songIdsToRemove.isNotEmpty)

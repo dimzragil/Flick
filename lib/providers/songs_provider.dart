@@ -689,17 +689,17 @@ class SongsNotifier extends AsyncNotifier<SongsState> {
 
 /// Main songs provider with async data loading.
 final songsProvider =
-    AsyncNotifierProvider.autoDispose<SongsNotifier, SongsState>(
+    AsyncNotifierProvider<SongsNotifier, SongsState>(
       SongsNotifier.new,
     );
 
 /// Convenience provider for just the sorted song list.
-final sortedSongsProvider = Provider.autoDispose<AsyncValue<List<Song>>>((ref) {
+final sortedSongsProvider = Provider<AsyncValue<List<Song>>>((ref) {
   return ref.watch(songsProvider).whenData((state) => state.sortedSongs);
 });
 
 /// Song count provider.
-final songCountProvider = Provider.autoDispose<int>((ref) {
+final songCountProvider = Provider<int>((ref) {
   return ref.watch(songsProvider).value?.songs.length ?? 0;
 });
 
@@ -708,7 +708,7 @@ final songCountProvider = Provider.autoDispose<int>((ref) {
 // ============================================================================
 
 /// Songs grouped by album.
-final songsByAlbumProvider = FutureProvider.autoDispose<List<AlbumGroup>>((
+final songsByAlbumProvider = FutureProvider<List<AlbumGroup>>((
   ref,
 ) async {
   final repository = ref.watch(songRepositoryProvider);
@@ -717,7 +717,7 @@ final songsByAlbumProvider = FutureProvider.autoDispose<List<AlbumGroup>>((
 
 /// Songs grouped by artist.
 final songsByArtistProvider =
-    FutureProvider.autoDispose<Map<String, List<Song>>>((ref) async {
+    FutureProvider<Map<String, List<Song>>>((ref) async {
       final repository = ref.watch(songRepositoryProvider);
       return repository.getSongsByArtist();
     });

@@ -17,6 +17,7 @@ import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/models/playback_context.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/apple_music_provider.dart';
+import 'package:flick/providers/songs_provider.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/services/apple_music/apple_music_metadata_service.dart';
 import 'package:flick/services/apple_music/apple_music_models.dart';
@@ -65,7 +66,6 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
   static const Color _darkBase = Color(0xFF121212);
   static const double _backgroundBlend = 0.22;
 
-  final SongRepository _songRepository = SongRepository();
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
   final ArtistRepository _artistRepository = ArtistRepository();
@@ -88,9 +88,13 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
     _artistArtSourcePath = widget.artistArtSourcePath;
     _scrollController.addListener(_onScroll);
     _buildAlbumGroups();
-    _loadExtras();
-    _resolveAndSaveArtistArt();
-    _extractArtistColor();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadExtras();
+        _resolveAndSaveArtistArt();
+        _extractArtistColor();
+      }
+    });
   }
 
   @override
@@ -112,7 +116,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
     final mostPlayed = await _recentlyPlayedRepository
         .getMostPlayedSongsByArtist(widget.artistName, limit: 5);
 
-    final allAlbums = await _songRepository.getAlbumGroups();
+    final allAlbums = await ref.read(songsByAlbumProvider.future);
     final artistAlbums = allAlbums
         .where(
           (a) => a.albumArtist.toLowerCase() == widget.artistName.toLowerCase(),
@@ -508,7 +512,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
   }
 
   Future<void> _openSimilarArtist(String name) async {
-    final artists = await _songRepository.getSongsByArtist();
+    final artists = await ref.read(songsByArtistProvider.future);
     List<Song>? matches;
     String resolvedName = name;
     for (final entry in artists.entries) {

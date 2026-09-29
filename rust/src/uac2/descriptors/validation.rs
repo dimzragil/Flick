@@ -43,9 +43,9 @@ pub fn validate_feature_unit(f: &FeatureUnit) -> Result<(), Uac2Error> {
             "b_unit_id must be non-zero".to_string(),
         ));
     }
-    if f.b_control_size != 4 {
+    if f.b_control_size == 0 || f.b_control_size > 4 {
         return Err(Uac2Error::InvalidDescriptor(
-            "b_control_size must be 4".to_string(),
+            "b_control_size must be between 1 and 4".to_string(),
         ));
     }
     Ok(())

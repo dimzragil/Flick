@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/tidal/providers/tidal_providers.dart';
 import '../models/song.dart';
 import '../services/favorites_service.dart';
 import 'player_provider.dart';
@@ -62,6 +65,9 @@ class FavoritesNotifier extends AsyncNotifier<FavoritesState> {
     final service = ref.read(favoritesServiceProvider);
     final isFavorite = await service.toggleFavorite(songId);
 
+    // Sync with TIDAL if it is a TIDAL track
+    _syncTidalFavorite(songId, isFavorite);
+
     // Refresh state
     ref.invalidateSelf();
 
@@ -72,6 +78,7 @@ class FavoritesNotifier extends AsyncNotifier<FavoritesState> {
   Future<void> addFavorite(String songId) async {
     final service = ref.read(favoritesServiceProvider);
     await service.addFavorite(songId);
+    _syncTidalFavorite(songId, true);
     ref.invalidateSelf();
   }
 
@@ -79,7 +86,41 @@ class FavoritesNotifier extends AsyncNotifier<FavoritesState> {
   Future<void> removeFavorite(String songId) async {
     final service = ref.read(favoritesServiceProvider);
     await service.removeFavorite(songId);
+    _syncTidalFavorite(songId, false);
     ref.invalidateSelf();
+  }
+
+  void _syncTidalFavorite(String songId, bool isFavorite) {
+    String? trackId;
+    if (songId.startsWith('tidal_')) {
+      final parts = songId.split('_');
+      if (parts.length >= 3) {
+        trackId = parts.sublist(2).join('_');
+      }
+    } else {
+      trackId = songId;
+    }
+
+    if (trackId != null && trackId.isNotEmpty) {
+      unawaited(_dispatchTidalFavorite(trackId, isFavorite));
+    }
+  }
+
+  Future<void> _dispatchTidalFavorite(String trackId, bool isFavorite) async {
+    try {
+      final server = await ref.read(tidalServerProvider.future);
+      if (server != null && server.token != null && server.token!.isNotEmpty) {
+        final tidal = ref.read(tidalServiceProvider);
+        if (isFavorite) {
+          await tidal.addFavoriteTrack(server, trackId);
+        } else {
+          await tidal.removeFavoriteTrack(server, trackId);
+        }
+        ref.invalidate(tidalFavoriteTrackIdsProvider);
+      }
+    } catch (_) {
+      // Local state is preserved even if network sync errors out
+    }
   }
 
   /// Clear all favorites.
@@ -103,7 +144,24 @@ final isSongFavoriteProvider = Provider.autoDispose.family<bool, String>((
   songId,
 ) {
   final favorites = ref.watch(favoritesProvider).value;
-  return favorites?.isFavorite(songId) ?? false;
+  if (favorites?.isFavorite(songId) ?? false) return true;
+
+  String? trackId;
+  if (songId.startsWith('tidal_')) {
+    final parts = songId.split('_');
+    if (parts.length >= 3) {
+      trackId = parts.sublist(2).join('_');
+    }
+  } else {
+    trackId = songId;
+  }
+
+  final tidalFavs = ref.watch(tidalFavoriteTrackIdsProvider).value;
+  if (tidalFavs != null && trackId != null && trackId.isNotEmpty && tidalFavs.contains(trackId)) {
+    return true;
+  }
+
+  return false;
 });
 
 /// Favorites count provider.

@@ -159,7 +159,7 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                     Text(
                       hardwareAuthority
                           ? (deviceStatus.isExternalRoute
-                                ? 'USB Route Volume'
+                                ? 'Hardware Volume'
                                 : 'Device DAC Volume')
                           : 'Volume',
                       overflow: TextOverflow.ellipsis,

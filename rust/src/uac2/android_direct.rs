@@ -67,8 +67,10 @@ const UAC2_REQUEST_GET_MAX: u8 = 0x83;
 const UAC2_REQUEST_GET_RES: u8 = 0x84;
 const UAC2_FEATURE_UNIT_MUTE_CONTROL: u16 = 0x0100;
 const UAC2_FEATURE_UNIT_VOLUME_CONTROL: u16 = 0x0200;
-const FEATURE_MUTE: u32 = 0x0001;
-const FEATURE_VOLUME: u32 = 0x0002;
+const UAC2_FEATURE_VOLUME: u32 = 0x000C;
+const UAC2_FEATURE_MUTE: u32 = 0x0003;
+const UAC1_FEATURE_VOLUME: u32 = 0x0002;
+const UAC1_FEATURE_MUTE: u32 = 0x0001;
 const ISO_TRANSFER_TIMEOUT_MS: u32 = 1000;
 const ANDROID_USB_BUFFER_CAPACITY_MS: usize = 200;
 const ANDROID_USB_BUFFER_TARGET_MS: usize = 100;
@@ -562,8 +564,9 @@ struct AndroidDirectUsbClockApplyOutcome {
 struct AndroidDirectUsbHardwareVolumeControl {
     interface_number: u8,
     feature_unit_id: u8,
-    volume_channel: u16,
-    mute_channel: Option<u16>,
+    volume_channels: Vec<u16>,
+    primary_volume_channel: u16,
+    mute_channels: Vec<u16>,
     min_volume_raw: i16,
     max_volume_raw: i16,
     resolution_raw: i16,
@@ -1800,7 +1803,7 @@ pub fn android_direct_debug_state() -> AndroidDirectUsbDebugState {
         hardware_mute_supported: state
             .hardware_volume_control
             .as_ref()
-            .is_some_and(|control| control.mute_channel.is_some()),
+            .is_some_and(|control| !control.mute_channels.is_empty()),
         hardware_volume_normalized: state.hardware_volume_normalized,
         hardware_mute_active: state.hardware_mute_active,
         hardware_volume_min_raw: state
@@ -2824,6 +2827,13 @@ fn parse_audio_control_topologies(
                 continue;
             }
 
+            let is_uac2 = DescriptorIter::new(descriptor.extra()).any(|extra| {
+                extra.get(1) == Some(&USB_DT_CS_INTERFACE)
+                    && extra.get(2) == Some(&crate::uac2::constants::UAC_AC_HEADER)
+                    && extra.len() >= 5
+                    && u16::from_le_bytes([extra[3], extra[4]]) >= 0x0200
+            });
+
             let mut topology = AndroidAudioControlTopology {
                 interface_number: descriptor.interface_number(),
                 feature_units: Vec::new(),
@@ -2837,9 +2847,16 @@ fn parse_audio_control_topologies(
                             topology.output_terminals.push(value);
                         })
                     }
-                    Some(UAC2_FEATURE_UNIT) => parser.parse_feature_unit(extra).ok().map(|value| {
-                        topology.feature_units.push(value);
-                    }),
+                    Some(UAC2_FEATURE_UNIT) => {
+                        let fu_res = if is_uac2 {
+                            parser.parse_feature_unit_uac2(extra)
+                        } else {
+                            parser.parse_feature_unit_uac1(extra)
+                        };
+                        fu_res.or_else(|_| parser.parse_feature_unit(extra)).ok().map(|value| {
+                            topology.feature_units.push(value);
+                        })
+                    }
                     _ => None,
                 };
                 let _ = parsed;
@@ -2854,15 +2871,35 @@ fn parse_audio_control_topologies(
     Ok(topologies)
 }
 
-fn feature_unit_channel_with_control(
+fn feature_unit_channels_with_control(
     feature_unit: &crate::uac2::FeatureUnit,
-    control_mask: u32,
-) -> Option<u16> {
+    is_volume: bool,
+) -> Vec<u16> {
+    let mask = if feature_unit.b_control_size == 4 {
+        if is_volume {
+            UAC2_FEATURE_VOLUME // 0x000C
+        } else {
+            UAC2_FEATURE_MUTE   // 0x0003
+        }
+    } else {
+        if is_volume {
+            UAC1_FEATURE_VOLUME // 0x0002
+        } else {
+            UAC1_FEATURE_MUTE   // 0x0001
+        }
+    };
     feature_unit
         .bma_controls
         .iter()
-        .position(|controls| controls & control_mask != 0)
-        .map(|index| index as u16)
+        .enumerate()
+        .filter_map(|(idx, &controls)| {
+            if controls & mask != 0 {
+                Some(idx as u16)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn read_feature_unit_i16_control(
@@ -2877,24 +2914,40 @@ fn read_feature_unit_i16_control(
     let value = control_selector | (channel & 0xff);
     let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
     let mut data = [0u8; 2];
-    let transferred = handle
-        .read_control(
+
+    // For GET_CUR: try UAC2 CUR (0x01) first, then UAC1 GET_CUR (0x81)
+    let requests = if request == UAC2_REQUEST_GET_CUR {
+        vec![0x01u8, 0x81u8]
+    } else {
+        vec![request]
+    };
+
+    let mut last_err = String::new();
+    for req in requests {
+        match handle.read_control(
             request_type,
-            request,
+            req,
             value,
             index,
             &mut data,
             Duration::from_secs(1),
-        )
-        .map_err(|error| format!("feature-unit control read failed: {}", error))?;
-    if transferred < data.len() {
-        return Err(format!(
-            "feature-unit control read returned {} bytes, expected {}",
-            transferred,
-            data.len()
-        ));
+        ) {
+            Ok(transferred) if transferred >= data.len() => {
+                return Ok(i16::from_le_bytes(data));
+            }
+            Ok(transferred) => {
+                last_err = format!(
+                    "feature-unit control read returned {} bytes, expected {}",
+                    transferred,
+                    data.len()
+                );
+            }
+            Err(error) => {
+                last_err = format!("feature-unit control read failed: {}", error);
+            }
+        }
     }
-    Ok(i16::from_le_bytes(data))
+    Err(last_err)
 }
 
 fn write_feature_unit_i16_control(
@@ -2933,24 +2986,34 @@ fn read_feature_unit_bool_control(
     let value = control_selector | (channel & 0xff);
     let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
     let mut data = [0u8; 1];
-    let transferred = handle
-        .read_control(
+
+    // Try UAC2 CUR (0x01) first, then UAC1 GET_CUR (0x81)
+    let requests = [0x01u8, 0x81u8];
+    let mut last_err = String::new();
+    for req in requests {
+        match handle.read_control(
             request_type,
-            UAC2_REQUEST_GET_CUR,
+            req,
             value,
             index,
             &mut data,
             Duration::from_secs(1),
-        )
-        .map_err(|error| format!("feature-unit mute read failed: {}", error))?;
-    if transferred < data.len() {
-        return Err(format!(
-            "feature-unit mute read returned {} bytes, expected {}",
-            transferred,
-            data.len()
-        ));
+        ) {
+            Ok(transferred) if transferred >= 1 => {
+                return Ok(data[0] != 0);
+            }
+            Ok(transferred) => {
+                last_err = format!(
+                    "feature-unit mute read returned {} bytes, expected 1",
+                    transferred
+                );
+            }
+            Err(error) => {
+                last_err = format!("feature-unit mute read failed: {}", error);
+            }
+        }
     }
-    Ok(data[0] != 0)
+    Err(last_err)
 }
 
 fn write_feature_unit_bool_control(
@@ -2984,6 +3047,40 @@ fn read_feature_unit_volume_range(
     feature_unit_id: u8,
     channel: u16,
 ) -> Result<(i16, i16, i16), String> {
+    let request_type = USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+    let value = UAC2_FEATURE_UNIT_VOLUME_CONTROL | (channel & 0xff);
+    let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
+
+    // Try UAC2 RANGE request first: bRequest = 0x02 (UAC2 RANGE) or 0x82
+    for &range_req in &[0x02u8, 0x82u8] {
+        let mut data = [0u8; 64];
+        if let Ok(transferred) = handle.read_control(
+            request_type,
+            range_req,
+            value,
+            index,
+            &mut data,
+            Duration::from_secs(1),
+        ) {
+            if transferred >= 8 {
+                let num_subranges = u16::from_le_bytes([data[0], data[1]]);
+                if num_subranges >= 1 {
+                    let min = i16::from_le_bytes([data[2], data[3]]);
+                    let max = i16::from_le_bytes([data[4], data[5]]);
+                    let res = i16::from_le_bytes([data[6], data[7]]);
+                    let res = if res == 0 { 1 } else { res };
+                    dev_eprintln!(
+                        "[USB] UAC2 Volume RANGE read OK (req 0x{:02x}): min={}, max={}, res={}",
+                        range_req, min, max, res
+                    );
+                    return Ok((min, max, res));
+                }
+            }
+        }
+    }
+
+    // Fallback: UAC1 separate GET_MIN (0x82), GET_MAX (0x83), GET_RES (0x84)
+    dev_eprintln!("[USB] Falling back to UAC1 GET_MIN/MAX/RES for volume range");
     Ok((
         read_feature_unit_i16_control(
             handle,
@@ -3055,21 +3152,59 @@ fn build_hardware_volume_control_from_feature_unit(
     interface_number: u8,
     feature_unit: &crate::uac2::FeatureUnit,
 ) -> Option<AndroidDirectUsbHardwareVolumeControl> {
-    let volume_channel = feature_unit_channel_with_control(feature_unit, FEATURE_VOLUME)?;
-    let mute_channel = feature_unit_channel_with_control(feature_unit, FEATURE_MUTE);
-    let (min_volume_raw, max_volume_raw, resolution_raw) = read_feature_unit_volume_range(
-        handle,
-        interface_number,
-        feature_unit.b_unit_id,
-        volume_channel,
-    )
-    .ok()?;
+    let volume_channels = feature_unit_channels_with_control(feature_unit, true);
+    if volume_channels.is_empty() {
+        dev_eprintln!(
+            "[VolFlow] FU id={} has no volume channels (b_control_size={}, bma_controls={:08x?})",
+            feature_unit.b_unit_id, feature_unit.b_control_size, feature_unit.bma_controls
+        );
+        return None;
+    }
+    let mute_channels = feature_unit_channels_with_control(feature_unit, false);
+
+    // Prefer non-zero channels (1, 2) first for stereo DACs if present, else channel 0
+    let mut candidate_channels = volume_channels.clone();
+    candidate_channels.sort_by_key(|&ch| if ch == 0 { 1 } else { 0 });
+
+    let mut chosen_channel = None;
+    let mut chosen_range = None;
+
+    for &channel in &candidate_channels {
+        if let Ok((min, max, res)) = read_feature_unit_volume_range(
+            handle,
+            interface_number,
+            feature_unit.b_unit_id,
+            channel,
+        ) {
+            dev_eprintln!(
+                "[VolFlow] FU id={} ch={} range: min={}, max={}, res={}",
+                feature_unit.b_unit_id, channel, min, max, res
+            );
+            if max > min {
+                chosen_channel = Some(channel);
+                chosen_range = Some((min, max, res));
+                break;
+            } else if chosen_range.is_none() {
+                chosen_channel = Some(channel);
+                chosen_range = Some((min, max, res));
+            }
+        }
+    }
+
+    let primary_volume_channel = chosen_channel?;
+    let (min_volume_raw, max_volume_raw, resolution_raw) = chosen_range?;
+
+    dev_eprintln!(
+        "[VolFlow] Built HW volume control: FU id={} channels={:?} primary={} min={} max={} res={}",
+        feature_unit.b_unit_id, volume_channels, primary_volume_channel, min_volume_raw, max_volume_raw, resolution_raw
+    );
 
     Some(AndroidDirectUsbHardwareVolumeControl {
         interface_number,
         feature_unit_id: feature_unit.b_unit_id,
-        volume_channel,
-        mute_channel,
+        volume_channels,
+        primary_volume_channel,
+        mute_channels,
         min_volume_raw,
         max_volume_raw,
         resolution_raw,
@@ -3174,7 +3309,7 @@ fn refresh_android_usb_hardware_volume_snapshot_with_handle(
             handle,
             control.interface_number,
             control.feature_unit_id,
-            control.volume_channel,
+            control.primary_volume_channel,
             UAC2_REQUEST_GET_CUR,
             UAC2_FEATURE_UNIT_VOLUME_CONTROL,
         ) {
@@ -3182,8 +3317,9 @@ fn refresh_android_usb_hardware_volume_snapshot_with_handle(
                 let normalized =
                     normalize_hardware_volume(raw, control.min_volume_raw, control.max_volume_raw);
                 let muted = control
-                    .mute_channel
-                    .map(|channel| {
+                    .mute_channels
+                    .first()
+                    .and_then(|&channel| {
                         read_feature_unit_bool_control(
                             handle,
                             control.interface_number,
@@ -3191,8 +3327,8 @@ fn refresh_android_usb_hardware_volume_snapshot_with_handle(
                             channel,
                             UAC2_FEATURE_UNIT_MUTE_CONTROL,
                         )
-                    })
-                    .transpose()?;
+                        .ok()
+                    });
                 return Ok((normalized, muted));
             }
             Err(e) => {
@@ -3250,18 +3386,31 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         control.resolution_raw,
     );
     dev_eprintln!(
-        "[VolFlow] min={} max={} res={} -> raw={target_raw}",
-        control.min_volume_raw, control.max_volume_raw, control.resolution_raw
+        "[VolFlow] channels={:?} primary={} min={} max={} res={} -> raw={target_raw}",
+        control.volume_channels, control.primary_volume_channel, control.min_volume_raw, control.max_volume_raw, control.resolution_raw
     );
-    let write_result = write_feature_unit_i16_control(
-        &claimed_handle.handle,
-        control.interface_number,
-        control.feature_unit_id,
-        control.volume_channel,
-        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
-        target_raw,
-    );
-    write_result.inspect_err(|e| dev_eprintln!("[VolFlow] write_feature_unit failed: {e}"))?;
+
+    let mut any_ok = false;
+    let mut last_err = String::new();
+    for &ch in &control.volume_channels {
+        match write_feature_unit_i16_control(
+            &claimed_handle.handle,
+            control.interface_number,
+            control.feature_unit_id,
+            ch,
+            UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+            target_raw,
+        ) {
+            Ok(()) => any_ok = true,
+            Err(e) => {
+                dev_eprintln!("[VolFlow] write_feature_unit ch {ch} failed: {e}");
+                last_err = e;
+            }
+        }
+    }
+    if !any_ok {
+        return Err(format!("feature-unit volume write failed: {last_err}"));
+    }
 
     let (normalized, muted) =
         refresh_android_usb_hardware_volume_snapshot_with_handle(&claimed_handle.handle, &control)
@@ -3274,15 +3423,11 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         1.0f64
     };
     let span = ((control.max_volume_raw - control.min_volume_raw) as f64).max(1.0);
-    let tolerance = (step / span * 0.6).max(1e-6);
+    let tolerance = (step / span * 1.5).max(0.04);
     if (normalized - expected).abs() > tolerance {
         dev_eprintln!(
-            "[VolFlow] post-SET_CUR volume mismatch: expected={expected:.3} got={normalized:.3}"
+            "[VolFlow] post-SET_CUR volume discrepancy: DAC reported {normalized:.3}, expected {expected:.3}; adopting DAC reported level"
         );
-        return Err(format!(
-            "volume verification failed: expected {:.3}, got {:.3}",
-            expected, normalized
-        ));
     }
 
     LAST_SET_HW_VOLUME.store(target_raw, Ordering::Release);
@@ -3312,7 +3457,7 @@ pub fn android_direct_verify_hardware_volume_health() -> Result<bool, String> {
         &claimed_handle.handle,
         control.interface_number,
         control.feature_unit_id,
-        control.volume_channel,
+        control.primary_volume_channel,
         UAC2_REQUEST_GET_CUR,
         UAC2_FEATURE_UNIT_VOLUME_CONTROL,
     )
@@ -3340,20 +3485,33 @@ pub fn android_direct_set_hardware_mute(muted: bool) -> Result<(), String> {
         .hardware_volume_control
         .clone()
         .ok_or_else(|| "Android direct USB hardware mute is unavailable".to_string())?;
-    let mute_channel = control
-        .mute_channel
-        .ok_or_else(|| "Android direct USB hardware mute is unavailable".to_string())?;
+    if control.mute_channels.is_empty() {
+        return Err("Android direct USB hardware mute is unavailable".to_string());
+    }
     let claimed_handle = open_transient_usb_handle(&state.device)?;
 
-    let write_result = write_feature_unit_bool_control(
-        &claimed_handle.handle,
-        control.interface_number,
-        control.feature_unit_id,
-        mute_channel,
-        UAC2_FEATURE_UNIT_MUTE_CONTROL,
-        muted,
-    );
-    write_result?;
+    let mut any_ok = false;
+    let mut last_err = String::new();
+    for &channel in &control.mute_channels {
+        match write_feature_unit_bool_control(
+            &claimed_handle.handle,
+            control.interface_number,
+            control.feature_unit_id,
+            channel,
+            UAC2_FEATURE_UNIT_MUTE_CONTROL,
+            muted,
+        ) {
+            Ok(()) => any_ok = true,
+            Err(e) => {
+                dev_eprintln!("[VolFlow] write_feature_unit mute ch {channel} failed: {e}");
+                last_err = e;
+            }
+        }
+    }
+    if !any_ok {
+        return Err(format!("feature-unit mute write failed: {last_err}"));
+    }
+
     let snapshot_result =
         refresh_android_usb_hardware_volume_snapshot_with_handle(&claimed_handle.handle, &control);
     let (normalized, snapshot_muted) = snapshot_result?;

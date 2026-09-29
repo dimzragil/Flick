@@ -110,24 +110,89 @@ impl AudioControlParser {
     }
 
     pub fn parse_feature_unit(&self, data: &[u8]) -> Result<FeatureUnit, Uac2Error> {
+        const MIN_LEN: usize = 6;
+        require_len(data, MIN_LEN)?;
+        if data[1] != USB_DT_CS_INTERFACE || data[2] != UAC2_FEATURE_UNIT {
+            return Err(Uac2Error::InvalidDescriptor("not feature unit".to_string()));
+        }
+        let len = data[0] as usize;
+        require_len(data, len)?;
+
+        // Try UAC2 format first: Table 4-13
+        // bLength = 6 + (ch + 1)*4 (with iFeature) or 5 + (ch + 1)*4 (without iFeature).
+        // bmaControls(ch) are 4-byte LE bitmaps starting at offset 5.
+        if let Ok(fu) = self.parse_feature_unit_uac2(data) {
+            return Ok(fu);
+        }
+
+        // Try UAC1 format: Table 4-7
+        if let Ok(fu) = self.parse_feature_unit_uac1(data) {
+            return Ok(fu);
+        }
+
+        Err(Uac2Error::InvalidDescriptor(
+            format!("invalid feature unit descriptor length: {}", len),
+        ))
+    }
+
+    pub fn parse_feature_unit_uac2(&self, data: &[u8]) -> Result<FeatureUnit, Uac2Error> {
+        const MIN_LEN: usize = 6;
+        require_len(data, MIN_LEN)?;
+        if data[1] != USB_DT_CS_INTERFACE || data[2] != UAC2_FEATURE_UNIT {
+            return Err(Uac2Error::InvalidDescriptor("not feature unit".to_string()));
+        }
+        let len = data[0] as usize;
+        require_len(data, len)?;
+
+        // UAC2 Table 4-13:
+        // bLength = 6 + (ch + 1)*4 (where ch >= 0, so len >= 10 and (len - 6) % 4 == 0)
+        if len < 10 || (len - 6) % 4 != 0 {
+            return Err(Uac2Error::InvalidDescriptor(format!(
+                "invalid UAC2 feature unit descriptor length: {}",
+                len
+            )));
+        }
+        let n = (len - 6) / 4;
+
+        let bma_controls: Vec<u32> = (0..n).map(|i| read_u32_le(data, 5 + i * 4)).collect();
+        let f = FeatureUnit {
+            b_unit_id: data[3],
+            b_source_id: data[4],
+            b_control_size: 4,
+            bma_controls,
+        };
+        validate_feature_unit(&f)?;
+        Ok(f)
+    }
+
+    pub fn parse_feature_unit_uac1(&self, data: &[u8]) -> Result<FeatureUnit, Uac2Error> {
         const MIN_LEN: usize = 7;
         require_len(data, MIN_LEN)?;
         if data[1] != USB_DT_CS_INTERFACE || data[2] != UAC2_FEATURE_UNIT {
             return Err(Uac2Error::InvalidDescriptor("not feature unit".to_string()));
         }
         let len = data[0] as usize;
-        if len < MIN_LEN || (len - 7) % 4 != 0 {
-            return Err(Uac2Error::InvalidDescriptor(
-                "invalid feature unit length".to_string(),
-            ));
-        }
-        let n = (len - 7) / 4;
         require_len(data, len)?;
-        let bma_controls: Vec<u32> = (0..n).map(|i| read_u32_le(data, 7 + i * 4)).collect();
+
+        let b_control_size = data[5] as usize;
+        if b_control_size < 1 || b_control_size > 3 || len < 7 + b_control_size || (len - 7) % b_control_size != 0 {
+            return Err(Uac2Error::InvalidDescriptor(format!("invalid UAC1 bControlSize: {b_control_size}")));
+        }
+
+        let n = (len - 7) / b_control_size;
+        let bma_controls: Vec<u32> = (0..n).map(|i| {
+            let offset = 6 + i * b_control_size;
+            let mut val = 0u32;
+            for b in 0..b_control_size {
+                val |= (data[offset + b] as u32) << (b * 8);
+            }
+            val
+        }).collect();
+
         let f = FeatureUnit {
             b_unit_id: data[3],
             b_source_id: data[4],
-            b_control_size: data[5],
+            b_control_size: b_control_size as u8,
             bma_controls,
         };
         validate_feature_unit(&f)?;
@@ -376,5 +441,70 @@ impl DescriptorParser for AudioControlParser {
                 data[2]
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uac2::constants::{FEATURE_MUTE, FEATURE_VOLUME};
+
+    #[test]
+    fn test_parse_feature_unit_uac2_stereo() {
+        let parser = AudioControlParser;
+        // 18-byte UAC2 Stereo Feature Unit descriptor (JadeAudio JA11 layout):
+        // [0]: bLength = 18
+        // [1]: bDescriptorType = CS_INTERFACE (0x24)
+        // [2]: bDescriptorSubtype = FEATURE_UNIT (0x06)
+        // [3]: bUnitID = 0x05
+        // [4]: bSourceID = 0x02
+        // [5..8]: bmaControls(0) = 0x0000000F (master mute + volume)
+        // [9..12]: bmaControls(1) = 0x0000000F (ch1 mute + volume)
+        // [13..16]: bmaControls(2) = 0x0000000F (ch2 mute + volume)
+        // [17]: iFeature = 0x00
+        let data = [
+            18, 0x24, 0x06, 0x05, 0x02,
+            0x0F, 0x00, 0x00, 0x00,
+            0x0F, 0x00, 0x00, 0x00,
+            0x0F, 0x00, 0x00, 0x00,
+            0x00,
+        ];
+
+        let fu = parser.parse_feature_unit(&data).expect("Failed to parse UAC2 stereo FU");
+        assert_eq!(fu.b_unit_id, 0x05);
+        assert_eq!(fu.b_source_id, 0x02);
+        assert_eq!(fu.b_control_size, 4);
+        assert_eq!(fu.bma_controls.len(), 3);
+        assert_eq!(fu.bma_controls[0], 0x0F);
+        assert!(fu.bma_controls[0] & FEATURE_VOLUME != 0);
+        assert!(fu.bma_controls[0] & FEATURE_MUTE != 0);
+    }
+
+    #[test]
+    fn test_parse_feature_unit_uac1() {
+        let parser = AudioControlParser;
+        // 9-byte UAC1 Feature Unit descriptor (master + ch1, bControlSize = 1):
+        // [0]: bLength = 9
+        // [1]: bDescriptorType = 0x24
+        // [2]: bDescriptorSubtype = 0x06
+        // [3]: bUnitID = 0x02
+        // [4]: bSourceID = 0x01
+        // [5]: bControlSize = 1
+        // [6]: bmaControls(0) = 0x03 (mute + volume in UAC1)
+        // [7]: bmaControls(1) = 0x00
+        // [8]: iFeature = 0x00
+        let data = [
+            9, 0x24, 0x06, 0x02, 0x01,
+            1, 0x03, 0x00, 0x00,
+        ];
+
+        let fu = parser.parse_feature_unit(&data).expect("Failed to parse UAC1 FU");
+        assert_eq!(fu.b_unit_id, 0x02);
+        assert_eq!(fu.b_source_id, 0x01);
+        assert_eq!(fu.b_control_size, 1);
+        assert_eq!(fu.bma_controls.len(), 2);
+        assert_eq!(fu.bma_controls[0], 0x03);
+        assert!(fu.bma_controls[0] & FEATURE_VOLUME != 0);
+        assert!(fu.bma_controls[0] & FEATURE_MUTE != 0);
     }
 }

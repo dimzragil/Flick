@@ -51,7 +51,10 @@ class SongsScreen extends ConsumerStatefulWidget {
 }
 
 class _SongsScreenState extends ConsumerState<SongsScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   static const double _listItemExtent = 80;
 
   static const int _defaultAlbumGridPageSize = 8;
@@ -124,6 +127,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final songsAsync = ref.watch(songsProvider);
     final viewMode = ref.watch(songsViewModeProvider);
     final navBarVisible = ref.watch(navBarVisibleProvider);
@@ -1079,12 +1083,18 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
     _selectedFastToken = _tokenForSong(songs[index], sortOption);
   }
 
+  int _lastFastIndexOverlayTouchMs = 0;
+
   void _showFastIndexOverlay() {
     if (!mounted) return;
     if (!_fastIndexVisible) {
       setState(() => _fastIndexVisible = true);
     }
-    _resetFastIndexTimer();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastFastIndexOverlayTouchMs > 300) {
+      _lastFastIndexOverlayTouchMs = now;
+      _resetFastIndexTimer();
+    }
   }
 
   void _resetFastIndexTimer() {

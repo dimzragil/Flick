@@ -7,6 +7,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/services/artwork_gate.dart';
+import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 
 export 'package:flick/services/artwork_gate.dart';
@@ -89,6 +90,8 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   // later — caching false would permanently hide art whose file appears
   // after the first check.
   static final Set<String> _knownExistingPaths = {};
+  static final Map<String, int> _knownMissingPaths = {};
+  static const int _missingTtlMs = 15000;
 
   String? _resolvedImagePath;
   bool _hasPendingResolve = false;
@@ -198,15 +201,31 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       return path;
     }
 
+    if (path.startsWith('tidal-cover://')) {
+      final uuid = path.substring('tidal-cover://'.length);
+      final url = TidalService.coverUrl(uuid, size: 640);
+      if (url.isNotEmpty) {
+        return url;
+      }
+    }
+
     if (_knownExistingPaths.contains(path)) {
       return path;
     }
 
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final lastCheck = _knownMissingPaths[path];
+    if (lastCheck != null && (now - lastCheck) < _missingTtlMs) {
+      return null;
+    }
+
     if (File(path).existsSync()) {
       _knownExistingPaths.add(path);
+      _knownMissingPaths.remove(path);
       return path;
     }
 
+    _knownMissingPaths[path] = now;
     return null;
   }
 

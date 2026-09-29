@@ -10,7 +10,8 @@ enum NavBarButton {
   folders(5, 'Folders', LucideIcons.folder),
   playlists(6, 'Playlists', LucideIcons.listMusic),
   favorites(7, 'Favorites', LucideIcons.heart),
-  search(8, 'Search', LucideIcons.search);
+  search(8, 'Search', LucideIcons.search),
+  tidal(9, 'Tidal', LucideIcons.waves);
 
   const NavBarButton(this.pageIndex, this.label, this.icon);
 

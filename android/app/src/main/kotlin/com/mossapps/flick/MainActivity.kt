@@ -62,6 +62,7 @@ import android.provider.MediaStore
 import androidx.mediarouter.media.MediaRouter
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.view.KeyEvent
 import android.util.Log
 import android.os.PowerManager
 import android.os.storage.StorageManager
@@ -1226,6 +1227,25 @@ class MainActivity: FlutterActivity() {
 
         widgetChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)
         dispatchWidgetIntent(intent)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val isDirectUsbActive = activeDirectUsbDeviceName != null || hasDirectUsbHardwareVolume()
+            if (isDirectUsbActive) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_VOLUME_UP -> {
+                        uac2Channel?.invokeMethod("onVolumeStep", mapOf("direction" to 1))
+                        return true
+                    }
+                    KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                        uac2Channel?.invokeMethod("onVolumeStep", mapOf("direction" to -1))
+                        return true
+                    }
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     // private fun handleConversionResult(conversionResult: ConversionResult?, result: MethodChannel.Result) {

@@ -60,9 +60,16 @@ impl HttpMediaSource {
         }
         req = req.set("Range", &format!("bytes={}-{}", self.pos, end));
 
-        let resp = req
-            .call()
-            .map_err(|e| io::Error::other(format!("HTTP GET failed: {}", e)))?;
+        let resp = match req.call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(416, _)) => {
+                // Range Not Satisfiable: offset is past EOF.
+                self.buf_start = self.pos;
+                self.buf.clear();
+                return Ok(());
+            }
+            Err(e) => return Err(io::Error::other(format!("HTTP GET failed: {}", e))),
+        };
 
         let status = resp.status();
         let content_range = resp.header("Content-Range").map(|s| s.to_string());
@@ -141,7 +148,7 @@ impl Seek for HttpMediaSource {
 
 impl MediaSource for HttpMediaSource {
     fn is_seekable(&self) -> bool {
-        true
+        self.len.is_some()
     }
     fn byte_len(&self) -> Option<u64> {
         self.len

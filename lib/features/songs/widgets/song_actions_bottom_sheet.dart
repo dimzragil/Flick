@@ -20,6 +20,8 @@ import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../player/widgets/add_to_playlist_sheet.dart';
+import '../../../services/sources/network_source_service.dart';
 
 /// Bottom sheet with actions for a song (add to playlist, favorites, view metadata, etc.)
 class SongActionsBottomSheet extends ConsumerWidget {
@@ -62,6 +64,9 @@ class SongActionsBottomSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isFavorite = ref.watch(isSongFavoriteProvider(song.id));
+    final isTidal = song.sourceType == NetworkProtocol.tidal &&
+        song.remoteId != null &&
+        song.remoteId!.isNotEmpty;
 
     return SingleChildScrollView(
       child: Column(
@@ -129,9 +134,19 @@ class SongActionsBottomSheet extends ConsumerWidget {
             label: 'Add to Playlist',
             onTap: () {
               Navigator.pop(context);
-              _showAddToPlaylistSheet(context);
+              AddToPlaylistSheet.show(rootContext, song);
             },
           ),
+          if (isTidal)
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.listPlus,
+              label: 'Add to TIDAL Playlist',
+              onTap: () {
+                Navigator.pop(context);
+                AddToPlaylistSheet.show(rootContext, song);
+              },
+            ),
           _buildActionTile(
             context: context,
             icon: LucideIcons.image,
@@ -361,191 +376,6 @@ class SongActionsBottomSheet extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
-
-  void _showAddToPlaylistSheet(BuildContext context) {
-    showModalBottomSheet(
-      useRootNavigator: true,
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return AppBottomSheetSurface(
-          maxHeightRatio: 0.72,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildDragHandle(),
-              const SizedBox(height: AppConstants.spacingMd),
-              Row(
-                children: [
-                  Icon(
-                    LucideIcons.listPlus,
-                    color: sheetContext.adaptiveTextSecondary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppConstants.spacingSm),
-                  Text(
-                    'Add to Playlist',
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: sheetContext.adaptiveTextPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppConstants.spacingSm),
-              Flexible(
-                fit: FlexFit.loose,
-                child: Consumer(
-                  builder: (context, sheetRef, _) {
-                    final playlistsAsync = sheetRef.watch(playlistsProvider);
-                    return playlistsAsync.when(
-                      loading: () => const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(AppConstants.spacingXl),
-                          child: CircularProgressIndicator(),
-                        ),
-                      ),
-                      error: (error, _) => Padding(
-                        padding: const EdgeInsets.all(AppConstants.spacingXl),
-                        child: Text('Error loading playlists: $error'),
-                      ),
-                      data: (state) {
-                        if (state.playlists.isEmpty) {
-                          return Padding(
-                            padding: const EdgeInsets.all(
-                              AppConstants.spacingXl,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  LucideIcons.listMusic,
-                                  size: 48,
-                                  color: context.adaptiveTextTertiary
-                                      .withValues(alpha: 0.5),
-                                ),
-                                const SizedBox(height: AppConstants.spacingMd),
-                                Text(
-                                  'No playlists yet',
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(
-                color: sheetContext.adaptiveTextSecondary,
-                                      ),
-                                ),
-                                const SizedBox(height: AppConstants.spacingLg),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    final rootContext = Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).context;
-                                    Navigator.pop(context);
-                                    _showCreatePlaylistDialog(rootContext);
-                                  },
-                                  icon: const Icon(LucideIcons.plus),
-                                  label: const Text('Create Playlist'),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return ListView(
-                          shrinkWrap: true,
-                          children: [
-                            _buildActionTile(
-                              context: context,
-                              icon: LucideIcons.plus,
-                              label: 'Create New Playlist',
-                              onTap: () {
-                                final rootContext = Navigator.of(
-                                  context,
-                                  rootNavigator: true,
-                                ).context;
-                                Navigator.pop(context);
-                                _showCreatePlaylistDialog(rootContext);
-                              },
-                            ),
-                            Divider(
-                              height: 1,
-                              color: AppColors.glassBorderStrong,
-                            ),
-                            const SizedBox(height: AppConstants.spacingSm),
-                            ...state.playlists.map((playlist) {
-                              return _buildActionTile(
-                                context: context,
-                                icon: LucideIcons.listMusic,
-                                label: playlist.name,
-                                onTap: () async {
-                                  await sheetRef
-                                      .read(playlistsProvider.notifier)
-                                      .addSongToPlaylist(playlist.id, song.id, song: song);
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Added to ${playlist.name}',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                              );
-                            }),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showCreatePlaylistDialog(BuildContext context) {
-    final container = ProviderScope.containerOf(context, listen: false);
-    final messenger = ScaffoldMessenger.of(context);
-
-    unawaited(
-      FlickDialogs.input(
-        context,
-        title: 'Create Playlist',
-        hintText: 'Playlist name',
-        confirmLabel: 'Create',
-      ).then((name) async {
-        if (name == null || name.isEmpty) return;
-
-        final playlist = await container
-            .read(playlistsProvider.notifier)
-            .createPlaylist(name);
-
-        if (playlist == null) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('A playlist with this name already exists'),
-            ),
-          );
-          return;
-        }
-
-        await container
-            .read(playlistsProvider.notifier)
-            .addSongToPlaylist(playlist.id, song.id, song: song);
-
-        messenger.showSnackBar(
-          SnackBar(content: Text('Created ${playlist.name} and added song')),
-        );
-      }),
     );
   }
 

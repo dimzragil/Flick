@@ -26,6 +26,8 @@ import 'package:flick/features/recap/screens/listening_recap_screen.dart';
 import 'package:flick/features/recently_added/screens/recently_added_screen.dart';
 import 'package:flick/features/recently_played/screens/recently_played_screen.dart';
 import 'package:flick/features/songs/screens/songs_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
+import 'package:flick/models/nav_bar_config.dart';
 import 'package:flick/models/playlist.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
@@ -1040,7 +1042,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                                   horizontal: AppConstants.spacingLg,
                                 ),
                                 scrollDirection: Axis.horizontal,
-                                itemCount: 6,
+                                itemCount: 7,
                                 separatorBuilder: (_, _) => const SizedBox(
                                   width: AppConstants.spacingSm,
                                 ),
@@ -1092,6 +1094,25 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                                         context,
                                         const ListeningRecapScreen(),
                                       ),
+                                    ),
+                                    5 => _BrowseChip(
+                                      icon: LucideIcons.waves,
+                                      label: 'Tidal',
+                                      onTap: () {
+                                        final config =
+                                            ref.read(navBarConfigProvider);
+                                        if (config.enabledButtons
+                                                .contains(NavBarButton.tidal) &&
+                                            widget.onNavigateToTab != null) {
+                                          widget.onNavigateToTab!(
+                                              NavBarButton.tidal.pageIndex);
+                                        } else {
+                                          _navigateTo(
+                                            context,
+                                            const TidalHubScreen(),
+                                          );
+                                        }
+                                      },
                                     ),
                                     _ => _BrowseChip(
                                       icon: LucideIcons.users,
@@ -1451,6 +1472,22 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
         gradient: const [Color(0xFF533116), Color(0xFF875214)],
         artPath: homeData.playlistPreviews.firstOrNull?.coverArtPath,
         onTap: () => _navigateTo(context, const PlaylistsScreen()),
+      ),
+      _QuickAccessItem(
+        title: 'Tidal',
+        subtitle: 'Bit-perfect streaming & catalog',
+        icon: LucideIcons.waves,
+        gradient: const [Color(0xFF002233), Color(0xFF006688)],
+        artPath: null,
+        onTap: () {
+          final config = ref.read(navBarConfigProvider);
+          if (config.enabledButtons.contains(NavBarButton.tidal) &&
+              widget.onNavigateToTab != null) {
+            widget.onNavigateToTab!(NavBarButton.tidal.pageIndex);
+          } else {
+            _navigateTo(context, const TidalHubScreen());
+          }
+        },
       ),
     ];
 

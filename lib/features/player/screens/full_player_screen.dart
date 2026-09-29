@@ -231,8 +231,9 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
 
   void _setVisualizationMode(bool value) {
     final nextLyricsMode = value ? false : _isLyricsMode;
-    if (_isVisualizationMode == value && _isLyricsMode == nextLyricsMode)
+    if (_isVisualizationMode == value && _isLyricsMode == nextLyricsMode) {
       return;
+    }
     setState(() {
       _isVisualizationMode = value;
       _isLyricsMode = nextLyricsMode;

@@ -3,11 +3,20 @@ plugins {
     id("kotlin-android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.google.gms.google-services")
 }
 
 import java.io.File
 import java.util.Properties
+
+val googleServicesJson = listOf(
+    file("google-services.json"),
+    file("src/release/google-services.json"),
+    file("src/google-services.json")
+).firstOrNull { it.exists() }
+
+if (googleServicesJson != null) {
+    apply(plugin = "com.google.gms.google-services")
+}
 
 val keystoreProperties = Properties()
 val keystoreFile = rootProject.file("key.properties")
@@ -29,14 +38,19 @@ android {
         compose = true
     }
 
+    val hasReleaseKeystore = keystoreFile.exists() &&
+        keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it).exists() } == true
+
     signingConfigs {
-        create("release") {
-            storeFile = keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it) }
-            storePassword = keystoreProperties.getProperty("storePassword")
-            keyAlias = keystoreProperties.getProperty("keyAlias")
-            keyPassword = keystoreProperties.getProperty("keyPassword")
-            enableV1Signing = true
-            enableV2Signing = true
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+            }
         }
     }
 
@@ -67,7 +81,11 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -203,7 +221,9 @@ tasks.named("preBuild") {
 }
 
 dependencies {
-    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
+    if (googleServicesJson != null) {
+        implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
+    }
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.media:media:1.7.0")

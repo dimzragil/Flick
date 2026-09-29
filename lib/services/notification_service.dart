@@ -28,6 +28,8 @@ class NotificationService {
     required VoidCallback onToggleFavorite,
     VoidCallback? onDisconnectCast,
     Function(double)? onSetCastVolume,
+    Function(double)? onSetUsbVolume,
+    Function(int)? onStepUsbVolume,
   }) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -68,6 +70,14 @@ class NotificationService {
           final volume = (call.arguments['volume'] as num?)?.toDouble();
           if (volume != null) onSetCastVolume?.call(volume);
           break;
+        case 'setUsbVolume':
+          final volume = (call.arguments['volume'] as num?)?.toDouble();
+          if (volume != null) onSetUsbVolume?.call(volume);
+          break;
+        case 'stepUsbVolume':
+          final direction = (call.arguments['direction'] as num?)?.toInt();
+          if (direction != null) onStepUsbVolume?.call(direction);
+          break;
       }
     });
   }
@@ -84,23 +94,28 @@ class NotificationService {
     bool isCasting = false,
     String? castDeviceName,
     int? castVolumePercent,
+    bool isDirectUsb = false,
+    double? usbVolume,
+    String? albumArtPath,
   }) async {
     try {
       final args = <String, dynamic>{
         'title': song.title,
         'artist': song.artist,
-        'albumArtPath': song.albumArt,
+        'albumArtPath': albumArtPath ?? song.albumArt,
         'isPlaying': isPlaying,
         'duration': duration?.inMilliseconds ?? 0,
         'position': position?.inMilliseconds ?? 0,
         'isShuffle': isShuffle,
         'isFavorite': isFavorite,
         'isCasting': isCasting,
+        'isDirectUsb': isDirectUsb,
       };
       if (castDeviceName != null) args['castDeviceName'] = castDeviceName;
       if (castVolumePercent != null) {
         args['castVolume'] = castVolumePercent;
       }
+      if (usbVolume != null) args['usbVolume'] = usbVolume;
       if (color != null) args['color'] = color;
       await _channel.invokeMethod('showNotification', args);
       _isNotificationVisible = true;
@@ -139,12 +154,15 @@ class NotificationService {
     bool? isCasting,
     String? castDeviceName,
     int? castVolumePercent,
+    bool? isDirectUsb,
+    double? usbVolume,
+    String? albumArtPath,
   }) async {
     try {
       final args = <String, dynamic>{
         'title': song.title,
         'artist': song.artist,
-        'albumArtPath': song.albumArt,
+        'albumArtPath': albumArtPath ?? song.albumArt,
         'isPlaying': isPlaying,
         'duration': duration?.inMilliseconds ?? 0,
         'position': position?.inMilliseconds ?? 0,
@@ -157,6 +175,10 @@ class NotificationService {
         args['isCasting'] = isCasting;
         args['castDeviceName'] = castDeviceName;
         if (castVolumePercent != null) args['castVolume'] = castVolumePercent;
+      }
+      if (isDirectUsb != null) {
+        args['isDirectUsb'] = isDirectUsb;
+        if (usbVolume != null) args['usbVolume'] = usbVolume;
       }
 
       await _channel.invokeMethod('updateNotification', args);
@@ -184,6 +206,24 @@ class NotificationService {
       await _channel.invokeMethod('updateNotification', args);
     } catch (e) {
       devLog('Failed to update cast state: $e');
+    }
+  }
+
+  /// Lightweight USB-only update: flips the MediaSession to remote volume
+  /// so physical volume keys control USB DAC directly.
+  Future<void> updateUsbState({
+    required bool isDirectUsb,
+    double? usbVolume,
+  }) async {
+    if (!_isNotificationVisible) return;
+    try {
+      final args = <String, dynamic>{
+        'isDirectUsb': isDirectUsb,
+      };
+      if (usbVolume != null) args['usbVolume'] = usbVolume;
+      await _channel.invokeMethod('updateNotification', args);
+    } catch (e) {
+      devLog('Failed to update USB state: $e');
     }
   }
 

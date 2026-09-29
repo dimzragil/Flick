@@ -28,7 +28,11 @@ class ArtistsScreen extends ConsumerStatefulWidget {
   ConsumerState<ArtistsScreen> createState() => _ArtistsScreenState();
 }
 
-class _ArtistsScreenState extends ConsumerState<ArtistsScreen> {
+class _ArtistsScreenState extends ConsumerState<ArtistsScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final SongRepository _songRepository = SongRepository();
   final PlayerService _playerService = PlayerService();
   final TextEditingController _searchController = TextEditingController();
@@ -186,6 +190,7 @@ class _ArtistsScreenState extends ConsumerState<ArtistsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final currentSong = ref.watch(currentSongProvider);
 
     // Post-scan artwork/metadata writes land after the initial load; reload so

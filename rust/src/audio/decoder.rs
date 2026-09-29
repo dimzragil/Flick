@@ -137,6 +137,28 @@ pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeRe
         .map_err(|e| DecoderError::UnsupportedFormat(format!("HTTP probe failed: {}", e)))?;
 
     let mut result = build_probe_result(probed, PathBuf::from(url_label(url)))?;
+    let header_sample_rate = headers.iter().find_map(|(k, v)| {
+        if k.eq_ignore_ascii_case("x-flick-sample-rate") {
+            v.parse::<u32>().ok()
+        } else {
+            None
+        }
+    });
+    if let Some(rate) = header_sample_rate {
+        if plausible_sample_rate(rate) {
+            dev_eprintln!(
+                "[DECODER] Overriding HTTP stream sample rate from {} to {} Hz based on x-flick-sample-rate header",
+                result.source_info.original_sample_rate,
+                rate
+            );
+            result.source_info.original_sample_rate = rate;
+            result.source_info.output_sample_rate = rate;
+            if result.source_info.duration_secs > 0.0 {
+                result.source_info.total_samples =
+                    (result.source_info.duration_secs * rate as f64 * result.source_info.channels as f64) as u64;
+            }
+        }
+    }
     result.source_info.http_origin = Some((url.to_string(), headers));
     Ok(result)
 }
