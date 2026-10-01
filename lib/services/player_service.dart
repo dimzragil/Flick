@@ -4552,6 +4552,8 @@ class PlayerService {
     List<Song>? playlist,
     PlaybackContext? context,
   }) {
+    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+    devLog('[TIMING] tap play() enter song=${song.id} title=${song.title}');
     _debugLog('[UI] tap(${song.id})');
     final gen = ++_playbackGeneration;
     if (context != null) setPlaybackContext(context);
@@ -4612,6 +4614,10 @@ class PlayerService {
       _debugLog('[PlayerService] superseded before starting _playInternal');
       return;
     }
+    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+    devLog(
+      '[TIMING] _playInternal start song=${song.id} (tap-to-here = queue wait)',
+    );
     await initAudio();
     final loadingGen = ++_networkLoadingGen;
     try {
@@ -4678,7 +4684,12 @@ class PlayerService {
         // Sync format from resolved stream info for network sources (0ms, no full download needed)
         if (song.isNetworkSource) {
           try {
+            // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+            final tPass1 = Stopwatch()..start();
             await RemoteSourceService.instance.resolveHttpPlayback(song);
+            devLog(
+              '[TIMING] _playInternal pass1 resolveHttpPlayback ${tPass1.elapsedMilliseconds}ms song=${song.id}',
+            );
           } catch (_) {}
           if (generation != null && generation != _playbackGeneration) {
             _debugLog(

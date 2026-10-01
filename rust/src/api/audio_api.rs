@@ -1394,11 +1394,22 @@ pub fn audio_queue_next(path: String) -> Result<(), String> {
 /// Auth is carried via `headers` (e.g. WebDAV Basic) — Subsonic/Jellyfin embed
 /// credentials in the URL query and pass an empty header map.
 pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Result<(), String> {
+    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+    let t_http = std::time::Instant::now();
+    log_info!("[TIMING] audio_play_from_http enter");
     clear_dsd_track_rate();
     let probe_result = probe_http(&url, headers)
         .map_err(|e| format!("Failed to probe HTTP stream: {}", e))?;
+    log_info!(
+        "[TIMING] audio_play_from_http probe done in {:?}",
+        t_http.elapsed()
+    );
     let file_rate = probe_result.source_info.original_sample_rate;
     ensure_audio_engine(resolve_track_playback_output_sample_rate(Some(file_rate))?)?;
+    log_info!(
+        "[TIMING] audio_play_from_http ensure_engine done in {:?}",
+        t_http.elapsed()
+    );
     let (output_sample_rate, output_channels) =
         with_audio_engine(|handle| Ok((handle.sample_rate(), handle.channels())))?;
     if output_sample_rate != file_rate {
@@ -1415,10 +1426,19 @@ pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Re
         None,
     )
     .map_err(|e| format!("Failed to decode HTTP stream: {}", e))?;
-    with_audio_engine(|handle| {
+    log_info!(
+        "[TIMING] audio_play_from_http decoder_spawn done in {:?}",
+        t_http.elapsed()
+    );
+    let play_result = with_audio_engine(|handle| {
         handle.set_dop_override(false)?;
         handle.play_prepared(source, DecoderHandle::Symphonia(decoder_thread))
-    })
+    });
+    log_info!(
+        "[TIMING] audio_play_from_http play_prepared done in {:?}",
+        t_http.elapsed()
+    );
+    play_result
 }
 
 /// Queue a remote HTTP stream as the next track for gapless playback.

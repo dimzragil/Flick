@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flick/core/utils/dev_log.dart';
 import 'package:flick/models/audio_engine_type.dart';
 import 'package:flick/models/playback_state.dart';
 import 'package:flick/models/song.dart';
@@ -168,12 +169,20 @@ class RustAudioEngine implements AudioEngine {
     final httpResolver = _resolveHttpSource;
     if (httpResolver != null) {
       try {
+        // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+        final tEngine = Stopwatch()..start();
         final http = await httpResolver(track);
+        devLog(
+          '[TIMING] RustAudioEngine.play httpResolver(pass2) ${tEngine.elapsedMilliseconds}ms',
+        );
         if (http != null) {
           try {
             await _rustAudioService.playHttp(
               url: http.url,
               headers: http.headers,
+            );
+            devLog(
+              '[TIMING] RustAudioEngine.play playHttp done ${tEngine.elapsedMilliseconds}ms',
             );
             await _applyInitialSeekAfterStart();
             return;

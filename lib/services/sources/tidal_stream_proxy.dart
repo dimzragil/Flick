@@ -618,6 +618,8 @@ class TidalBtsStreamSession {
   }
 
   Future<void> start() async {
+    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+    final tBts = Stopwatch()..start();
     final part = File('$targetPath.part');
     if (await part.exists()) {
       await part.delete();
@@ -627,12 +629,18 @@ class TidalBtsStreamSession {
     final response = await client
         .send(request)
         .timeout(const Duration(seconds: 20));
+    devLog(
+      '[TIMING] BTS session headers ${tBts.elapsedMilliseconds}ms trackId=$trackId',
+    );
     if (response.statusCode != 200) {
       throw HttpException('BTS CDN returned HTTP ${response.statusCode}');
     }
     _total = response.contentLength;
     unawaited(_consume(response.stream, part));
     await _ready.future.timeout(const Duration(seconds: 20));
+    devLog(
+      '[TIMING] BTS session ready(256KB) ${tBts.elapsedMilliseconds}ms trackId=$trackId total=$_total',
+    );
   }
 
   Future<void> _consume(Stream<List<int>> stream, File part) async {
