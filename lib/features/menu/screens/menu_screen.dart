@@ -86,15 +86,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
       parent: _welcomeCardController,
       curve: Curves.easeOutCubic,
     );
-    _welcomeCardSlide = Tween<Offset>(
-      begin: const Offset(0, -0.15),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _welcomeCardController,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _welcomeCardSlide =
+        Tween<Offset>(begin: const Offset(0, -0.15), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _welcomeCardController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _welcomeCardController.forward();
     _updateNoticeController = AnimationController(
       duration: const Duration(milliseconds: 500),
@@ -104,15 +102,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
       parent: _updateNoticeController,
       curve: Curves.easeOutCubic,
     );
-    _updateNoticeSlide = Tween<Offset>(
-      begin: const Offset(0, -0.15),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _updateNoticeController,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _updateNoticeSlide =
+        Tween<Offset>(begin: const Offset(0, -0.15), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _updateNoticeController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _updateNoticeController.forward();
     _refreshController = AnimationController(
       duration: const Duration(milliseconds: 600),
@@ -148,8 +144,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
       if (mounted) setState(() => _heroDominantColor = null);
       return;
     }
-    final color =
-        await ColorExtractionService().extractDominantColor(resolvedPath);
+    final color = await ColorExtractionService().extractDominantColor(
+      resolvedPath,
+    );
     if (mounted && _heroColorArtPath == resolvedPath) {
       setState(() => _heroDominantColor = color);
     }
@@ -242,9 +239,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
   }
 
   void _navigateTo(BuildContext context, Widget screen) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   Future<void> _playSongs(
@@ -617,7 +612,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
 
     final wasBitPerfectEnabled = await service.getBitPerfectEnabled();
     await _playerService.setAudioEnginePreference(target);
-    if (wasBitPerfectEnabled && target != AudioEnginePreference.isochronousUsb) {
+    if (wasBitPerfectEnabled &&
+        target != AudioEnginePreference.isochronousUsb) {
       await ref.read(uac2ServiceProvider).setBitPerfectEnabled(false);
       ref.invalidate(uac2BitPerfectEnabledProvider);
       ref.invalidate(uac2ExclusiveDacModeProvider);
@@ -671,318 +667,321 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
           children: [
             RepaintBoundary(
               child: SafeArea(
-              bottom: false,
-              child: RefreshIndicator(
-                onRefresh: _refreshHome,
-                color: AppColors.accent,
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: _buildHeader(
-                        context,
-                        songCount: allSongs.length,
-                        favoriteCount: favoriteSongs.length,
-                        playlistCount: playlists.length,
-                      ),
+                bottom: false,
+                child: RefreshIndicator(
+                  onRefresh: _refreshHome,
+                  color: AppColors.accent,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
                     ),
-                    SliverToBoxAdapter(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _buildHeader(
+                          context,
+                          songCount: allSongs.length,
+                          favoriteCount: favoriteSongs.length,
+                          playlistCount: playlists.length,
+                        ),
+                      ),
+                      SliverToBoxAdapter(
                         child: AnimatedSize(
                           duration: AppConstants.animationNormal,
                           curve: Curves.easeInOut,
                           alignment: Alignment.topCenter,
                           child:
                               appPreferences.showEngineSelector &&
-                                      enginePreferenceAsync.hasValue
-                                  ? Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        AppConstants.spacingLg,
-                                        0,
-                                        AppConstants.spacingLg,
-                                        AppConstants.spacingMd,
-                                      ),
-                                      child: _buildEngineSelector(
-                                        context,
-                                        enginePreferenceAsync.value!,
-                                        dominantColor: _heroDominantColor,
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
+                                  enginePreferenceAsync.hasValue
+                              ? Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    AppConstants.spacingLg,
+                                    0,
+                                    AppConstants.spacingLg,
+                                    AppConstants.spacingMd,
+                                  ),
+                                  child: _buildEngineSelector(
+                                    context,
+                                    enginePreferenceAsync.value!,
+                                    dominantColor: _heroDominantColor,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
                         ),
                       ),
-                    if (appPreferences.showUsbVolumeOnMenu)
-                      SliverToBoxAdapter(
-                        child: AnimatedSize(
-                          duration: AppConstants.animationNormal,
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppConstants.spacingLg,
-                              0,
-                              AppConstants.spacingLg,
-                              AppConstants.spacingMd,
-                            ),
-                            child: Uac2VolumeControl(
-                              useGradientBackground: true,
-                              gradientColors:
-                                  _heroGradientColors(_heroDominantColor),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (_pendingEngineRestart &&
-                        appPreferences.showEngineSelector)
-                      SliverToBoxAdapter(
-                        child: AnimatedSize(
-                          duration: AppConstants.animationNormal,
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppConstants.spacingLg,
-                              0,
-                              AppConstants.spacingLg,
-                              AppConstants.spacingMd,
-                            ),
-                            child: const EngineRestartNotice(),
-                          ),
-                        ),
-                      ),
-                    if (updateState.updateAvailable && _showUpdateNotice)
-                      SliverToBoxAdapter(
-                        child: AnimatedSize(
-                          duration: AppConstants.animationNormal,
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: FadeTransition(
-                            opacity: _updateNoticeFade,
-                            child: SlideTransition(
-                              position: _updateNoticeSlide,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  AppConstants.spacingLg,
-                                  0,
-                                  AppConstants.spacingLg,
-                                  AppConstants.spacingMd,
+                      if (appPreferences.showUsbVolumeOnMenu)
+                        SliverToBoxAdapter(
+                          child: AnimatedSize(
+                            duration: AppConstants.animationNormal,
+                            curve: Curves.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppConstants.spacingLg,
+                                0,
+                                AppConstants.spacingLg,
+                                AppConstants.spacingMd,
+                              ),
+                              child: Uac2VolumeControl(
+                                useGradientBackground: true,
+                                gradientColors: _heroGradientColors(
+                                  _heroDominantColor,
                                 ),
-                                child: _buildUpdateNotice(context),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    if (isInitialLoading)
-                      const SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: _MenuLoadingState(),
-                      )
-                    else ...[
-                      SliverToBoxAdapter(
-                        child: AnimatedSize(
-                          duration: const Duration(milliseconds: 400),
-                          curve: Curves.easeOutCubic,
-                          child:
-                              !appPreferences.welcomeCardDismissed
-                                  ? FadeTransition(
-                                      opacity: _welcomeCardFade,
-                                      child: SlideTransition(
-                                        position: _welcomeCardSlide,
-                                        child: Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                            AppConstants.spacingLg,
-                                            0,
-                                            AppConstants.spacingLg,
-                                            AppConstants.spacingMd,
-                                          ),
-                                          child: _buildWelcomeCard(context, ref),
+                      if (_pendingEngineRestart &&
+                          appPreferences.showEngineSelector)
+                        SliverToBoxAdapter(
+                          child: AnimatedSize(
+                            duration: AppConstants.animationNormal,
+                            curve: Curves.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppConstants.spacingLg,
+                                0,
+                                AppConstants.spacingLg,
+                                AppConstants.spacingMd,
+                              ),
+                              child: const EngineRestartNotice(),
+                            ),
+                          ),
+                        ),
+                      if (updateState.updateAvailable && _showUpdateNotice)
+                        SliverToBoxAdapter(
+                          child: AnimatedSize(
+                            duration: AppConstants.animationNormal,
+                            curve: Curves.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: FadeTransition(
+                              opacity: _updateNoticeFade,
+                              child: SlideTransition(
+                                position: _updateNoticeSlide,
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    AppConstants.spacingLg,
+                                    0,
+                                    AppConstants.spacingLg,
+                                    AppConstants.spacingMd,
+                                  ),
+                                  child: _buildUpdateNotice(context),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (isInitialLoading)
+                        const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: _MenuLoadingState(),
+                        )
+                      else ...[
+                        SliverToBoxAdapter(
+                          child: AnimatedSize(
+                            duration: const Duration(milliseconds: 400),
+                            curve: Curves.easeOutCubic,
+                            child: !appPreferences.welcomeCardDismissed
+                                ? FadeTransition(
+                                    opacity: _welcomeCardFade,
+                                    child: SlideTransition(
+                                      position: _welcomeCardSlide,
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          AppConstants.spacingLg,
+                                          0,
+                                          AppConstants.spacingLg,
+                                          AppConstants.spacingMd,
                                         ),
+                                        child: _buildWelcomeCard(context, ref),
                                       ),
-                                    )
-                                  : const SizedBox.shrink(),
-                        ),
-                      ),
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            AppConstants.spacingLg,
-                            0,
-                            AppConstants.spacingLg,
-                            AppConstants.spacingMd,
-                          ),
-                          child: _buildHeroCard(
-                            context,
-                            currentSong: currentSong,
-                            favoriteSongs: favoriteSongs,
-                            recentEntries: _recentEntries,
-                            homeData: homeData,
-                          ),
-                        ),
-                      ),
-                      if (appPreferences.showQuickAccess)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppConstants.spacingLg,
-                              0,
-                              AppConstants.spacingLg,
-                              AppConstants.spacingLg,
-                            ),
-                            child: _buildQuickAccessGrid(
-                              context,
-                              homeData: homeData,
-                              favoritesCount: favoriteSongs.length,
-                              playlistCount: playlists.length,
-                            ),
-                          ),
-                        ),
-                      if (appPreferences.showSmartMixes &&
-                          homeData.smartMixes.isNotEmpty)
-                        SliverToBoxAdapter(
-                          child: _buildSection(
-                            context,
-                            title: 'Made For You',
-                            subtitle:
-                                'Generated from your listening habits, favorites, and newest additions.',
-                            child: SizedBox(
-                              height: 222,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppConstants.spacingLg,
-                                ),
-                                scrollDirection: Axis.horizontal,
-                                itemCount: homeData.smartMixes.length,
-                                separatorBuilder: (_, _) => const SizedBox(
-                                  width: AppConstants.spacingMd,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final mix = homeData.smartMixes[index];
-                                  return _SmartMixCard(
-                                    mix: mix,
-                                    onTap: mix.songs.isEmpty
-                                        ? null
-                                        : () {
-                                            _navigateTo(
-                                              context,
-                                              SmartMixDetailScreen(
-                                                title: mix.title,
-                                                description: mix.description,
-                                                icon: mix.icon,
-                                                brandColors: mix.colors,
-                                                songs: mix.songs,
-                                              ),
-                                            );
-                                          },
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (appPreferences.showRecentArtists &&
-                          homeData.recentArtists.isNotEmpty)
-                        SliverToBoxAdapter(
-                          child: _buildSection(
-                            context,
-                            title: 'Artists In Rotation',
-                            subtitle:
-                                'The names showing up again and again in your recent queue.',
-                            child: SizedBox(
-                              height: 172,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppConstants.spacingLg,
-                                ),
-                                scrollDirection: Axis.horizontal,
-                                itemCount: homeData.recentArtists.length,
-                                separatorBuilder: (_, _) => const SizedBox(
-                                  width: AppConstants.spacingMd,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final artist = homeData.recentArtists[index];
-                                  return _ArtistShelfCard(
-                                    artist: artist,
-                                    onTap: () {
-                                      _navigateTo(
-                                        context,
-                                        ArtistDetailScreen(
-                                          artistName: artist.name,
-                                          songs: artist.songs,
-                                          artistArt: artist.artPath,
-                                          artistArtSourcePath: artist
-                                              .songs
-                                              .firstOrNull
-                                              ?.filePath,
-                                          playerService: _playerService,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (appPreferences.showRecentTracks &&
-                          homeData.recentTracks.isNotEmpty)
-                        SliverToBoxAdapter(
-                          child: _buildSection(
-                            context,
-                            title: 'Recently Played',
-                            subtitle:
-                                'Pick up exactly where your last sessions left off.',
-                            trailing: TextButton(
-                              onPressed: () => _navigateTo(
-                                context,
-                                const RecentlyPlayedScreen(),
-                              ),
-                              child: const Text('See all'),
-                            ),
-                            child: SizedBox(
-                              height: 212,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppConstants.spacingLg,
-                                ),
-                                scrollDirection: Axis.horizontal,
-                                itemCount: homeData.recentTracks.length,
-                                separatorBuilder: (_, _) => const SizedBox(
-                                  width: AppConstants.spacingMd,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final song = homeData.recentTracks[index];
-                                  return _RecentTrackCard(
-                                    song: song,
-                                    onTap: () => _playSongs(
-                                      context,
-                                      homeData.recentTracks,
-                                      initialSong: song,
-                                      heroSeed: 'menu_recent',
                                     ),
-                                  );
-                                },
-                              ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppConstants.spacingLg,
+                              0,
+                              AppConstants.spacingLg,
+                              AppConstants.spacingMd,
+                            ),
+                            child: _buildHeroCard(
+                              context,
+                              currentSong: currentSong,
+                              favoriteSongs: favoriteSongs,
+                              recentEntries: _recentEntries,
+                              homeData: homeData,
                             ),
                           ),
                         ),
-                      if (appPreferences.showPlaylistPreviews)
-                        SliverToBoxAdapter(
-                          child: _buildSection(
-                            context,
-                            title: 'Your Playlists',
-                            subtitle: playlists.isEmpty
-                                ? 'Create your first playlist or jump into your saved collections.'
-                                : 'Saved playlists and quick jumps into your library organization.',
-                            trailing: TextButton(
-                              onPressed: () =>
-                                  _navigateTo(context, const PlaylistsScreen()),
-                              child: Text(
-                                playlists.isEmpty ? 'Create' : 'See all',
+                        if (appPreferences.showQuickAccess)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppConstants.spacingLg,
+                                0,
+                                AppConstants.spacingLg,
+                                AppConstants.spacingLg,
+                              ),
+                              child: _buildQuickAccessGrid(
+                                context,
+                                homeData: homeData,
+                                favoritesCount: favoriteSongs.length,
+                                playlistCount: playlists.length,
                               ),
                             ),
-                            child: playlists.isEmpty
+                          ),
+                        if (appPreferences.showSmartMixes &&
+                            homeData.smartMixes.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: _buildSection(
+                              context,
+                              title: 'Made For You',
+                              subtitle:
+                                  'Generated from your listening habits, favorites, and newest additions.',
+                              child: SizedBox(
+                                height: 222,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppConstants.spacingLg,
+                                  ),
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: homeData.smartMixes.length,
+                                  separatorBuilder: (_, _) => const SizedBox(
+                                    width: AppConstants.spacingMd,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final mix = homeData.smartMixes[index];
+                                    return _SmartMixCard(
+                                      mix: mix,
+                                      onTap: mix.songs.isEmpty
+                                          ? null
+                                          : () {
+                                              _navigateTo(
+                                                context,
+                                                SmartMixDetailScreen(
+                                                  title: mix.title,
+                                                  description: mix.description,
+                                                  icon: mix.icon,
+                                                  brandColors: mix.colors,
+                                                  songs: mix.songs,
+                                                ),
+                                              );
+                                            },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (appPreferences.showRecentArtists &&
+                            homeData.recentArtists.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: _buildSection(
+                              context,
+                              title: 'Artists In Rotation',
+                              subtitle:
+                                  'The names showing up again and again in your recent queue.',
+                              child: SizedBox(
+                                height: 172,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppConstants.spacingLg,
+                                  ),
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: homeData.recentArtists.length,
+                                  separatorBuilder: (_, _) => const SizedBox(
+                                    width: AppConstants.spacingMd,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final artist =
+                                        homeData.recentArtists[index];
+                                    return _ArtistShelfCard(
+                                      artist: artist,
+                                      onTap: () {
+                                        _navigateTo(
+                                          context,
+                                          ArtistDetailScreen(
+                                            artistName: artist.name,
+                                            songs: artist.songs,
+                                            artistArt: artist.artPath,
+                                            artistArtSourcePath: artist
+                                                .songs
+                                                .firstOrNull
+                                                ?.filePath,
+                                            playerService: _playerService,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (appPreferences.showRecentTracks &&
+                            homeData.recentTracks.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: _buildSection(
+                              context,
+                              title: 'Recently Played',
+                              subtitle:
+                                  'Pick up exactly where your last sessions left off.',
+                              trailing: TextButton(
+                                onPressed: () => _navigateTo(
+                                  context,
+                                  const RecentlyPlayedScreen(),
+                                ),
+                                child: const Text('See all'),
+                              ),
+                              child: SizedBox(
+                                height: 212,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppConstants.spacingLg,
+                                  ),
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: homeData.recentTracks.length,
+                                  separatorBuilder: (_, _) => const SizedBox(
+                                    width: AppConstants.spacingMd,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final song = homeData.recentTracks[index];
+                                    return _RecentTrackCard(
+                                      song: song,
+                                      onTap: () => _playSongs(
+                                        context,
+                                        homeData.recentTracks,
+                                        initialSong: song,
+                                        heroSeed: 'menu_recent',
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (appPreferences.showPlaylistPreviews)
+                          SliverToBoxAdapter(
+                            child: _buildSection(
+                              context,
+                              title: 'Your Playlists',
+                              subtitle: playlists.isEmpty
+                                  ? 'Create your first playlist or jump into your saved collections.'
+                                  : 'Saved playlists and quick jumps into your library organization.',
+                              trailing: TextButton(
+                                onPressed: () => _navigateTo(
+                                  context,
+                                  const PlaylistsScreen(),
+                                ),
+                                child: Text(
+                                  playlists.isEmpty ? 'Create' : 'See all',
+                                ),
+                              ),
+                              child: playlists.isEmpty
                                   ? Padding(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: AppConstants.spacingLg,
@@ -1026,118 +1025,121 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                                         },
                                       ),
                                     ),
+                            ),
                           ),
-                        ),
-                      if (appPreferences.showBrowseMore)
-                        SliverToBoxAdapter(
-                          child: _buildSection(
-                            context,
-                            title: 'Browse More',
-                            subtitle:
-                                'Library views and utilities that still belong close to the music.',
-                            child: SizedBox(
-                              height: 52,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppConstants.spacingLg,
-                                ),
-                                scrollDirection: Axis.horizontal,
-                                itemCount: 7,
-                                separatorBuilder: (_, _) => const SizedBox(
-                                  width: AppConstants.spacingSm,
-                                ),
-                                itemBuilder: (context, index) {
-                                  return switch (index) {
-                                    0 => _BrowseChip(
-                                      icon: LucideIcons.library,
-                                      label: 'Library',
-                                      onTap: () {
-                                        if (widget.onNavigateToTab != null) {
-                                          widget.onNavigateToTab!(1);
-                                        } else {
-                                          _navigateTo(
-                                            context,
-                                            const SongsScreen(),
+                        if (appPreferences.showBrowseMore)
+                          SliverToBoxAdapter(
+                            child: _buildSection(
+                              context,
+                              title: 'Browse More',
+                              subtitle:
+                                  'Library views and utilities that still belong close to the music.',
+                              child: SizedBox(
+                                height: 52,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppConstants.spacingLg,
+                                  ),
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: 7,
+                                  separatorBuilder: (_, _) => const SizedBox(
+                                    width: AppConstants.spacingSm,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    return switch (index) {
+                                      0 => _BrowseChip(
+                                        icon: LucideIcons.library,
+                                        label: 'Library',
+                                        onTap: () {
+                                          if (widget.onNavigateToTab != null) {
+                                            widget.onNavigateToTab!(1);
+                                          } else {
+                                            _navigateTo(
+                                              context,
+                                              const SongsScreen(),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      1 => _BrowseChip(
+                                        icon: LucideIcons.disc,
+                                        label: 'Albums',
+                                        onTap: () => _navigateTo(
+                                          context,
+                                          const AlbumsScreen(),
+                                        ),
+                                      ),
+                                      2 => _BrowseChip(
+                                        icon: LucideIcons.folder,
+                                        label: 'Folders',
+                                        onTap: () => _navigateTo(
+                                          context,
+                                          const FoldersScreen(),
+                                        ),
+                                      ),
+                                      3 => _BrowseChip(
+                                        icon: LucideIcons.list,
+                                        label: 'Queue',
+                                        onTap: () => _navigateTo(
+                                          context,
+                                          const QueueScreen(),
+                                        ),
+                                      ),
+                                      4 => _BrowseChip(
+                                        icon: Icons.auto_graph_rounded,
+                                        label: 'Flick Replay',
+                                        highlighted: true,
+                                        onTap: () => _navigateTo(
+                                          context,
+                                          const ListeningRecapScreen(),
+                                        ),
+                                      ),
+                                      5 => _BrowseChip(
+                                        icon: LucideIcons.waves,
+                                        label: 'Tidal',
+                                        onTap: () {
+                                          final config = ref.read(
+                                            navBarConfigProvider,
                                           );
-                                        }
-                                      },
-                                    ),
-                                    1 => _BrowseChip(
-                                      icon: LucideIcons.disc,
-                                      label: 'Albums',
-                                      onTap: () => _navigateTo(
-                                        context,
-                                        const AlbumsScreen(),
+                                          if (config.enabledButtons.contains(
+                                                NavBarButton.tidal,
+                                              ) &&
+                                              widget.onNavigateToTab != null) {
+                                            widget.onNavigateToTab!(
+                                              NavBarButton.tidal.pageIndex,
+                                            );
+                                          } else {
+                                            _navigateTo(
+                                              context,
+                                              const TidalHubScreen(),
+                                            );
+                                          }
+                                        },
                                       ),
-                                    ),
-                                    2 => _BrowseChip(
-                                      icon: LucideIcons.folder,
-                                      label: 'Folders',
-                                      onTap: () => _navigateTo(
-                                        context,
-                                        const FoldersScreen(),
+                                      _ => _BrowseChip(
+                                        icon: LucideIcons.users,
+                                        label: 'Artists',
+                                        onTap: () => _navigateTo(
+                                          context,
+                                          const ArtistsScreen(),
+                                        ),
                                       ),
-                                    ),
-                                    3 => _BrowseChip(
-                                      icon: LucideIcons.list,
-                                      label: 'Queue',
-                                      onTap: () => _navigateTo(
-                                        context,
-                                        const QueueScreen(),
-                                      ),
-                                    ),
-                                    4 => _BrowseChip(
-                                      icon: Icons.auto_graph_rounded,
-                                      label: 'Flick Replay',
-                                      highlighted: true,
-                                      onTap: () => _navigateTo(
-                                        context,
-                                        const ListeningRecapScreen(),
-                                      ),
-                                    ),
-                                    5 => _BrowseChip(
-                                      icon: LucideIcons.waves,
-                                      label: 'Tidal',
-                                      onTap: () {
-                                        final config =
-                                            ref.read(navBarConfigProvider);
-                                        if (config.enabledButtons
-                                                .contains(NavBarButton.tidal) &&
-                                            widget.onNavigateToTab != null) {
-                                          widget.onNavigateToTab!(
-                                              NavBarButton.tidal.pageIndex);
-                                        } else {
-                                          _navigateTo(
-                                            context,
-                                            const TidalHubScreen(),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                    _ => _BrowseChip(
-                                      icon: LucideIcons.users,
-                                      label: 'Artists',
-                                      onTap: () => _navigateTo(
-                                        context,
-                                        const ArtistsScreen(),
-                                      ),
-                                    ),
-                                  };
-                                },
+                                    };
+                                  },
+                                ),
                               ),
                             ),
                           ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: AppConstants.navBarHeight + 136,
+                          ),
                         ),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: AppConstants.navBarHeight + 136,
-                        ),
-                      ),
+                      ],
                     ],
-                  ],
-                 ),
-               ),
-             ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -1286,24 +1288,17 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                 ..removeCurrentSnackBar()
                 ..showSnackBar(
                   SnackBar(
-                    content: const Text(
-                      'Update notice hidden.',
-                    ),
+                    content: const Text('Update notice hidden.'),
                     behavior: SnackBarBehavior.floating,
                     duration: const Duration(seconds: 4),
                     action: SnackBarAction(
                       label: 'Undo',
-                      onPressed: () =>
-                          setState(() => _showUpdateNotice = true),
+                      onPressed: () => setState(() => _showUpdateNotice = true),
                     ),
                   ),
                 );
             },
-            icon: const Icon(
-              LucideIcons.x,
-              size: 18,
-              color: Colors.white70,
-            ),
+            icon: const Icon(LucideIcons.x, size: 18, color: Colors.white70),
             visualDensity: VisualDensity.compact,
           ),
         ],
@@ -1411,10 +1406,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
       featureTile: featureTile,
       primaryButton: primaryButton,
       secondaryButton: secondaryButton,
-      onColorNeeded: () => _updateHeroColor(
-        featuredSong?.albumArt,
-        featuredSong?.filePath,
-      ),
+      onColorNeeded: () =>
+          _updateHeroColor(featuredSong?.albumArt, featuredSong?.filePath),
     );
   }
 
@@ -1485,7 +1478,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
               widget.onNavigateToTab != null) {
             widget.onNavigateToTab!(NavBarButton.tidal.pageIndex);
           } else {
-            _navigateTo(context, const TidalHubScreen());
+            NavigationHelper.pushFade(context, (_) => const TidalHubScreen());
           }
         },
       ),
@@ -2089,8 +2082,7 @@ class _HeroCardWithBlobsState extends State<_HeroCardWithBlobs>
               colors: gradientColors,
               stops: const [0.0, 0.56, 1.0],
             ),
-            border:
-                Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF08111B).withValues(alpha: 0.42),
@@ -2134,9 +2126,7 @@ class _HeroCardWithBlobsState extends State<_HeroCardWithBlobs>
                       children: [
                         Text(
                           widget.title,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
+                          style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
@@ -2145,8 +2135,8 @@ class _HeroCardWithBlobsState extends State<_HeroCardWithBlobs>
                         const SizedBox(height: AppConstants.spacingXs),
                         Text(
                           widget.subtitle,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
                                 color: Colors.white.withValues(alpha: 0.78),
                                 height: 1.45,
                               ),
@@ -2235,7 +2225,9 @@ class _HeroCardWithBlobsState extends State<_HeroCardWithBlobs>
     final driftY = phase * 10.0 * (index.isOdd ? 1 : -1);
     final size = baseSize * sizeScale;
 
-    final anchorOffset = anchor.alongSize(Size(containerWidth, containerHeight));
+    final anchorOffset = anchor.alongSize(
+      Size(containerWidth, containerHeight),
+    );
 
     return Positioned(
       left: anchorOffset.dx + driftX - size / 2,
@@ -2787,11 +2779,17 @@ class _RecentTrackCard extends StatelessWidget {
                     thumbnailHeight: 240,
                     placeholder: Container(
                       color: AppColors.glassBackgroundStrong,
-                      child: const FlickArtworkPlaceholder(size: 28, opacity: 0.9),
+                      child: const FlickArtworkPlaceholder(
+                        size: 28,
+                        opacity: 0.9,
+                      ),
                     ),
                     errorWidget: Container(
                       color: AppColors.glassBackgroundStrong,
-                      child: const FlickArtworkPlaceholder(size: 28, opacity: 0.9),
+                      child: const FlickArtworkPlaceholder(
+                        size: 28,
+                        opacity: 0.9,
+                      ),
                     ),
                   ),
                 ),
@@ -3115,8 +3113,9 @@ class _BrowseChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 16,
-                color:
-                    highlighted ? AppColors.accentLight : context.adaptiveTextSecondary,
+                color: highlighted
+                    ? AppColors.accentLight
+                    : context.adaptiveTextSecondary,
               ),
               const SizedBox(width: AppConstants.spacingXs),
               Text(

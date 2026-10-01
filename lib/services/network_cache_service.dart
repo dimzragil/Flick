@@ -77,7 +77,7 @@ class NetworkCacheService {
       p.join(serverDir.path, '${_hash(remoteServerId, remoteId)}.${extension ?? 'bin'}'),
     );
     await file.writeAsBytes(bytes, flush: true);
-    await _evictIfOverCap(protect: file);
+    await evictIfOverCap(protect: file);
     return file.path;
   }
 
@@ -105,27 +105,81 @@ class NetworkCacheService {
 
   // ponytail: full O(n) size scan per eviction; track running totals only
   // if a server with a huge cache ever shows up on profile.
-  Future<void> _evictIfOverCap({File? protect}) async {
-    final root = await _root();
-    final files = <File>[];
-    var total = 0;
-    await for (final serverDir in root.list()) {
-      if (serverDir is! Directory) continue;
-      await for (final entry in serverDir.list()) {
-        if (entry is! File) continue;
-        files.add(entry);
-        total += await entry.length();
+  Future<void> evictIfOverCap({File? protect}) async {
+    try {
+      final root = await _root();
+      if (!await root.exists()) return;
+      final files = <File>[];
+      var total = 0;
+      await for (final serverDir in root.list()) {
+        if (serverDir is! Directory) continue;
+        await for (final entry in serverDir.list()) {
+          if (entry is! File) continue;
+          files.add(entry);
+          total += await entry.length();
+        }
       }
-    }
-    if (total <= sizeCapBytes) return;
+      if (total <= sizeCapBytes) return;
 
-    files.sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
-    for (final file in files) {
-      if (total <= sizeCapBytes) break;
-      if (file.path == protect?.path) continue;
-      final length = await file.length();
-      await file.delete();
-      total -= length;
-    }
+      files.sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
+      for (final file in files) {
+        if (total <= sizeCapBytes) break;
+        if (file.path == protect?.path) continue;
+        final length = await file.length();
+        await file.delete();
+        total -= length;
+      }
+    } catch (_) {}
+  }
+
+  /// Delete orphaned `.part` files left behind by interrupted streams.
+  Future<void> sweepDanglingPartFiles() async {
+    try {
+      final root = await _root();
+      if (!await root.exists()) return;
+      await for (final serverDir in root.list()) {
+        if (serverDir is! Directory) continue;
+        await for (final entry in serverDir.list()) {
+          if (entry is! File) continue;
+          if (entry.path.endsWith('.part')) {
+            try {
+              await entry.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Total bytes consumed by all cached files.
+  Future<int> getCacheSize() async {
+    final root = await _root();
+    var total = 0;
+    try {
+      await for (final serverDir in root.list()) {
+        if (serverDir is! Directory) continue;
+        await for (final entry in serverDir.list()) {
+          if (entry is! File) continue;
+          total += await entry.length();
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  /// Remove all cached files.
+  Future<void> clearCache() async {
+    final root = await _root();
+    try {
+      await for (final serverDir in root.list()) {
+        if (serverDir is! Directory) continue;
+        await for (final entry in serverDir.list()) {
+          if (entry is! File) continue;
+          try {
+            await entry.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 }

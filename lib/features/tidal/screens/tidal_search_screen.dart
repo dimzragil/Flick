@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/duration_format.dart';
 import '../../../core/utils/navigation_helper.dart';
@@ -69,22 +70,18 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   void _openAlbum(Map<String, dynamic> album) {
     final albumId = album['id']?.toString();
     if (albumId == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            TidalAlbumScreen(albumId: albumId, initialAlbumData: album),
-      ),
+    NavigationHelper.pushFade(
+      context,
+      (_) => TidalAlbumScreen(albumId: albumId, initialAlbumData: album),
     );
   }
 
   void _openArtist(Map<String, dynamic> artist) {
     final artistId = artist['id']?.toString();
     if (artistId == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            TidalArtistScreen(artistId: artistId, initialArtistData: artist),
-      ),
+    NavigationHelper.pushFade(
+      context,
+      (_) => TidalArtistScreen(artistId: artistId, initialArtistData: artist),
     );
   }
 
@@ -97,19 +94,17 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final imageUrl = (image != null && image.isNotEmpty)
         ? TidalService.coverUrl(image, size: 640)
         : null;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TidalPlaylistScreen(
-          playlistId: playlistId,
-          initialTitle: playlist['title'] as String?,
-          initialImageUrl: (imageUrl != null && imageUrl.isNotEmpty)
-              ? imageUrl
-              : null,
-          initialTrackCount:
-              ((playlist['numberOfTracks'] ?? playlist['numberOfItems'])
-                      as num?)
-                  ?.toInt(),
-        ),
+    NavigationHelper.pushFade(
+      context,
+      (_) => TidalPlaylistScreen(
+        playlistId: playlistId,
+        initialTitle: playlist['title'] as String?,
+        initialImageUrl: (imageUrl != null && imageUrl.isNotEmpty)
+            ? imageUrl
+            : null,
+        initialTrackCount:
+            ((playlist['numberOfTracks'] ?? playlist['numberOfItems']) as num?)
+                ?.toInt(),
       ),
     );
   }
@@ -118,87 +113,94 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   Widget build(BuildContext context) {
     final searchResults = ref.watch(tidalSearchProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
+    return BlurredSongBackground(
+      child: Scaffold(
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(LucideIcons.arrowLeft, color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          'TIDAL Search',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(
+              LucideIcons.arrowLeft,
+              color: AppColors.textPrimary,
+            ),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          title: const Text(
+            'TIDAL Search',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-      ),
-      body: Column(
-        children: [
-          // Search input
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: context.scaleSize(AppConstants.spacingMd),
-              vertical: context.scaleSize(AppConstants.spacingSm),
+        body: Column(
+          children: [
+            // Search input
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.scaleSize(AppConstants.spacingMd),
+                vertical: context.scaleSize(AppConstants.spacingSm),
+              ),
+              child: GlassSearchBar(
+                controller: _searchController,
+                focusNode: _focusNode,
+                autofocus: true,
+                hintText: 'Search songs, albums, artists...',
+                onChanged: _onSearchChanged,
+                onClear: _onClear,
+              ),
             ),
-            child: GlassSearchBar(
-              controller: _searchController,
-              focusNode: _focusNode,
-              autofocus: true,
-              hintText: 'Search songs, albums, artists...',
-              onChanged: _onSearchChanged,
-              onClear: _onClear,
-            ),
-          ),
-          // Category filter chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(
-              horizontal: context.scaleSize(AppConstants.spacingMd),
-              vertical: context.scaleSize(AppConstants.spacingXs),
-            ),
-            child: Row(
-              children: TidalSearchCategory.values.map((cat) {
-                final isSelected = _selectedCategory == cat;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(cat.label),
-                    selected: isSelected,
-                    onSelected: (_) => setState(() => _selectedCategory = cat),
-                    backgroundColor: AppColors.surface,
-                    selectedColor: AppColors.accent.withValues(alpha: 0.25),
-                    labelStyle: TextStyle(
-                      color: isSelected
-                          ? AppColors.accent
-                          : AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: isSelected
-                          ? FontWeight.bold
-                          : FontWeight.normal,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusRound,
-                      ),
-                      side: BorderSide(
+            // Category filter chips
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(
+                horizontal: context.scaleSize(AppConstants.spacingMd),
+                vertical: context.scaleSize(AppConstants.spacingXs),
+              ),
+              child: Row(
+                children: TidalSearchCategory.values.map((cat) {
+                  final isSelected = _selectedCategory == cat;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(cat.label),
+                      selected: isSelected,
+                      onSelected: (_) =>
+                          setState(() => _selectedCategory = cat),
+                      backgroundColor: AppColors.glassBackgroundStrong,
+                      selectedColor: const Color(0x3300FFFF),
+                      labelStyle: TextStyle(
                         color: isSelected
-                            ? AppColors.accent
-                            : AppColors.glassBorder,
+                            ? const Color(0xFF00FFFF)
+                            : AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
                       ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusRound,
+                        ),
+                        side: BorderSide(
+                          color: isSelected
+                              ? const Color(0xFF00FFFF)
+                              : AppColors.glassBorder,
+                          width: 1,
+                        ),
+                      ),
+                      showCheckmark: false,
                     ),
-                    showCheckmark: false,
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-          // Content
-          Expanded(child: _buildResultsView(searchResults)),
-        ],
+            // Content
+            Expanded(child: _buildResultsView(searchResults)),
+          ],
+        ),
       ),
     );
   }

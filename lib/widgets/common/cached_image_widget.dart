@@ -258,10 +258,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       // Use lower resolution for thumbnails
       cacheWidth: widget.useThumbnail && widget.thumbnailWidth != null
           ? widget.thumbnailWidth
-          : null,
+          : widget.width != null
+              ? (widget.width! * 2).round()
+              : null,
       cacheHeight: widget.useThumbnail && widget.thumbnailHeight != null
           ? widget.thumbnailHeight
-          : null,
+          : widget.height != null
+              ? (widget.height! * 2).round()
+              : null,
     );
   }
 
@@ -325,10 +329,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       // Use lower resolution for thumbnails
       cacheWidth: widget.useThumbnail && widget.thumbnailWidth != null
           ? widget.thumbnailWidth
-          : null,
+          : widget.width != null
+              ? (widget.width! * 2).round()
+              : null,
       cacheHeight: widget.useThumbnail && widget.thumbnailHeight != null
           ? widget.thumbnailHeight
-          : null,
+          : widget.height != null
+              ? (widget.height! * 2).round()
+              : null,
     );
   }
 }

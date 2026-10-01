@@ -71,7 +71,7 @@ class LyricsModeWaveformStrip extends StatefulWidget {
 }
 
 class _LyricsModeWaveformStripState extends State<LyricsModeWaveformStrip>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _toggleDuration = Duration(milliseconds: 400);
   static const Curve _toggleCurve = Curves.easeInOut;
 
@@ -84,7 +84,27 @@ class _LyricsModeWaveformStripState extends State<LyricsModeWaveformStrip>
   )..repeat(reverse: true);
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      if (_arrowAnimController.isAnimating) _arrowAnimController.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      if (!_arrowAnimController.isAnimating) {
+        _arrowAnimController.repeat(reverse: true);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _arrowAnimController.dispose();
     super.dispose();
   }

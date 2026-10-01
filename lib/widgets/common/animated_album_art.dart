@@ -46,12 +46,13 @@ class AnimatedAlbumArt extends StatefulWidget {
 }
 
 class _AnimatedAlbumArtState extends State<AnimatedAlbumArt>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 18),
@@ -67,7 +68,23 @@ class _AnimatedAlbumArtState extends State<AnimatedAlbumArt>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      if (_controller.isAnimating) _controller.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      if (mounted && !MediaQuery.of(context).disableAnimations) {
+        if (!_controller.isAnimating) {
+          _controller.repeat(reverse: true);
+        }
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }

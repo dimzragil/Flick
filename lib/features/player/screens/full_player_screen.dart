@@ -108,7 +108,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
     _throttledPositionNotifier = ValueNotifier(
       _playerService.positionNotifier.value,
     );
-    _positionThrottleTimer = Timer.periodic(const Duration(milliseconds: 50), (
+    _positionThrottleTimer = Timer.periodic(const Duration(milliseconds: 200), (
       timer,
     ) {
       if (mounted) {

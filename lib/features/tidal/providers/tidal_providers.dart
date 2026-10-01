@@ -238,6 +238,18 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
   return tidal.getUserPlaylists(server);
 });
 
+/// Fetches the user's custom mixes & daily discovery (My Mix 1..8, Daily Discovery).
+final tidalFavoriteMixesProvider = FutureProvider<List<TidalHomeItem>>((
+  ref,
+) async {
+  final server = await ref.watch(tidalServerProvider.future);
+  if (server == null || server.token == null || server.token!.isEmpty) {
+    return const [];
+  }
+  final tidal = ref.read(tidalServiceProvider);
+  return tidal.getFavoriteMixes(server);
+});
+
 /// Fetches album details and tracks for a given album ID.
 final tidalAlbumDetailsProvider =
     FutureProvider.family<

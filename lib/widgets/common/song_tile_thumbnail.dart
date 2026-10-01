@@ -91,6 +91,9 @@ class SongTileThumbnail extends ConsumerWidget {
     imagePath: song.albumArt,
     audioSourcePath: song.filePath,
     fit: BoxFit.cover,
+    useThumbnail: true,
+    thumbnailWidth: 120,
+    thumbnailHeight: 120,
     placeholder: const FlickArtworkPlaceholder(size: 28, opacity: 0.9),
     errorWidget: const FlickArtworkPlaceholder(size: 28, opacity: 0.9),
   );

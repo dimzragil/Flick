@@ -21,7 +21,10 @@ import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
+import '../../tidal/providers/tidal_providers.dart';
+import '../../tidal/screens/tidal_mix_screen.dart';
 import '../../../services/sources/network_source_service.dart';
+import '../../../services/sources/tidal_service.dart';
 
 /// Bottom sheet with actions for a song (add to playlist, favorites, view metadata, etc.)
 class SongActionsBottomSheet extends ConsumerWidget {
@@ -64,7 +67,8 @@ class SongActionsBottomSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isFavorite = ref.watch(isSongFavoriteProvider(song.id));
-    final isTidal = song.sourceType == NetworkProtocol.tidal &&
+    final isTidal =
+        song.sourceType == NetworkProtocol.tidal &&
         song.remoteId != null &&
         song.remoteId!.isNotEmpty;
 
@@ -137,7 +141,47 @@ class SongActionsBottomSheet extends ConsumerWidget {
               AddToPlaylistSheet.show(rootContext, song);
             },
           ),
-          if (isTidal)
+          if (isTidal) ...[
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.radio,
+              label: 'Start Track Radio',
+              onTap: () async {
+                Navigator.pop(context);
+                final server = await ref.read(tidalServerProvider.future);
+                if (server == null || !rootContext.mounted) return;
+                final trackId = song.remoteId?.isNotEmpty == true
+                    ? song.remoteId!
+                    : (song.filePath?.replaceFirst('tidal://', '') ?? '');
+                if (trackId.isEmpty) return;
+
+                final mixId = await TidalService.instance.getTrackRadioMixId(
+                  server,
+                  trackId,
+                );
+                if (!rootContext.mounted) return;
+
+                if (mixId != null && mixId.isNotEmpty) {
+                  Navigator.of(rootContext).push(
+                    MaterialPageRoute(
+                      builder: (_) => TidalMixScreen(
+                        mixId: mixId,
+                        initialTitle: '${song.title} Radio',
+                        initialImageUrl: song.albumArt,
+                        initialSubtitle: song.artist,
+                      ),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(rootContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Radio is not available for this track'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
             _buildActionTile(
               context: context,
               icon: LucideIcons.listPlus,
@@ -147,6 +191,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
                 AddToPlaylistSheet.show(rootContext, song);
               },
             ),
+          ],
           _buildActionTile(
             context: context,
             icon: LucideIcons.image,
@@ -430,11 +475,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
                           song.albumArtist!,
                         ),
                       if (song.genre != null)
-                        _buildMetadataRow(
-                          sheetContext,
-                          'Genre',
-                          song.genre!,
-                        ),
+                        _buildMetadataRow(sheetContext, 'Genre', song.genre!),
                       if (song.year != null)
                         _buildMetadataRow(
                           sheetContext,
@@ -498,7 +539,8 @@ class SongActionsBottomSheet extends ConsumerWidget {
   /// straight from the file; hidden when unavailable.
   Widget _buildFileTagExtras(BuildContext context) {
     final path = song.filePath;
-    final canReadFileTags = path != null &&
+    final canReadFileTags =
+        path != null &&
         path.isNotEmpty &&
         !path.startsWith('content://') &&
         song.startOffsetMs == null &&
@@ -525,8 +567,10 @@ class SongActionsBottomSheet extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (hasFullDate) _buildMetadataRow(context, 'Date', date),
-            if (hasCopyright) _buildMetadataRow(context, 'Copyright', copyright),
-            if (hasLabel) _buildMetadataRow(context, 'Label / Organization', label),
+            if (hasCopyright)
+              _buildMetadataRow(context, 'Copyright', copyright),
+            if (hasLabel)
+              _buildMetadataRow(context, 'Label / Organization', label),
           ],
         );
       },
@@ -537,9 +581,8 @@ class SongActionsBottomSheet extends ConsumerWidget {
     BuildContext sheetContext,
     WidgetRef ref,
   ) async {
-    final canDeleteFile = song.filePath != null &&
-        song.filePath!.isNotEmpty &&
-        !song.isExternal;
+    final canDeleteFile =
+        song.filePath != null && song.filePath!.isNotEmpty && !song.isExternal;
 
     final action = await showFlickDialog<String>(
       context: sheetContext,

@@ -27,7 +27,7 @@ class AudioVisualizer extends StatefulWidget {
 }
 
 class _AudioVisualizerState extends State<AudioVisualizer>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const int _barCount = 48;
   static const double _minHeight = 0.04;
   static const double _spring = 0.28;
@@ -50,6 +50,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _visualizerService = VisualizerService();
     _visualizerService.barHeightsNotifier.addListener(_onRealDataChanged);
 
@@ -418,7 +419,19 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      if (_controller.isAnimating) _controller.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      _updateControllerState();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.playerService.isPlayingNotifier.removeListener(_onPlayingChanged);
     widget.playerService.positionNotifier.removeListener(_onPositionChanged);
     widget.playerService.currentSongNotifier.removeListener(_onSongChanged);

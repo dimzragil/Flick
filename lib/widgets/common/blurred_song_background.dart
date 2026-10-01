@@ -14,6 +14,7 @@ class BlurredSongBackground extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (AmbientBackgroundScope.isPresent(context)) return child;
     final currentSong = ref.watch(currentSongProvider);
     return Stack(
       children: [

@@ -55,6 +55,7 @@ class RustAudioService {
 
   Timer? _progressTimer;
   Timer? _eventPollTimer;
+  bool _appInBackground = false;
   bool _initialized = false;
   bool _highResModeEnabled = false;
   String? _currentPath;
@@ -627,8 +628,10 @@ class RustAudioService {
   void _startEventPolling() {
     _stopEventPolling();
 
-    // Poll for events every 50ms
-    _eventPollTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+    final eventInterval = _appInBackground
+        ? const Duration(milliseconds: 500)
+        : const Duration(milliseconds: 50);
+    _eventPollTimer = Timer.periodic(eventInterval, (_) {
       _pollEvents();
     });
   }
@@ -637,6 +640,23 @@ class RustAudioService {
   void _stopEventPolling() {
     _eventPollTimer?.cancel();
     _eventPollTimer = null;
+  }
+
+  /// Throttle polling when the app is backgrounded to save CPU/battery.
+  /// Foreground: 50ms progress + 50ms events (smooth UI).
+  /// Background: 1500ms progress + 500ms events (notification & scrobble only).
+  void setAppInBackground(bool inBackground) {
+    if (_appInBackground == inBackground) return;
+    _appInBackground = inBackground;
+    if (!_initialized) return;
+    // Restart timers at the appropriate frequency
+    final state = stateNotifier.value;
+    if (state == RustPlaybackState.playing ||
+        state == RustPlaybackState.crossfading) {
+      _startProgressUpdates(fast: !inBackground);
+    }
+    _stopEventPolling();
+    _startEventPolling();
   }
 
   /// Poll for events from the Rust engine.

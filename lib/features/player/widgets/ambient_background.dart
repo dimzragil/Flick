@@ -2,10 +2,12 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/services/sources/tidal_service.dart';
 
 // ---------------------------------------------------------------------------
 // AmbientBackground
@@ -223,8 +225,30 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
     String? path,
     String? audioSourcePath,
   ) async {
-    if (path != null && path.isNotEmpty && await File(path).exists()) {
-      return path;
+    if (path != null && path.isNotEmpty) {
+      if (await File(path).exists()) return path;
+
+      var remoteUrl = path;
+      if (path.startsWith('tidal-cover://')) {
+        remoteUrl = TidalService.coverUrl(
+          path.substring('tidal-cover://'.length),
+          size: 640,
+        );
+      }
+      if (remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://')) {
+        try {
+          final cached = await DefaultCacheManager().getFileFromCache(
+            remoteUrl,
+          );
+          if (cached != null && await cached.file.exists()) {
+            return cached.file.path;
+          }
+          final file = await DefaultCacheManager().getSingleFile(remoteUrl);
+          if (await file.exists()) return file.path;
+        } catch (e) {
+          devLog('[AmbientBackground] Remote artwork cache failed: $e');
+        }
+      }
     }
 
     if (audioSourcePath == null || audioSourcePath.isEmpty) {

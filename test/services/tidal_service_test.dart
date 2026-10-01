@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flick/data/entities/network_server_entity.dart';
+import 'package:flick/models/playback_context.dart';
 import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -329,41 +330,66 @@ void main() {
   });
 
   group('streamDescriptor', () {
-    test('decodes a NONE-encryption bts manifest to the CDN url', () async {
-      final manifest = base64Encode(
-        utf8.encode(
-          jsonEncode({
-            'mimeType': 'audio/flac',
-            'codecs': 'flac',
-            'encryptionType': 'NONE',
-            'urls': ['https://cdn.tidal.com/track/flac/abc'],
-          }),
-        ),
-      );
-      final client = MockClient((request) async {
-        expect(request.url.path, contains('/playbackinfopostpaywall'));
-        expect(request.headers['Authorization'], 'Bearer acc-xyz');
-        return http.Response(
-          jsonEncode({
-            'manifest': manifest,
-            'manifestMimeType': 'application/vnd.tidal.bts',
-            'assetPresentation': 'FULL',
-          }),
-          200,
+    test(
+      'decodes a NONE-encryption BTS manifest to a local proxy URL',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp('tidal_bts_test');
+        addTearDown(() => tempDir.delete(recursive: true));
+        final manifest = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'mimeType': 'audio/flac',
+              'codecs': 'flac',
+              'encryptionType': 'NONE',
+              'urls': ['https://cdn.tidal.com/track/flac/abc'],
+            }),
+          ),
         );
-      });
-      final service = TidalService.create(client: client);
+        var playbackInfoRequests = 0;
+        final client = MockClient((request) async {
+          if (request.url.host == 'cdn.tidal.com') {
+            return http.Response.bytes([1, 2, 3], 200);
+          }
+          playbackInfoRequests++;
+          expect(request.url.path, contains('/playbackinfopostpaywall'));
+          expect(request.headers['Authorization'], 'Bearer acc-xyz');
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/vnd.tidal.bts',
+              'assetPresentation': 'FULL',
+            }),
+            200,
+          );
+        });
+        final service = TidalService.create(
+          client: client,
+          networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
 
-      final desc = await service.streamDescriptor(
-        _server(token: _validToken()),
-        '1234567',
-      );
+        final desc = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '1234567',
+        );
 
-      expect(desc, isNotNull);
-      expect(desc!.url, 'https://cdn.tidal.com/track/flac/abc');
-      expect(desc.headers['x-flick-sample-rate'], '44100');
-      expect(desc.headers['x-flick-bit-depth'], '16');
-    });
+        expect(desc, isNotNull);
+        expect(desc!.url, startsWith('http://127.0.0.1:'));
+        expect(desc.url, contains('/tidal-bts/'));
+        expect(desc.headers['x-flick-sample-rate'], '44100');
+        expect(desc.headers['x-flick-bit-depth'], '16');
+        final secondDescriptor = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '1234567',
+          extension: 'flac',
+        );
+        expect(playbackInfoRequests, 1);
+        expect(
+          secondDescriptor == null || secondDescriptor.url == desc.url,
+          isTrue,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      },
+    );
 
     test('throws a clear error for encrypted (MQA/HiRes) content', () async {
       final manifest = base64Encode(
@@ -700,6 +726,16 @@ void main() {
         bitrate: 1411,
       );
       expect(res2.resolutionString, '16-bit / 44.1kHz / 1411kbps');
+
+      const res3 = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+      );
+      expect(res3.effectiveBitrate, 1411);
+      expect(res3.resolutionString, '16-bit / 44.1kHz / 1411kbps');
     });
 
     test(
@@ -1008,6 +1044,312 @@ void main() {
           trackIds: ['tidal_9_101', '102', 'tidal_9_103'],
         );
         expect(requestIndex, 2);
+      },
+    );
+  });
+
+  group('Dynamic Mixes & Playback Reporting', () {
+    test('getFavoriteMixes fetches and parses mixes correctly', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v2/favorites/mixes');
+        expect(request.url.queryParameters['limit'], '50');
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {
+                'id': 'mix-daily',
+                'title': 'My Daily Discovery',
+                'subTitle': 'Updated daily',
+                'mixType': 'DAILY_DISCOVERY',
+                'images': {
+                  'LARGE': {
+                    'url': 'https://resources.tidal.com/images/mix-daily.jpg',
+                  },
+                },
+              },
+              {
+                'id': 'mix-1',
+                'title': 'My Mix 1',
+                'subTitle': 'Based on your recent listening',
+                'mixType': 'MY_MIX',
+                'images': {
+                  'LARGE': {
+                    'url': 'https://resources.tidal.com/images/mix-1.jpg',
+                  },
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = TidalService.create(client: client);
+      final mixes = await service.getFavoriteMixes(
+        _server(token: _validToken()),
+      );
+
+      expect(mixes.length, 2);
+      expect(mixes.first.id, 'mix-daily');
+      expect(mixes.first.title, 'My Daily Discovery');
+      expect(mixes.first.isMix, isTrue);
+      expect(mixes.last.id, 'mix-1');
+      expect(mixes.last.title, 'My Mix 1');
+    });
+
+    test('reportPlayback sends SQS batch event to ec.tidal.com', () async {
+      bool sent = false;
+      final payloadB64 = base64Url
+          .encode(
+            utf8.encode(
+              jsonEncode({'uid': 12345, 'cid': 9876, 'sid': 'test-session'}),
+            ),
+          )
+          .replaceAll('=', '');
+      final jwtToken = 'header.$payloadB64.signature';
+      final tokenJson = jsonEncode({
+        'access_token': jwtToken,
+        'country_code': 'US',
+        'expires_at_ms': DateTime.now()
+            .add(const Duration(hours: 1))
+            .millisecondsSinceEpoch,
+      });
+
+      final client = MockClient((request) async {
+        if (request.url.host == 'ec.tidal.com' &&
+            request.url.path == '/api/event-batch') {
+          sent = true;
+          expect(request.headers['Authorization'], 'Bearer $jwtToken');
+          expect(
+            request
+                .bodyFields['SendMessageBatchRequestEntry.1.MessageAttribute.1.Value.StringValue'],
+            'playback_session',
+          );
+          final bodyJson =
+              request.bodyFields['SendMessageBatchRequestEntry.1.MessageBody']!;
+          expect(bodyJson, contains('"productType":"TRACK"'));
+          expect(bodyJson, contains('"requestedProductId":"777888"'));
+          expect(bodyJson, contains('"sourceType":"ALBUM"'));
+          expect(bodyJson, contains('"sourceId":"alb-123"'));
+          return http.Response(
+            '<SendMessageBatchResponse></SendMessageBatchResponse>',
+            200,
+          );
+        }
+        return http.Response('Not Found', 404);
+      });
+
+      final service = TidalService.create(client: client);
+      await service.reportPlayback(
+        _server(token: tokenJson),
+        trackId: '777888',
+        durationSeconds: 45,
+        context: const PlaybackContext(
+          source: PlaybackSource.album,
+          sourceId: 'alb-123',
+        ),
+      );
+
+      expect(sent, isTrue);
+    });
+
+    test(
+      'getFavoriteMixes handles raw JSON array and sends x-tidal-client-version',
+      () async {
+        final client = MockClient((request) async {
+          expect(request.url.path, '/v2/favorites/mixes');
+          expect(request.headers['x-tidal-client-version'], '2026.9.15');
+          // Return raw JSON array
+          return http.Response(
+            jsonEncode([
+              {
+                'id': 'mix-array-1',
+                'title': 'Array Mix 1',
+                'mixType': 'MY_MIX',
+              },
+            ]),
+            200,
+          );
+        });
+
+        final service = TidalService.create(client: client);
+        final mixes = await service.getFavoriteMixes(
+          _server(token: _validToken()),
+        );
+
+        expect(mixes.length, 1);
+        expect(mixes.first.id, 'mix-array-1');
+        expect(mixes.first.title, 'Array Mix 1');
+      },
+    );
+
+    test(
+      'getFavoriteMixes falls back to /pages/my_collection_my_mixes on V2 failure',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path == '/v2/favorites/mixes') {
+            return http.Response('Internal Error', 500);
+          }
+          if (request.url.path == '/v1/pages/my_collection_my_mixes') {
+            return http.Response(
+              jsonEncode({
+                'rows': [
+                  {
+                    'modules': [
+                      {
+                        'type': 'MIX_LIST',
+                        'title': 'My Mixes',
+                        'pagedList': {
+                          'items': [
+                            {
+                              'mixId': 'fallback-mix-1',
+                              'title': 'Fallback Mix 1',
+                              'mixType': 'MY_MIX',
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        final service = TidalService.create(client: client);
+        final mixes = await service.getFavoriteMixes(
+          _server(token: _validToken()),
+        );
+
+        expect(mixes.length, 1);
+        expect(mixes.first.id, 'fallback-mix-1');
+        expect(mixes.first.title, 'Fallback Mix 1');
+      },
+    );
+
+    test(
+      'getHomeFeed falls back to SONE-parity V1 multi-endpoints when V2 fails',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path == '/v2/home/feed/static') {
+            return http.Response('Not Found', 404);
+          }
+          if (request.url.path == '/v1/pages/my_collection_my_mixes') {
+            return http.Response(
+              jsonEncode({
+                'rows': [
+                  {
+                    'modules': [
+                      {
+                        'type': 'MIX_LIST',
+                        'title': 'My Mixes',
+                        'pagedList': {
+                          'items': [
+                            {
+                              'mixId': 'm-1',
+                              'title': 'Mix 1',
+                              'mixType': 'MY_MIX',
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.path == '/v1/pages/for_you') {
+            return http.Response(
+              jsonEncode({
+                'rows': [
+                  {
+                    'modules': [
+                      {
+                        'type': 'TRACK_LIST',
+                        'title': 'Recommended new tracks',
+                        'pagedList': {
+                          'items': [
+                            {
+                              'id': 123,
+                              'title': 'Rec Song',
+                              'artist': {'name': 'Rec Artist'},
+                              'album': {'title': 'Rec Album'},
+                              'duration': 180,
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.path == '/v1/pages/home') {
+            return http.Response(
+              jsonEncode({
+                'rows': [
+                  {
+                    'modules': [
+                      {
+                        'type': 'ALBUM_LIST',
+                        'title': 'The Hits',
+                        'pagedList': {
+                          'items': [
+                            {'id': 456, 'title': 'Hit Album'},
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        final service = TidalService.create(client: client);
+        final feed = await service.getHomeFeed(_server(token: _validToken()));
+
+        expect(feed.sections.length, 3);
+        expect(feed.sections[0].title, 'My Mixes');
+        expect(feed.sections[1].title, 'Recommended new tracks');
+        expect(feed.sections[2].title, 'The Hits');
+      },
+    );
+
+    test(
+      'getTrackRadioMixId fetches track detail on demand and extracts TRACK_MIX',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path == '/v1/tracks/998877') {
+            return http.Response(
+              jsonEncode({
+                'id': 998877,
+                'title': 'Midnight City',
+                'mixes': {'TRACK_MIX': 'radio-mix-12345'},
+              }),
+              200,
+            );
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        final service = TidalService.create(client: client);
+        final radioId = await service.getTrackRadioMixId(
+          _server(token: _validToken()),
+          '998877',
+        );
+
+        expect(radioId, 'radio-mix-12345');
       },
     );
   });

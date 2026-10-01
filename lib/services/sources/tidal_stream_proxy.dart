@@ -24,10 +24,21 @@ class TidalStreamProxy {
 
   HttpServer? _server;
   final Map<String, TidalStreamSession> _sessions = {};
+  final Map<String, TidalBtsStreamSession> _btsSessions = {};
   final Random _rand = Random.secure();
 
   /// Port of the active loopback server, or null if not yet bound.
   int? get port => _server?.port;
+
+  /// Local URL for an in-progress or finished BTS session; never exposes the CDN URL.
+  String? activeBtsStreamUrl(String trackId) {
+    final session = _btsSessions.values
+        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .firstOrNull;
+    final serverPort = _server?.port;
+    if (session == null || serverPort == null) return null;
+    return 'http://127.0.0.1:$serverPort/tidal-bts/${session.streamToken}.${session.extension}';
+  }
 
   /// Ensure the loopback server is running and return its port.
   Future<int> ensureServer() async {
@@ -51,17 +62,22 @@ class TidalStreamProxy {
     required DashTrackInfo dashInfo,
     required String targetPath,
     http.Client? client,
+    Future<void> Function(File targetFile)? onFinalized,
   }) async {
     final serverPort = await ensureServer();
 
     // Reuse existing session for the same track if already active and not cancelled
-    final existingSession = _sessions.values.where((s) => s.trackId == trackId && !s.isCancelled).firstOrNull;
+    final existingSession = _sessions.values
+        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .firstOrNull;
     if (existingSession != null) {
       return 'http://127.0.0.1:$serverPort/tidal/${existingSession.streamToken}.mp4';
     }
 
     // Cancel any previous dead/stale session for the same track
-    final deadSession = _sessions.values.where((s) => s.trackId == trackId).firstOrNull;
+    final deadSession = _sessions.values
+        .where((s) => s.trackId == trackId)
+        .firstOrNull;
     if (deadSession != null) {
       deadSession.cancel();
       _sessions.remove(deadSession.streamToken);
@@ -74,6 +90,7 @@ class TidalStreamProxy {
       dashInfo: dashInfo,
       targetPath: targetPath,
       client: client ?? http.Client(),
+      onFinalized: onFinalized,
     );
 
     _sessions[token] = session;
@@ -88,12 +105,54 @@ class TidalStreamProxy {
     }
   }
 
+  /// Prebuffer a direct BTS asset locally, then continue writing it in background.
+  Future<String> prepareBtsStream({
+    required String trackId,
+    required String sourceUrl,
+    required String targetPath,
+    required String contentType,
+    http.Client? client,
+    Future<void> Function(File targetFile)? onFinalized,
+  }) async {
+    final serverPort = await ensureServer();
+    final existing = _btsSessions.values
+        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .firstOrNull;
+    if (existing != null) {
+      return 'http://127.0.0.1:$serverPort/tidal-bts/${existing.streamToken}.${existing.extension}';
+    }
+    cancelTrack(trackId);
+    final token = _generateToken();
+    final session = TidalBtsStreamSession(
+      streamToken: token,
+      trackId: trackId,
+      sourceUrl: sourceUrl,
+      targetPath: targetPath,
+      client: client ?? http.Client(),
+      contentType: contentType,
+      onFinalized: onFinalized,
+    );
+    _btsSessions[token] = session;
+    try {
+      await session.start();
+      return 'http://127.0.0.1:$serverPort/tidal-bts/$token.${session.extension}';
+    } catch (_) {
+      session.cancel();
+      _btsSessions.remove(token);
+      rethrow;
+    }
+  }
+
   /// Cancel all active stream sessions and background downloads.
   void cancelAllSessions() {
     for (final session in _sessions.values) {
       session.cancel();
     }
+    for (final session in _btsSessions.values) {
+      session.cancel();
+    }
     _sessions.clear();
+    _btsSessions.clear();
   }
 
   /// Cancel a session for a specific track.
@@ -108,6 +167,11 @@ class TidalStreamProxy {
     for (final token in toRemove) {
       _sessions.remove(token);
     }
+    _btsSessions.removeWhere((_, session) {
+      if (session.trackId != trackId) return false;
+      session.cancel();
+      return true;
+    });
   }
 
   /// Stop the server and clean up all sessions.
@@ -126,6 +190,18 @@ class TidalStreamProxy {
   Future<void> _handleRequest(HttpRequest req) async {
     try {
       final segments = req.uri.pathSegments;
+      if (segments.length == 2 && segments[0] == 'tidal-bts') {
+        final filename = segments[1];
+        final token = filename.substring(0, filename.lastIndexOf('.'));
+        final btsSession = _btsSessions[token];
+        if (btsSession == null) {
+          req.response.statusCode = HttpStatus.notFound;
+          await req.response.close();
+          return;
+        }
+        await btsSession.handleRequest(req);
+        return;
+      }
       if (segments.length != 2 || segments[0] != 'tidal') {
         req.response.statusCode = HttpStatus.notFound;
         await req.response.close();
@@ -161,6 +237,7 @@ class TidalStreamSession {
     required this.dashInfo,
     required this.targetPath,
     required this.client,
+    this.onFinalized,
   });
 
   final String streamToken;
@@ -168,6 +245,7 @@ class TidalStreamSession {
   final DashTrackInfo dashInfo;
   final String targetPath;
   final http.Client client;
+  final Future<void> Function(File targetFile)? onFinalized;
 
   int _nextSegmentIndex = 1;
   int _lastRequestedSegment = 0;
@@ -208,8 +286,8 @@ class TidalStreamSession {
         .timeout(const Duration(seconds: 15));
     final seg0Future = dashInfo.segmentUrls.isNotEmpty
         ? client
-            .get(Uri.parse(dashInfo.segmentUrls[0]))
-            .timeout(const Duration(seconds: 15))
+              .get(Uri.parse(dashInfo.segmentUrls[0]))
+              .timeout(const Duration(seconds: 15))
         : null;
 
     final initResp = await initFuture;
@@ -254,7 +332,9 @@ class TidalStreamSession {
     _pumpRunning = true;
 
     try {
-      while (!_isCancelled && !_isFinished && _nextSegmentIndex < dashInfo.segmentUrls.length) {
+      while (!_isCancelled &&
+          !_isFinished &&
+          _nextSegmentIndex < dashInfo.segmentUrls.length) {
         // Sliding window: only fetch up to _bufferAheadLimit segments ahead of playback
         if (_nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
           _needMoreCompleter = Completer<void>();
@@ -269,7 +349,9 @@ class TidalStreamSession {
             .get(Uri.parse(myUrl))
             .timeout(const Duration(seconds: 20));
         if (resp.statusCode != 200) {
-          devLog('[TidalStreamProxy] Segment $myIndex fetch failed HTTP ${resp.statusCode}');
+          devLog(
+            '[TidalStreamProxy] Segment $myIndex fetch failed HTTP ${resp.statusCode}',
+          );
           break;
         }
         if (_isCancelled) break;
@@ -331,6 +413,17 @@ class TidalStreamSession {
       }
       if (_partFile != null && await _partFile!.exists()) {
         await _partFile!.rename(targetPath);
+        if (onFinalized != null) {
+          unawaited(
+            Future.microtask(() async {
+              try {
+                await onFinalized!(File(targetPath));
+              } catch (e) {
+                devLog('[TidalStreamSession] onFinalized error: $e');
+              }
+            }),
+          );
+        }
       }
     } catch (e) {
       devLog('[TidalStreamSession] Finalize error: $e');
@@ -440,7 +533,10 @@ class TidalStreamSession {
       HttpHeaders.contentRangeHeader,
       'bytes $start-$actualEnd/$totalStr',
     );
-    req.response.headers.set(HttpHeaders.contentLengthHeader, '${chunk.length}');
+    req.response.headers.set(
+      HttpHeaders.contentLengthHeader,
+      '${chunk.length}',
+    );
     req.response.add(chunk);
     await req.response.close();
   }
@@ -464,5 +560,218 @@ class TidalStreamSession {
         _partFile!.deleteSync();
       } catch (_) {}
     }
+  }
+}
+
+/// Progressive local file proxy for a single, unsegmented BTS asset.
+class TidalBtsStreamSession {
+  static const int _initialBufferBytes = 256 * 1024;
+  TidalBtsStreamSession({
+    required this.streamToken,
+    required this.trackId,
+    required this.sourceUrl,
+    required this.targetPath,
+    required this.client,
+    required this.contentType,
+    this.onFinalized,
+  });
+  final String streamToken, trackId, sourceUrl, targetPath, contentType;
+  final http.Client client;
+  final Future<void> Function(File targetFile)? onFinalized;
+  String get extension => targetPath.split('.').last;
+  bool _cancelled = false, _finished = false;
+  bool get isCancelled => _cancelled;
+  bool get isFinished => _finished;
+  int _written = 0;
+  int? _total;
+  RandomAccessFile? _writer;
+  final Completer<void> _ready = Completer<void>();
+  final Completer<void> _finalizingFile = Completer<void>();
+  final List<({int requiredBytes, Completer<void> completer})> _waiters = [];
+  bool _isFinalizing = false;
+
+  void _notifyWaiters() {
+    final current = _written;
+    _waiters.removeWhere((w) {
+      if (_cancelled || _finished || current >= w.requiredBytes) {
+        if (!w.completer.isCompleted) {
+          w.completer.complete();
+        }
+        return true;
+      }
+      return false;
+    });
+  }
+
+  Future<void> _waitForBytes(int requiredBytes) {
+    if (_written >= requiredBytes || _finished || _cancelled) {
+      return Future.value();
+    }
+    final completer = Completer<void>();
+    _waiters.add((requiredBytes: requiredBytes, completer: completer));
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        if (!completer.isCompleted) completer.complete();
+      },
+    );
+  }
+
+  Future<void> start() async {
+    final part = File('$targetPath.part');
+    if (await part.exists()) {
+      await part.delete();
+    }
+    _writer = await part.open(mode: FileMode.write);
+    final request = http.Request('GET', Uri.parse(sourceUrl));
+    final response = await client
+        .send(request)
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw HttpException('BTS CDN returned HTTP ${response.statusCode}');
+    }
+    _total = response.contentLength;
+    unawaited(_consume(response.stream, part));
+    await _ready.future.timeout(const Duration(seconds: 20));
+  }
+
+  Future<void> _consume(Stream<List<int>> stream, File part) async {
+    try {
+      await for (final bytes in stream) {
+        if (_cancelled) break;
+        if (_writer != null) {
+          await _writer!.writeFrom(bytes);
+          await _writer!.flush();
+          _written += bytes.length;
+          _notifyWaiters();
+        }
+        if (!_ready.isCompleted &&
+            (_written >= _initialBufferBytes ||
+                (_total != null && _written >= _total!))) {
+          _ready.complete();
+        }
+      }
+      if (!_cancelled) {
+        await _writer?.flush();
+        await _writer?.close();
+        _writer = null;
+        final target = File(targetPath);
+        if (await target.exists()) await target.delete();
+        _isFinalizing = true;
+        await part.rename(targetPath);
+        _finished = true;
+        _isFinalizing = false;
+        if (!_finalizingFile.isCompleted) _finalizingFile.complete();
+        if (onFinalized != null) unawaited(onFinalized!(File(targetPath)));
+        if (!_ready.isCompleted) _ready.complete();
+        _notifyWaiters();
+      }
+    } catch (e) {
+      _finished = true;
+      _isFinalizing = false;
+      if (!_finalizingFile.isCompleted) _finalizingFile.complete();
+      if (!_ready.isCompleted) _ready.completeError(e);
+      devLog('[TidalStreamProxy] BTS download failed: $e');
+      _notifyWaiters();
+    }
+  }
+
+  Future<void> handleRequest(HttpRequest req) async {
+    final match = RegExp(
+      r'bytes=(\d+)-(\d*)',
+    ).firstMatch(req.headers.value(HttpHeaders.rangeHeader) ?? '');
+    final start = int.tryParse(match?.group(1) ?? '') ?? 0;
+    final requestedEnd =
+        int.tryParse(match?.group(2) ?? '') ?? (start + 1024 * 1024 - 1);
+
+    // Limit block chunk size to 1 MiB (matches BLOCK_SIZE in Rust HttpMediaSource)
+    const maxBlockSize = 1024 * 1024;
+    var end = requestedEnd;
+    if (end - start >= maxBlockSize) {
+      end = start + maxBlockSize - 1;
+    }
+
+    final initialRequest = start == 0;
+
+    // For the initial probe request, wait until _initialBufferBytes are ready.
+    // For subsequent streaming requests, only wait until the requested `start` offset has data.
+    final minRequired = initialRequest ? _initialBufferBytes : (start + 1);
+    if (_written < minRequired && !_finished && !_cancelled) {
+      await _waitForBytes(minRequired);
+    }
+
+    if (start >= _written) {
+      if (_finished) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        if (_total != null) {
+          req.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes */$_total',
+          );
+        }
+        await req.response.close();
+        return;
+      }
+    }
+
+    if (_isFinalizing) await _finalizingFile.future;
+    final available = _total == null ? _written : min(_written, _total!);
+
+    // Probe request is capped to _initialBufferBytes to minimize startup latency.
+    // Subsequent streaming requests return whatever bytes are currently buffered.
+    final actualEnd = initialRequest
+        ? min(end, min(available - 1, _initialBufferBytes - 1))
+        : min(end, available - 1);
+    final lengthToRead = actualEnd - start + 1;
+
+    if (lengthToRead <= 0) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await req.response.close();
+      return;
+    }
+
+    RandomAccessFile raf;
+    try {
+      raf = await File(
+        _finished ? targetPath : '$targetPath.part',
+      ).open(mode: FileMode.read);
+    } on FileSystemException {
+      // Finalization may rename the part file between checking and opening it.
+      raf = await File(targetPath).open(mode: FileMode.read);
+    }
+    await raf.setPosition(start);
+    final bytes = await raf.read(lengthToRead);
+    await raf.close();
+
+    if (bytes.isEmpty) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await req.response.close();
+      return;
+    }
+
+    final effectiveEnd = start + bytes.length - 1;
+    req.response.statusCode = HttpStatus.partialContent;
+    req.response.headers
+      ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+      ..set(HttpHeaders.contentTypeHeader, contentType)
+      ..set(HttpHeaders.contentLengthHeader, '${bytes.length}')
+      ..set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$effectiveEnd/${_total ?? '*'}',
+      );
+    req.response.add(bytes);
+    await req.response.close();
+  }
+
+  void cancel() {
+    _cancelled = true;
+    try {
+      _writer?.close();
+    } catch (_) {}
+    _writer = null;
+    try {
+      File('$targetPath.part').deleteSync();
+    } catch (_) {}
+    _notifyWaiters();
   }
 }

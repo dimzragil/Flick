@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import '../../core/utils/app_log.dart';
 import '../../data/entities/network_server_entity.dart';
@@ -147,6 +148,7 @@ class SmbService implements NetworkSourceService {
         onProgress(p.received.toInt() / p.total.toInt());
       }
     }
+    await _cache.evictIfOverCap(protect: File(destPath));
     return destPath;
   }
 

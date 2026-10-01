@@ -140,6 +140,98 @@ class Song {
     this.remoteServerId,
   });
 
+  /// Convert this song to JSON for playback state persistence.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'artist': artist,
+    'albumArt': albumArt,
+    'durationMs': duration.inMilliseconds,
+    'fileType': fileType,
+    'resolution': resolution,
+    'sampleRate': sampleRate,
+    'bitDepth': bitDepth,
+    'replaygainTrackGain': replaygainTrackGain,
+    'replaygainTrackPeak': replaygainTrackPeak,
+    'replaygainAlbumGain': replaygainAlbumGain,
+    'replaygainAlbumPeak': replaygainAlbumPeak,
+    'startOffsetMs': startOffsetMs,
+    'endOffsetMs': endOffsetMs,
+    'ripper': ripper,
+    'readMode': readMode,
+    'accurateRip': accurateRip,
+    'testCrc': testCrc,
+    'copyCrc': copyCrc,
+    'album': album,
+    'albumArtist': albumArtist,
+    'trackNumber': trackNumber,
+    'discNumber': discNumber,
+    'year': year,
+    'genre': genre,
+    'filePath': filePath,
+    'folderUri': folderUri,
+    'dateAdded': dateAdded?.toIso8601String(),
+    'isExternal': isExternal,
+    'sourcePackage': sourcePackage,
+    'sourceType': sourceType,
+    'remoteId': remoteId,
+    'remoteServerId': remoteServerId,
+  };
+
+  /// Recreate a song from persisted JSON, tolerating absent or mistyped fields.
+  factory Song.fromJson(Map<String, dynamic> json) {
+    String? stringValue(String key) =>
+        json[key] is String ? json[key] as String : null;
+    int? intValue(String key) =>
+        json[key] is num ? (json[key] as num).toInt() : null;
+    double? doubleValue(String key) =>
+        json[key] is num ? (json[key] as num).toDouble() : null;
+    bool? boolValue(String key) => json[key] is bool ? json[key] as bool : null;
+
+    final dateAddedValue = stringValue('dateAdded');
+
+    return Song(
+      id: stringValue('id') ?? '',
+      title: stringValue('title') ?? '',
+      artist: stringValue('artist') ?? '',
+      albumArt: stringValue('albumArt'),
+      duration: Duration(
+        milliseconds: intValue('durationMs') ?? intValue('duration') ?? 0,
+      ),
+      fileType: stringValue('fileType') ?? 'flac',
+      resolution: stringValue('resolution'),
+      sampleRate: intValue('sampleRate'),
+      bitDepth: intValue('bitDepth'),
+      replaygainTrackGain: doubleValue('replaygainTrackGain'),
+      replaygainTrackPeak: doubleValue('replaygainTrackPeak'),
+      replaygainAlbumGain: doubleValue('replaygainAlbumGain'),
+      replaygainAlbumPeak: doubleValue('replaygainAlbumPeak'),
+      startOffsetMs: intValue('startOffsetMs'),
+      endOffsetMs: intValue('endOffsetMs'),
+      ripper: stringValue('ripper'),
+      readMode: stringValue('readMode'),
+      accurateRip: boolValue('accurateRip'),
+      testCrc: stringValue('testCrc'),
+      copyCrc: stringValue('copyCrc'),
+      album: stringValue('album'),
+      albumArtist: stringValue('albumArtist'),
+      trackNumber: intValue('trackNumber'),
+      discNumber: intValue('discNumber'),
+      year: intValue('year'),
+      genre: stringValue('genre'),
+      filePath: stringValue('filePath'),
+      folderUri: stringValue('folderUri'),
+      dateAdded: dateAddedValue == null
+          ? null
+          : DateTime.tryParse(dateAddedValue),
+      isExternal: boolValue('isExternal') ?? false,
+      sourcePackage: stringValue('sourcePackage'),
+      sourceType: stringValue('sourceType'),
+      remoteId: stringValue('remoteId'),
+      remoteServerId: intValue('remoteServerId'),
+    );
+  }
+
   bool get isFromLocker => sourcePackage == 'com.mossapps.locker';
 
   bool get isNetworkSource => sourceType != null;

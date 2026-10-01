@@ -43,7 +43,7 @@ class AlbumArtBox extends ConsumerStatefulWidget {
 }
 
 class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const double _labelRatio = 0.44;
   static const Duration _spinDuration = Duration(seconds: 4);
   static const Duration _seekAnimationDuration = Duration(milliseconds: 450);
@@ -73,6 +73,7 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _morphController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -159,7 +160,22 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isVinyl) return;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      if (_spinController.isAnimating) _spinController.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_isPlaying && _morphController.isCompleted) {
+        _spinController.repeat();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_isUserDragging) {
       widget.playerService?.endInteractiveSeek();
     }

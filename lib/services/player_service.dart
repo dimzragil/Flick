@@ -44,6 +44,8 @@ import 'package:flick/services/remote_source_service.dart';
 import 'package:flick/services/wav_stream_audio_source.dart';
 import 'package:flick/services/casting/casting_service.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flick/data/database.dart';
+import 'package:flick/services/sources/network_source_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
@@ -441,6 +443,7 @@ class PlayerService {
   final ValueNotifier<bool> bitPerfectProcessingLockedNotifier = ValueNotifier(
     false,
   );
+
   /// True while motion art must not start ExoPlayer: on direct/exclusive
   /// bit-perfect paths a second audio client can preempt the native stream.
   final ValueNotifier<bool> motionArtSuppressedNotifier = ValueNotifier(false);
@@ -501,8 +504,9 @@ class PlayerService {
   /// on the system tier.
   ReplayGainAppliedState _replayGainState = ReplayGainAppliedState.neutral;
 
-  final ValueNotifier<bool> extendedVolumeEnabledNotifier =
-      ValueNotifier<bool>(false);
+  final ValueNotifier<bool> extendedVolumeEnabledNotifier = ValueNotifier<bool>(
+    false,
+  );
 
   /// Lie-detector: set when a DAC that claimed hardware volume rejects
   /// writes or fails the GET_CUR health check.
@@ -855,7 +859,8 @@ class PlayerService {
       if (_pendingHardwareVolumeRestore) {
         _pendingHardwareVolumeRestore = false;
         unawaited(() async {
-          final savedHwVolume = await _preferencesService.getUsbHardwareVolume();
+          final savedHwVolume = await _preferencesService
+              .getUsbHardwareVolume();
           if (savedHwVolume != null) {
             _currentVolume = savedHwVolume.clamp(0.0, 1.0);
             _debugLog(
@@ -1078,8 +1083,9 @@ class PlayerService {
   }
 
   Future<void> onAppPaused() async {
-    if (!Platform.isAndroid) return;
     _appInForeground = false;
+    _rustAudioService.setAppInBackground(true);
+    if (!Platform.isAndroid) return;
     final enabled = await _appPreferencesService.getFloatingPlayerEnabled();
     if (!enabled) return;
     await _activateFloatingPlayer();
@@ -1087,6 +1093,7 @@ class PlayerService {
 
   Future<void> onAppResumed() async {
     _appInForeground = true;
+    _rustAudioService.setAppInBackground(false);
     if (_floatingPlayerActive) {
       await _deactivateFloatingPlayer();
     }
@@ -1188,16 +1195,6 @@ class PlayerService {
     _queuedEntries.clear();
     _notifyQueueChanged();
     _notifyUpNextChanged();
-  }
-
-  List<String> _playlistNonQueueIds() {
-    final ids = <String>[];
-    for (var i = 0; i < _playlist.length; i++) {
-      if (_playlistQueueEntryIds[i] == null) {
-        ids.add(_playlist[i].id);
-      }
-    }
-    return ids;
   }
 
   void syncAlbumArtPaths({
@@ -1677,15 +1674,16 @@ class PlayerService {
         enabled: Uac2PreferencesService.is432HzTuningEnabledSync,
       );
 
-      _extendedVolumeEnabled =
-          await _appPreferencesService.getExtendedVolumeEnabled();
+      _extendedVolumeEnabled = await _appPreferencesService
+          .getExtendedVolumeEnabled();
       extendedVolumeEnabledNotifier.value = _extendedVolumeEnabled;
 
       final engineType = _sessionManager.selectedMode;
       if (engineType == AudioEngineType.usbDacExperimental ||
           engineType == AudioEngineType.dapInternalHighRes) {
         final savedHwVolume = await _preferencesService.getUsbHardwareVolume();
-        final hasSavedHwVolume = await _preferencesService.hasUsbHardwareVolume();
+        final hasSavedHwVolume = await _preferencesService
+            .hasUsbHardwareVolume();
         final savedVolume = await _preferencesService.getUsbSoftwareVolume();
         final hasSavedVolume = await _preferencesService.hasUsbSoftwareVolume();
         final bitPerfectOn =
@@ -2129,7 +2127,9 @@ class PlayerService {
 
   void _updatePriorityAnchor() {
     final shouldAnchor =
-        _isAnchorEligiblePath && _priorityAnchorEnabled && isPlayingNotifier.value;
+        _isAnchorEligiblePath &&
+        _priorityAnchorEnabled &&
+        isPlayingNotifier.value;
     if (shouldAnchor && !_priorityAnchorActive) {
       _uac2Service.startPriorityAnchor();
       _priorityAnchorActive = true;
@@ -2140,7 +2140,8 @@ class PlayerService {
   }
 
   Future<void> _loadPriorityAnchorPreference() async {
-    _priorityAnchorEnabled = await _appPreferencesService.getPriorityAnchorEnabled();
+    _priorityAnchorEnabled = await _appPreferencesService
+        .getPriorityAnchorEnabled();
     _updatePriorityAnchor();
   }
 
@@ -2877,10 +2878,50 @@ class PlayerService {
       songId: song.id,
       position: position,
     );
-    if (counted && _shouldPersistSong(song)) {
-      unawaited(_recentlyPlayedRepository.recordPlay(song.id));
-      unawaited(_trackMilestones(song));
+    if (counted) {
+      if (_shouldPersistSong(song)) {
+        unawaited(_recentlyPlayedRepository.recordPlay(song.id));
+        unawaited(_trackMilestones(song));
+      }
+      _reportTidalPlayIfNeeded(song);
     }
+  }
+
+  void _reportTidalPlayIfNeeded(Song song) {
+    final isTidal =
+        song.sourceType == NetworkProtocol.tidal ||
+        (song.filePath != null && song.filePath!.startsWith('tidal://')) ||
+        song.id.startsWith('tidal_');
+    if (!isTidal) {
+      return;
+    }
+    unawaited(() async {
+      try {
+        final serverId = song.remoteServerId;
+        final server = serverId != null
+            ? await Database.networkServers.get(serverId)
+            : null;
+        if (server == null) return;
+        final service = networkSourceServiceFor(NetworkProtocol.tidal);
+        if (service is TidalService) {
+          final trackId =
+              song.remoteId ??
+              song.filePath?.replaceFirst('tidal://', '') ??
+              song.id.replaceFirst('tidal_', '');
+          if (trackId.isEmpty) return;
+          await service.reportPlayback(
+            server,
+            trackId: trackId,
+            durationSeconds: song.duration.inSeconds > 0
+                ? song.duration.inSeconds
+                : 30,
+            context: playbackContextNotifier.value,
+          );
+        }
+      } catch (e) {
+        devLog('[PlayerService] TIDAL reportPlayback error: $e');
+      }
+    }());
   }
 
   void _setupRustAudioListeners() {
@@ -3542,8 +3583,7 @@ class PlayerService {
         defaultTargetPlatform == TargetPlatform.android &&
         parsed?.scheme == 'content';
 
-    final needsWavWork = isAndroidContentUri ||
-        _shouldConvertToWav(song);
+    final needsWavWork = isAndroidContentUri || _shouldConvertToWav(song);
     if (needsWavWork) {
       final normalizedType = _playbackFileType(song);
       _debugLog(
@@ -3604,14 +3644,12 @@ class PlayerService {
     try {
       final maxStagingBytes = await PlaybackCachePreferencesService()
           .getMaxCacheBytes();
-      final stagedPath = await _storageChannel.invokeMethod<String>(
-        'cacheUriForPlayback',
-        {
-          'uri': uri,
-          'extensionHint': extensionHint,
-          'maxStagingBytes': maxStagingBytes,
-        },
-      );
+      final stagedPath = await _storageChannel
+          .invokeMethod<String>('cacheUriForPlayback', {
+            'uri': uri,
+            'extensionHint': extensionHint,
+            'maxStagingBytes': maxStagingBytes,
+          });
       if (stagedPath != null && stagedPath.isNotEmpty) {
         _stagedPlaybackPathCache[uri] = stagedPath;
         return stagedPath;
@@ -4643,14 +4681,17 @@ class PlayerService {
             await RemoteSourceService.instance.resolveHttpPlayback(song);
           } catch (_) {}
           if (generation != null && generation != _playbackGeneration) {
-            _debugLog('[PlayerService] superseded during network stream resolution');
+            _debugLog(
+              '[PlayerService] superseded during network stream resolution',
+            );
             return;
           }
           final fmt = RemoteSourceService.instance.getAudioFormat(song);
           if (fmt != null &&
               (song.sampleRate != fmt.sampleRate ||
-               song.bitDepth != fmt.bitDepth ||
-               (fmt.resolution != null && song.resolution != fmt.resolution))) {
+                  song.bitDepth != fmt.bitDepth ||
+                  (fmt.resolution != null &&
+                      song.resolution != fmt.resolution))) {
             song = song.copyWith(
               sampleRate: fmt.sampleRate,
               bitDepth: fmt.bitDepth,
@@ -4754,14 +4795,16 @@ class PlayerService {
     // HTTP-first: try a direct ranged stream, fall back to cache-then-play.
     if (nextSong.isNetworkSource) {
       try {
-        final http = await RemoteSourceService.instance
-            .resolveHttpPlayback(nextSong);
+        final http = await RemoteSourceService.instance.resolveHttpPlayback(
+          nextSong,
+        );
         if (http != null) {
           final fmt = RemoteSourceService.instance.getAudioFormat(nextSong);
           if (fmt != null &&
               (nextSong.sampleRate != fmt.sampleRate ||
-               nextSong.bitDepth != fmt.bitDepth ||
-               (fmt.resolution != null && nextSong.resolution != fmt.resolution))) {
+                  nextSong.bitDepth != fmt.bitDepth ||
+                  (fmt.resolution != null &&
+                      nextSong.resolution != fmt.resolution))) {
             final updatedNext = nextSong.copyWith(
               sampleRate: fmt.sampleRate,
               bitDepth: fmt.bitDepth,
@@ -4828,11 +4871,22 @@ class PlayerService {
     final persistedSong = resolvedSong!;
 
     try {
+      final nonQueueSongs = <Song>[];
+      for (var i = 0; i < _playlist.length; i++) {
+        if (i >= _playlistQueueEntryIds.length ||
+            _playlistQueueEntryIds[i] == null) {
+          nonQueueSongs.add(_playlist[i]);
+        }
+      }
+      final persistedIndex = nonQueueSongs.indexWhere(
+        (item) => item.id == persistedSong.id,
+      );
+
       await _lastPlayedService.saveLastPlayed(
-        persistedSong.id,
+        persistedSong,
         position ?? positionNotifier.value,
-        playlistSongIds: _playlistNonQueueIds(),
-        currentIndex: _currentIndex,
+        playlist: persistedIndex >= 0 ? nonQueueSongs : null,
+        currentIndex: persistedIndex >= 0 ? persistedIndex : null,
         wasPlaying: isPlayingNotifier.value,
       );
     } catch (e) {
@@ -4910,18 +4964,19 @@ class PlayerService {
     }
   }
 
-  Future<void> pause() {
+  Future<void> pause() async {
     _debugLog('[PlayerService] pause() called');
     // Manual pause cancels any pending auto-resume from a transient focus
     // loss; otherwise the next notification's end event restarts playback.
     // The interruption handler calls _pauseInternal directly, not here.
     _wasPlayingBeforeAudioInterruption = false;
-    return _enqueuePlaybackRequest(_pauseInternal);
+    await _enqueuePlaybackRequest(_pauseInternal);
   }
 
   Future<void> _pauseInternal() async {
     if (_castingService.isActive) {
       await _castingService.delegatePause();
+      await _savePosition();
       return;
     }
     _debugLog(
@@ -4937,6 +4992,7 @@ class PlayerService {
       _debugLog(
         '[Playback] pause(): no engine attached, returning after optimistic update',
       );
+      await _savePosition();
       return;
     }
     try {
@@ -4944,6 +5000,7 @@ class PlayerService {
     } catch (e) {
       _debugLog('Pause failed: $e');
     }
+    await _savePosition();
     await _refreshAudioOutputDiagnostics(
       reason: 'playback paused',
       activeSong: currentSongNotifier.value,
@@ -5287,6 +5344,7 @@ class PlayerService {
     } catch (e) {
       _debugLog('Seek failed: $e');
     }
+    unawaited(_savePosition(position: position));
     unawaited(_updateNotificationState());
   }
 

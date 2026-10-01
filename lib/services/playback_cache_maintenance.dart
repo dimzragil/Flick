@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'alac_converter_service.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'network_cache_service.dart';
 import 'playback_cache_preferences_service.dart';
 
 const MethodChannel _storageChannel = MethodChannel('com.mossapps.flick/storage');
@@ -20,6 +21,9 @@ Future<void> runPlaybackCacheMaintenance() async {
     final maxBytes = await PlaybackCachePreferencesService().getMaxCacheBytes();
     await AlacConverterService.enforceCacheCap(maxBytes);
     await _sweepLegacyTempWavs();
+    final networkCache = NetworkCacheService(sizeCapBytes: maxBytes);
+    await networkCache.sweepDanglingPartFiles();
+    await networkCache.evictIfOverCap();
     if (Platform.isAndroid) {
       await _storageChannel.invokeMethod<void>(
         'prunePlaybackStaging',

@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
@@ -66,6 +67,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         if (server != null) {
           ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug));
           ref.invalidate(tidalUserPlaylistsProvider);
+          ref.invalidate(tidalFavoriteMixesProvider);
         }
       }
     } catch (e) {
@@ -114,9 +116,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   void _openSearch() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const TidalSearchScreen()));
+    NavigationHelper.pushFade(context, (_) => const TidalSearchScreen());
   }
 
   void _openHomeItem(TidalHomeItem item) {
@@ -130,14 +130,13 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isMix) {
       final mixId = item.raw['mixId']?.toString() ?? item.id;
       if (mixId.isNotEmpty) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TidalMixScreen(
-              mixId: mixId,
-              initialTitle: item.title,
-              initialImageUrl: item.imageUrl,
-              initialSubtitle: item.subtitle,
-            ),
+        NavigationHelper.pushFade(
+          context,
+          (_) => TidalMixScreen(
+            mixId: mixId,
+            initialTitle: item.title,
+            initialImageUrl: item.imageUrl,
+            initialSubtitle: item.subtitle,
           ),
         );
         return;
@@ -150,15 +149,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           item.raw['artifactId']?.toString() ??
           item.id;
       if (plId.isNotEmpty) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TidalPlaylistScreen(
-              playlistId: plId,
-              initialTitle: item.title,
-              initialImageUrl: item.imageUrl,
-              initialSubtitle: item.subtitle,
-              initialTrackCount: (item.raw['numberOfTracks'] as num?)?.toInt(),
-            ),
+        NavigationHelper.pushFade(
+          context,
+          (_) => TidalPlaylistScreen(
+            playlistId: plId,
+            initialTitle: item.title,
+            initialImageUrl: item.imageUrl,
+            initialSubtitle: item.subtitle,
+            initialTrackCount: (item.raw['numberOfTracks'] as num?)?.toInt(),
           ),
         );
         return;
@@ -168,11 +166,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isAlbum) {
       final albId = item.raw['artifactId']?.toString() ?? item.id;
       if (albId.isNotEmpty) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) =>
-                TidalAlbumScreen(albumId: albId, initialAlbumData: item.raw),
-          ),
+        NavigationHelper.pushFade(
+          context,
+          (_) => TidalAlbumScreen(albumId: albId, initialAlbumData: item.raw),
         );
         return;
       }
@@ -181,11 +177,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isArtist) {
       final artId = item.raw['artifactId']?.toString() ?? item.id;
       if (artId.isNotEmpty) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) =>
-                TidalArtistScreen(artistId: artId, initialArtistData: item.raw),
-          ),
+        NavigationHelper.pushFade(
+          context,
+          (_) =>
+              TidalArtistScreen(artistId: artId, initialArtistData: item.raw),
         );
         return;
       }
@@ -198,24 +193,21 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
 
     // Ultimate fallback based on identifier shape
     if (item.id.contains('-') && item.id.length >= 32) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => TidalPlaylistScreen(
-            playlistId: item.id,
-            initialTitle: item.title,
-            initialImageUrl: item.imageUrl,
-          ),
+      NavigationHelper.pushFade(
+        context,
+        (_) => TidalPlaylistScreen(
+          playlistId: item.id,
+          initialTitle: item.title,
+          initialImageUrl: item.imageUrl,
         ),
       );
       return;
     }
 
     if (item.id.isNotEmpty && int.tryParse(item.id) != null) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              TidalAlbumScreen(albumId: item.id, initialAlbumData: item.raw),
-        ),
+      NavigationHelper.pushFade(
+        context,
+        (_) => TidalAlbumScreen(albumId: item.id, initialAlbumData: item.raw),
       );
       return;
     }
@@ -308,6 +300,47 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     }
                   },
                 ),
+              if (item.isTrack ||
+                  item.isArtist ||
+                  item.isMix ||
+                  item.raw['mixes'] != null)
+                ListTile(
+                  leading: const Icon(
+                    LucideIcons.radio,
+                    color: Color(0xFF00FFFF),
+                  ),
+                  title: const Text('Start Radio'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final server = await ref.read(tidalServerProvider.future);
+                    if (server == null || !context.mounted) return;
+
+                    final mixId = await TidalService.instance.resolveRadioMixId(
+                      server,
+                      item,
+                    );
+                    if (!context.mounted) return;
+
+                    if (mixId != null && mixId.isNotEmpty) {
+                      NavigationHelper.pushFade(
+                        context,
+                        (_) => TidalMixScreen(
+                          mixId: mixId,
+                          initialTitle: '${item.title} Radio',
+                          initialImageUrl: item.imageUrl,
+                          initialSubtitle: item.subtitle,
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Radio is not available for this item'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                ),
             ],
           ),
         );
@@ -323,17 +356,16 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
         ? TidalService.coverUrl(imageUuid, size: 640)
         : null;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TidalPlaylistScreen(
-          playlistId: playlistId,
-          initialTitle: pl['title'] as String?,
-          initialImageUrl: (imageUrl != null && imageUrl.isNotEmpty)
-              ? imageUrl
-              : null,
-          initialTrackCount:
-              ((pl['numberOfTracks'] ?? pl['numberOfItems']) as num?)?.toInt(),
-        ),
+    NavigationHelper.pushFade(
+      context,
+      (_) => TidalPlaylistScreen(
+        playlistId: playlistId,
+        initialTitle: pl['title'] as String?,
+        initialImageUrl: (imageUrl != null && imageUrl.isNotEmpty)
+            ? imageUrl
+            : null,
+        initialTrackCount:
+            ((pl['numberOfTracks'] ?? pl['numberOfItems']) as num?)?.toInt(),
       ),
     );
   }
@@ -508,15 +540,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   ),
                                 );
                                 if (plId != null && plId.isNotEmpty) {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => TidalPlaylistScreen(
-                                        playlistId: plId,
-                                        initialTitle: title,
-                                        initialSubtitle: descController.text
-                                            .trim(),
-                                        initialTrackCount: 0,
-                                      ),
+                                  NavigationHelper.pushFade(
+                                    context,
+                                    (_) => TidalPlaylistScreen(
+                                      playlistId: plId,
+                                      initialTitle: title,
+                                      initialSubtitle: descController.text
+                                          .trim(),
+                                      initialTrackCount: 0,
                                     ),
                                   );
                                 }
@@ -639,55 +670,57 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   Widget build(BuildContext context) {
     final isLoggedIn = ref.watch(tidalAuthStateProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
+    return BlurredSongBackground(
+      child: Scaffold(
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Row(
-          children: [
-            const Icon(LucideIcons.waves, color: Color(0xFF00FFFF), size: 24),
-            const SizedBox(width: 8),
-            const Text(
-              'TIDAL',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0x3300FFFF),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'HiFi',
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: Row(
+            children: [
+              const Icon(LucideIcons.waves, color: Color(0xFF00FFFF), size: 24),
+              const SizedBox(width: 8),
+              const Text(
+                'TIDAL',
                 style: TextStyle(
-                  color: Color(0xFF00FFFF),
-                  fontSize: 10,
+                  color: AppColors.textPrimary,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
                 ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0x3300FFFF),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'HiFi',
+                  style: TextStyle(
+                    color: Color(0xFF00FFFF),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (isLoggedIn)
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.logOut,
+                  color: AppColors.textSecondary,
+                ),
+                tooltip: 'Sign out',
+                onPressed: _signOut,
+              ),
           ],
         ),
-        actions: [
-          if (isLoggedIn)
-            IconButton(
-              icon: const Icon(
-                LucideIcons.logOut,
-                color: AppColors.textSecondary,
-              ),
-              tooltip: 'Sign out',
-              onPressed: _signOut,
-            ),
-        ],
+        body: isLoggedIn ? _buildLoggedInView() : _buildSignInView(),
       ),
-      body: isLoggedIn ? _buildLoggedInView() : _buildSignInView(),
     );
   }
 
@@ -831,6 +864,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   Widget _buildLoggedInView() {
     final feedAsync = ref.watch(tidalHomeFeedProvider(_activeFeedSlug));
     final playlistsAsync = ref.watch(tidalUserPlaylistsProvider);
+    final mixesAsync = ref.watch(tidalFavoriteMixesProvider);
 
     return RefreshIndicator(
       color: const Color(0xFF00FFFF),
@@ -839,6 +873,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         await Future.wait([
           ref.refresh(tidalHomeFeedProvider(_activeFeedSlug).future),
           ref.refresh(tidalUserPlaylistsProvider.future),
+          ref.refresh(tidalFavoriteMixesProvider.future),
         ]);
       },
       child: ListView(
@@ -854,9 +889,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 vertical: context.scaleSize(AppConstants.spacingSm * 1.5),
               ),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: AppColors.glassBackgroundStrong,
                 borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                border: Border.all(color: AppColors.glassBorder),
+                border: Border.all(color: AppColors.glassBorderStrong),
               ),
               child: Row(
                 children: [
@@ -951,11 +986,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   setState(() => _activeFeedSlug = tab.slug);
                                 }
                               },
-                              selectedColor: const Color(0xFF00FFFF),
-                              backgroundColor: AppColors.surface,
+                              selectedColor: const Color(0x4000FFFF),
+                              backgroundColor: AppColors.glassBackgroundStrong,
                               labelStyle: TextStyle(
                                 color: isActive
-                                    ? Colors.black
+                                    ? const Color(0xFF00FFFF)
                                     : AppColors.textPrimary,
                                 fontWeight: isActive
                                     ? FontWeight.bold
@@ -984,11 +1019,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   ))
                     _buildShortcutGrid(sec),
 
-                  // Horizontal Carousels
+                  // Custom Mixes & Daily Discovery (from /v2/favorites/mixes)
+                  if (_activeFeedSlug == 'static')
+                    _buildCustomMixesSection(mixesAsync),
+
+                  // Adaptive Sections (Track list, Compact Grid for Recently played, or Carousel)
                   for (final sec in feed.sections.where(
                     (s) => !s.isShortcutList,
                   ))
-                    _buildHorizontalCarousel(sec),
+                    _buildAdaptiveSection(sec),
                 ],
               );
             },
@@ -1069,7 +1108,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     context.scaleSize(AppConstants.spacingLg),
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: AppColors.glassBackground,
                     borderRadius: BorderRadius.circular(AppConstants.radiusMd),
                     border: Border.all(color: AppColors.glassBorder),
                   ),
@@ -1250,7 +1289,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 onLongPress: () => _showItemActionSheet(item),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: AppColors.glassBackgroundStrong,
                     borderRadius: BorderRadius.circular(AppConstants.radiusSm),
                     border: Border.all(color: AppColors.glassBorder),
                   ),
@@ -1272,14 +1311,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   height: 56,
                                   fit: BoxFit.cover,
                                   placeholder: const ColoredBox(
-                                    color: AppColors.surfaceLight,
+                                    color: AppColors.glassBackgroundStrong,
                                   ),
                                   errorWidget: const ColoredBox(
-                                    color: AppColors.surfaceLight,
+                                    color: AppColors.glassBackgroundStrong,
                                   ),
                                 )
                               : const ColoredBox(
-                                  color: AppColors.surfaceLight,
+                                  color: AppColors.glassBackgroundStrong,
                                   child: Center(
                                     child: Icon(
                                       LucideIcons.music,
@@ -1380,14 +1419,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         height: 136,
                                         fit: BoxFit.cover,
                                         placeholder: const ColoredBox(
-                                          color: AppColors.surfaceLight,
+                                          color: AppColors.glassBackgroundStrong,
                                         ),
                                         errorWidget: const ColoredBox(
-                                          color: AppColors.surfaceLight,
+                                          color: AppColors.glassBackgroundStrong,
                                         ),
                                       )
                                     : const ColoredBox(
-                                        color: AppColors.surfaceLight,
+                                        color: AppColors.glassBackgroundStrong,
                                         child: Center(
                                           child: Icon(
                                             LucideIcons.music,
@@ -1457,6 +1496,399 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         ),
         SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
       ],
+    );
+  }
+
+  Widget _buildAdaptiveSection(TidalHomeSection sec) {
+    if (sec.sectionType == 'TRACK_LIST') {
+      return _buildTrackListSection(sec);
+    }
+    if (sec.sectionType == 'COMPACT_GRID_CARD' ||
+        sec.title.toLowerCase().contains('recently played')) {
+      return _buildCompactGridSection(sec);
+    }
+    return _buildHorizontalCarousel(sec);
+  }
+
+  Widget _buildTrackListSection(TidalHomeSection section) {
+    if (section.items.isEmpty) return const SizedBox.shrink();
+
+    final displayItems = section.items.take(6).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            section.title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.glassBackground,
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: displayItems.length,
+            separatorBuilder: (_, __) => const Divider(
+              color: AppColors.glassBorder,
+              height: 1,
+              indent: 56,
+            ),
+            itemBuilder: (context, index) {
+              final item = displayItems[index];
+              final img = item.imageUrl;
+              return ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 2,
+                ),
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                  child: SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: (img != null && img.isNotEmpty)
+                        ? CachedImageWidget(
+                            imagePath: img,
+                            width: 42,
+                            height: 42,
+                            fit: BoxFit.cover,
+                            placeholder: const FlickArtworkPlaceholder(),
+                            errorWidget: const FlickArtworkPlaceholder(),
+                          )
+                        : const FlickArtworkPlaceholder(),
+                  ),
+                ),
+                title: Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  item.subtitle ?? item.type,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        LucideIcons.play,
+                        size: 16,
+                        color: Color(0xFF00FFFF),
+                      ),
+                      onPressed: () => _playTrackItem(item),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        LucideIcons.ellipsisVertical,
+                        size: 16,
+                        color: AppColors.textSecondary,
+                      ),
+                      onPressed: () => _showItemActionSheet(item),
+                    ),
+                  ],
+                ),
+                onTap: () => _playTrackItem(item),
+                onLongPress: () => _showItemActionSheet(item),
+              );
+            },
+          ),
+        ),
+        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+      ],
+    );
+  }
+
+  Widget _buildCompactGridSection(TidalHomeSection section) {
+    if (section.items.isEmpty) return const SizedBox.shrink();
+
+    final items = section.items;
+    final pairCount = (items.length / 2).ceil();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            section.title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 124,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: pairCount,
+            itemBuilder: (context, colIndex) {
+              final topIndex = colIndex * 2;
+              final bottomIndex = topIndex + 1;
+              final topItem = items[topIndex];
+              final bottomItem = bottomIndex < items.length
+                  ? items[bottomIndex]
+                  : null;
+
+              return Container(
+                width: 220,
+                margin: const EdgeInsets.only(right: 10),
+                child: Column(
+                  children: [
+                    _buildCompactCard(topItem),
+                    const SizedBox(height: 8),
+                    if (bottomItem != null)
+                      _buildCompactCard(bottomItem)
+                    else
+                      const SizedBox(height: 56),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+      ],
+    );
+  }
+
+  Widget _buildCompactCard(TidalHomeItem item) {
+    final img = item.imageUrl;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+        onTap: () => _openHomeItem(item),
+        onLongPress: () => _showItemActionSheet(item),
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: AppColors.glassBackgroundStrong,
+            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(AppConstants.radiusSm),
+                ),
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: (img != null && img.isNotEmpty)
+                      ? CachedImageWidget(
+                          imagePath: img,
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (item.subtitle != null && item.subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        item.subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  LucideIcons.play,
+                  size: 14,
+                  color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCustomMixesSection(AsyncValue<List<TidalHomeItem>> mixesAsync) {
+    return mixesAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (mixes) {
+        if (mixes.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(LucideIcons.sparkles, size: 18, color: Color(0xFF00FFFF)),
+                SizedBox(width: 6),
+                Text(
+                  'Custom Mixes & Daily Discovery',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 205,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: mixes.length,
+                itemBuilder: (context, index) {
+                  final item = mixes[index];
+                  final effectiveImage = item.imageUrl;
+                  return Container(
+                    width: 136,
+                    margin: const EdgeInsets.only(right: 12),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusMd,
+                        ),
+                        onTap: () => _openHomeItem(item),
+                        onLongPress: () => _showItemActionSheet(item),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusMd,
+                                  ),
+                                  child: SizedBox(
+                                    width: 136,
+                                    height: 136,
+                                    child:
+                                        (effectiveImage != null &&
+                                            effectiveImage.isNotEmpty)
+                                        ? CachedImageWidget(
+                                            imagePath: effectiveImage,
+                                            width: 136,
+                                            height: 136,
+                                            fit: BoxFit.cover,
+                                            placeholder:
+                                                const FlickArtworkPlaceholder(),
+                                            errorWidget:
+                                                const FlickArtworkPlaceholder(),
+                                          )
+                                        : const FlickArtworkPlaceholder(),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 6,
+                                  bottom: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: const Color(0x6600FFFF),
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      LucideIcons.play,
+                                      size: 14,
+                                      color: Color(0xFF00FFFF),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (item.subtitle != null &&
+                                item.subtitle!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                item.subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+          ],
+        );
+      },
     );
   }
 }
