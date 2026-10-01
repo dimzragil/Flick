@@ -32,6 +32,7 @@ class NavBarConfig {
     NavBarButton.menu,
     NavBarButton.songs,
     NavBarButton.settings,
+    NavBarButton.tidal,
   ];
 
   const NavBarConfig({
