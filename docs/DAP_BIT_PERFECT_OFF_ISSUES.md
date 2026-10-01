@@ -24,6 +24,7 @@ When **Bit-perfect (DAP Internal)** is turned **OFF** on a DAP device: (1) EQ, E
 The app selects the audio engine based on device state and preferences:
 
 - **External USB DAC attached**: preference `rustOboe` → `rustOboe`; preference `isochronousUsb` + Bit-perfect (USB DAC) ON → `usbDacExperimental`; otherwise → `normalAndroid`.
+- **Parametric EQ + bit-perfect conflict**: an active parametric EQ normally forces `rustOboe` (variable-band DSP). Bit-perfect (USB DAC) takes precedence — with bit-perfect ON the direct USB path is selected and the DSP chain (including PEQ) is bypassed on it.
 - **No external USB DAC** (internal DAP): `hiFiModeEnabled` + `supportsHiResInternal`: Bit-perfect (DAP Internal) **ON** → `dapInternalHighRes` (passthrough); **OFF** → `rustOboe` (DSP chain). Otherwise → `rustOboe` or `normalAndroid`.
 
 When Bit-perfect (DAP Internal) is **OFF**, the app selects `rustOboe` and logs: "Selected RUST_OBOE because Bit-perfect (DAP Internal) is disabled. DSP chain will run normally."
