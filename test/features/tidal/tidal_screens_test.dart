@@ -90,7 +90,15 @@ void main() {
 
     expect(find.text('TIDAL'), findsOneWidget);
     expect(find.byTooltip('Search'), findsOneWidget);
-    expect(find.byIcon(LucideIcons.waves), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Image &&
+            w.image is AssetImage &&
+            (w.image as AssetImage).assetName == 'assets/icons/tidal_logo.png',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('My Playlists'), findsOneWidget);
     expect(find.text('My Audiophile Tracks'), findsOneWidget);
   });

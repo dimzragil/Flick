@@ -20,6 +20,30 @@ enum NavBarButton {
   final IconData icon;
 }
 
+/// Builds the display icon for a nav-bar button.
+///
+/// The TIDAL button uses the raster TIDAL logo instead of its fallback
+/// [NavBarButton.icon]; every other button renders its [IconData] as usual.
+/// The logo is tinted with [color] so it follows the bar's
+/// selected/unselected icon colors like the other icons do.
+Widget navBarButtonIcon(
+  NavBarButton button, {
+  required double size,
+  Color? color,
+}) {
+  if (button == NavBarButton.tidal) {
+    return Image.asset(
+      'assets/icons/tidal_logo.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      color: color,
+      colorBlendMode: BlendMode.srcIn,
+    );
+  }
+  return Icon(button.icon, size: size, color: color);
+}
+
 class NavBarConfig {
   final List<NavBarButton> enabledButtons;
   final Set<NavBarButton> hidden;

@@ -370,8 +370,8 @@ class _DisabledNavItem extends StatelessWidget {
                   color: AppColors.glassBackgroundStrong,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(
-                  button.icon,
+                child: navBarButtonIcon(
+                  button,
                   color: context.adaptiveTextSecondary,
                   size: 20,
                 ),
