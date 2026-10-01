@@ -144,9 +144,11 @@ class _MainShellState extends ConsumerState<MainShell>
     ref.read(updateCheckProvider.notifier);
     final initialConfig = ref.read(navBarConfigProvider);
     final defaultPage =
-        initialConfig.orderedButtons.contains(NavBarButton.songs)
-        ? NavBarButton.songs.pageIndex
-        : NavBarButton.menu.pageIndex;
+        initialConfig.orderedButtons.contains(NavBarButton.tidal)
+        ? NavBarButton.tidal.pageIndex
+        : initialConfig.orderedButtons.contains(NavBarButton.songs)
+            ? NavBarButton.songs.pageIndex
+            : NavBarButton.menu.pageIndex;
     ref.read(navigationIndexProvider.notifier).setIndex(defaultPage);
     final initialIndex = ref.read(navigationIndexProvider);
     final initialOrder = _getPageOrder(initialConfig);
