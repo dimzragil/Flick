@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -941,36 +942,47 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                           final isActive = tab.slug == _activeFeedSlug;
                           return Padding(
                             padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(tab.name),
-                              selected: isActive,
-                              onSelected: (_) {
-                                // Tapping the active pill toggles back to
-                                // the default "For You" feed.
-                                setState(() {
-                                  _activeFeedSlug = tab.slug == _activeFeedSlug
-                                      ? 'static'
-                                      : tab.slug;
-                                });
-                              },
-                              selectedColor: const Color(0x4000FFFF),
-                              backgroundColor: AppColors.glassBackgroundStrong,
-                              labelStyle: TextStyle(
-                                color: isActive
-                                    ? const Color(0xFF00FFFF)
-                                    : AppColors.textPrimary,
-                                fontWeight: isActive
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                fontSize: 13,
-                              ),
-                              side: BorderSide(
-                                color: isActive
-                                    ? const Color(0xFF00FFFF)
-                                    : AppColors.glassBorder,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(19),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(19),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: AppConstants.glassBlurSigmaLight,
+                                  sigmaY: AppConstants.glassBlurSigmaLight,
+                                ),
+                                child: ChoiceChip(
+                                  label: Text(tab.name),
+                                  selected: isActive,
+                                  onSelected: (_) {
+                                    // Tapping the active pill toggles back to
+                                    // the default "For You" feed.
+                                    setState(() {
+                                      _activeFeedSlug =
+                                          tab.slug == _activeFeedSlug
+                                          ? 'static'
+                                          : tab.slug;
+                                    });
+                                  },
+                                  selectedColor: const Color(0x4000FFFF),
+                                  backgroundColor:
+                                      AppColors.glassBackgroundStrong,
+                                  labelStyle: TextStyle(
+                                    color: isActive
+                                        ? const Color(0xFF00FFFF)
+                                        : AppColors.textPrimary,
+                                    fontWeight: isActive
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                  side: BorderSide(
+                                    color: isActive
+                                        ? const Color(0xFF00FFFF)
+                                        : AppColors.glassBorder,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(19),
+                                  ),
+                                ),
                               ),
                             ),
                           );
