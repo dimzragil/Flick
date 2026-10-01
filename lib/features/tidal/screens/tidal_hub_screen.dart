@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -708,7 +709,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             ],
           ),
           actions: [
-            if (isLoggedIn)
+            if (isLoggedIn) ...[
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.search,
+                  color: AppColors.textSecondary,
+                ),
+                tooltip: 'Search',
+                onPressed: _openSearch,
+              ),
               IconButton(
                 icon: const Icon(
                   LucideIcons.logOut,
@@ -717,6 +726,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 tooltip: 'Sign out',
                 onPressed: _signOut,
               ),
+            ],
           ],
         ),
         body: isLoggedIn ? _buildLoggedInView() : _buildSignInView(),
@@ -880,62 +890,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
         children: [
-          // 1. Search Bar Banner
-          GestureDetector(
-            onTap: _openSearch,
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.scaleSize(AppConstants.spacingMd),
-                vertical: context.scaleSize(AppConstants.spacingSm * 1.5),
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.glassBackgroundStrong,
-                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                border: Border.all(color: AppColors.glassBorderStrong),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    LucideIcons.search,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Search songs, albums, artists...',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0x2200FFFF),
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusSm,
-                      ),
-                    ),
-                    child: const Text(
-                      'Search',
-                      style: TextStyle(
-                        color: Color(0xFF00FFFF),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-
           // 3. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
           feedAsync.when(
             loading: () => const Padding(
@@ -955,18 +909,28 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               ),
             ),
             data: (feed) {
-              final displayTabs = feed.tabs.where((tab) {
-                final name = tab.name.trim().toLowerCase();
-                final slug = tab.slug.trim().toLowerCase();
-                return name != 'suggested' &&
-                    slug != 'static' &&
-                    slug != 'suggested';
-              }).toList();
+              // The default 'static' feed ("For You") is not exposed as a
+              // selectable tab by the API, so prepend a synthetic pill for it.
+              const forYouTab = TidalHomeTab(
+                name: 'For You',
+                type: 'static',
+                slug: 'static',
+              );
+              final displayTabs = [
+                forYouTab,
+                ...feed.tabs.where((tab) {
+                  final name = tab.name.trim().toLowerCase();
+                  final slug = tab.slug.trim().toLowerCase();
+                  return name != 'suggested' &&
+                      slug != 'static' &&
+                      slug != 'suggested';
+                }),
+              ];
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Vibes Tabs Pills (filtering out 'Suggested' / 'static')
+                  // Vibes Tabs Pills ('For You' first, then the API tabs)
                   if (displayTabs.isNotEmpty) ...[
                     SizedBox(
                       height: 38,
@@ -978,32 +942,47 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                           final isActive = tab.slug == _activeFeedSlug;
                           return Padding(
                             padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(tab.name),
-                              selected: isActive,
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setState(() => _activeFeedSlug = tab.slug);
-                                }
-                              },
-                              selectedColor: const Color(0x4000FFFF),
-                              backgroundColor: AppColors.glassBackgroundStrong,
-                              labelStyle: TextStyle(
-                                color: isActive
-                                    ? const Color(0xFF00FFFF)
-                                    : AppColors.textPrimary,
-                                fontWeight: isActive
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                fontSize: 13,
-                              ),
-                              side: BorderSide(
-                                color: isActive
-                                    ? const Color(0xFF00FFFF)
-                                    : AppColors.glassBorder,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(19),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(19),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: AppConstants.glassBlurSigmaLight,
+                                  sigmaY: AppConstants.glassBlurSigmaLight,
+                                ),
+                                child: ChoiceChip(
+                                  label: Text(tab.name),
+                                  selected: isActive,
+                                  onSelected: (_) {
+                                    // Tapping the active pill toggles back to
+                                    // the default "For You" feed.
+                                    setState(() {
+                                      _activeFeedSlug =
+                                          tab.slug == _activeFeedSlug
+                                          ? 'static'
+                                          : tab.slug;
+                                    });
+                                  },
+                                  selectedColor: const Color(0x4000FFFF),
+                                  backgroundColor:
+                                      AppColors.glassBackgroundStrong,
+                                  labelStyle: TextStyle(
+                                    color: isActive
+                                        ? const Color(0xFF00FFFF)
+                                        : AppColors.textPrimary,
+                                    fontWeight: isActive
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                  side: BorderSide(
+                                    color: isActive
+                                        ? const Color(0xFF00FFFF)
+                                        : AppColors.glassBorder,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(19),
+                                  ),
+                                ),
                               ),
                             ),
                           );
@@ -1419,10 +1398,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         height: 136,
                                         fit: BoxFit.cover,
                                         placeholder: const ColoredBox(
-                                          color: AppColors.glassBackgroundStrong,
+                                          color:
+                                              AppColors.glassBackgroundStrong,
                                         ),
                                         errorWidget: const ColoredBox(
-                                          color: AppColors.glassBackgroundStrong,
+                                          color:
+                                              AppColors.glassBackgroundStrong,
                                         ),
                                       )
                                     : const ColoredBox(

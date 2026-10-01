@@ -89,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('TIDAL'), findsOneWidget);
-    expect(find.text('Search songs, albums, artists...'), findsOneWidget);
+    expect(find.byTooltip('Search'), findsOneWidget);
     expect(find.byIcon(LucideIcons.waves), findsWidgets);
     expect(find.text('My Playlists'), findsOneWidget);
     expect(find.text('My Audiophile Tracks'), findsOneWidget);

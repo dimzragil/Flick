@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -164,34 +166,45 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                   final isSelected = _selectedCategory == cat;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(cat.label),
-                      selected: isSelected,
-                      onSelected: (_) =>
-                          setState(() => _selectedCategory = cat),
-                      backgroundColor: AppColors.glassBackgroundStrong,
-                      selectedColor: const Color(0x3300FFFF),
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? const Color(0xFF00FFFF)
-                            : AppColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.w500,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusRound,
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusRound,
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: AppConstants.glassBlurSigmaLight,
+                          sigmaY: AppConstants.glassBlurSigmaLight,
                         ),
-                        side: BorderSide(
-                          color: isSelected
-                              ? const Color(0xFF00FFFF)
-                              : AppColors.glassBorder,
-                          width: 1,
+                        child: FilterChip(
+                          label: Text(cat.label),
+                          selected: isSelected,
+                          onSelected: (_) =>
+                              setState(() => _selectedCategory = cat),
+                          backgroundColor: AppColors.glassBackgroundStrong,
+                          selectedColor: const Color(0x3300FFFF),
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? const Color(0xFF00FFFF)
+                                : AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppConstants.radiusRound,
+                            ),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? const Color(0xFF00FFFF)
+                                  : AppColors.glassBorder,
+                              width: 1,
+                            ),
+                          ),
+                          showCheckmark: false,
                         ),
                       ),
-                      showCheckmark: false,
                     ),
                   );
                 }).toList(),
