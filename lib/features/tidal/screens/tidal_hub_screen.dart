@@ -908,18 +908,28 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               ),
             ),
             data: (feed) {
-              final displayTabs = feed.tabs.where((tab) {
-                final name = tab.name.trim().toLowerCase();
-                final slug = tab.slug.trim().toLowerCase();
-                return name != 'suggested' &&
-                    slug != 'static' &&
-                    slug != 'suggested';
-              }).toList();
+              // The default 'static' feed ("For You") is not exposed as a
+              // selectable tab by the API, so prepend a synthetic pill for it.
+              const forYouTab = TidalHomeTab(
+                name: 'For You',
+                type: 'static',
+                slug: 'static',
+              );
+              final displayTabs = [
+                forYouTab,
+                ...feed.tabs.where((tab) {
+                  final name = tab.name.trim().toLowerCase();
+                  final slug = tab.slug.trim().toLowerCase();
+                  return name != 'suggested' &&
+                      slug != 'static' &&
+                      slug != 'suggested';
+                }),
+              ];
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Vibes Tabs Pills (filtering out 'Suggested' / 'static')
+                  // Vibes Tabs Pills ('For You' first, then the API tabs)
                   if (displayTabs.isNotEmpty) ...[
                     SizedBox(
                       height: 38,
@@ -934,10 +944,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                             child: ChoiceChip(
                               label: Text(tab.name),
                               selected: isActive,
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setState(() => _activeFeedSlug = tab.slug);
-                                }
+                              onSelected: (_) {
+                                // Tapping the active pill toggles back to
+                                // the default "For You" feed.
+                                setState(() {
+                                  _activeFeedSlug = tab.slug == _activeFeedSlug
+                                      ? 'static'
+                                      : tab.slug;
+                                });
                               },
                               selectedColor: const Color(0x4000FFFF),
                               backgroundColor: AppColors.glassBackgroundStrong,
