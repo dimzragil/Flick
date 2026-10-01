@@ -31,8 +31,8 @@ class NavBarConfig {
   static const allButtons = [
     NavBarButton.menu,
     NavBarButton.songs,
-    NavBarButton.settings,
     NavBarButton.tidal,
+    NavBarButton.settings,
   ];
 
   const NavBarConfig({
