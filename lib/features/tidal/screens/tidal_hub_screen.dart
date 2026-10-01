@@ -708,7 +708,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             ],
           ),
           actions: [
-            if (isLoggedIn)
+            if (isLoggedIn) ...[
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.search,
+                  color: AppColors.textSecondary,
+                ),
+                tooltip: 'Search',
+                onPressed: _openSearch,
+              ),
               IconButton(
                 icon: const Icon(
                   LucideIcons.logOut,
@@ -717,6 +725,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 tooltip: 'Sign out',
                 onPressed: _signOut,
               ),
+            ],
           ],
         ),
         body: isLoggedIn ? _buildLoggedInView() : _buildSignInView(),
@@ -880,62 +889,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
         children: [
-          // 1. Search Bar Banner
-          GestureDetector(
-            onTap: _openSearch,
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.scaleSize(AppConstants.spacingMd),
-                vertical: context.scaleSize(AppConstants.spacingSm * 1.5),
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.glassBackgroundStrong,
-                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                border: Border.all(color: AppColors.glassBorderStrong),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    LucideIcons.search,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Search songs, albums, artists...',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0x2200FFFF),
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusSm,
-                      ),
-                    ),
-                    child: const Text(
-                      'Search',
-                      style: TextStyle(
-                        color: Color(0xFF00FFFF),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-
           // 3. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
           feedAsync.when(
             loading: () => const Padding(
@@ -1419,10 +1372,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         height: 136,
                                         fit: BoxFit.cover,
                                         placeholder: const ColoredBox(
-                                          color: AppColors.glassBackgroundStrong,
+                                          color:
+                                              AppColors.glassBackgroundStrong,
                                         ),
                                         errorWidget: const ColoredBox(
-                                          color: AppColors.glassBackgroundStrong,
+                                          color:
+                                              AppColors.glassBackgroundStrong,
                                         ),
                                       )
                                     : const ColoredBox(
