@@ -10,6 +10,7 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/models/audio_output_diagnostics.dart';
 import 'package:flick/providers/providers.dart';
+import 'package:flick/services/eq_engine_hint.dart';
 import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/services/player_service.dart';
@@ -429,7 +430,20 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                   return;
                 }
                 if (changed) {
-                  _showRestartRequiredToast(context);
+                  if (value && EqEngineHint.parametricPeqActive) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Bit-perfect enabled — parametric EQ is bypassed on '
+                          'the direct USB path. Restart the app to apply '
+                          'playback changes.',
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  } else {
+                    _showRestartRequiredToast(context);
+                  }
                 }
               },
             ),

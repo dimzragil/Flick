@@ -325,13 +325,21 @@ class AudioSessionManager {
         info.hasUsbDac ||
         capabilityReportsUsb ||
         looksLikeUsbAudioRoute) {
-    if (EqEngineHint.parametricPeqActive) {
-      _debugLog(
-        '[Session] Selected RUST_OBOE because parametric EQ is enabled and '
-        'needs the variable-band DSP chain',
-      );
-      return AudioEngineType.rustOboe;
-    }
+      if (EqEngineHint.parametricPeqActive && !bitPerfectEnabled) {
+        _debugLog(
+          '[Session] Selected RUST_OBOE because parametric EQ is enabled and '
+          'needs the variable-band DSP chain',
+        );
+        return AudioEngineType.rustOboe;
+      }
+      if (EqEngineHint.parametricPeqActive) {
+        // Bit-perfect asks for a clean direct path and bypasses the DSP chain
+        // anyway, so parametric EQ must not preempt it.
+        _debugLog(
+          '[Session] Bit-perfect (USB DAC) takes precedence over parametric '
+          'EQ; bypassing the DSP chain on the direct USB path',
+        );
+      }
 
     if (audioEnginePreference == AudioEnginePreference.rustOboe) {
         _debugLog(
