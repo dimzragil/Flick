@@ -81,6 +81,10 @@ android {
 
     buildTypes {
         release {
+            // Experiment branch (raya-flick): suffix the applicationId so
+            // experiment builds install alongside the stable app instead of
+            // replacing it. Do NOT merge this into the main branch.
+            applicationIdSuffix = ".debug"
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
