@@ -415,7 +415,7 @@ class _OverflowMenuPopupState extends State<_OverflowMenuPopup>
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                             child: Row(
                               children: [
-                                Icon(button.icon, size: 20, color: AppColors.textSecondary),
+                                navBarButtonIcon(button, size: 20, color: AppColors.textSecondary),
                                 const SizedBox(width: 12),
                                 Flexible(
                                   child: Text(
@@ -614,8 +614,8 @@ class _FlickNavItemState extends State<_FlickNavItem>
                 children: [
                   Transform.scale(
                     scale: _iconScaleAnimation.value,
-                    child: Icon(
-                      widget.button.icon,
+                    child: navBarButtonIcon(
+                      widget.button,
                       color: lerpColor,
                       size: iconSize,
                     ),

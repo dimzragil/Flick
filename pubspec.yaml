@@ -106,6 +106,7 @@ flutter:
     - assets/icons/flicklogo.png
     - assets/icons/flicklogo_svg.svg
     - assets/icons/flicklogo_transparent.png
+    - assets/icons/tidal_logo.png
     - assets/icons/svg/menu.svg
     - assets/icons/svg/record_vinyl.svg
     - assets/icons/svg/settings.svg

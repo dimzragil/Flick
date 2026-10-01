@@ -679,7 +679,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           elevation: 0,
           title: Row(
             children: [
-              const Icon(LucideIcons.waves, color: Color(0xFF00FFFF), size: 24),
+              Image.asset(
+                'assets/icons/tidal_logo.png',
+                height: 22,
+                fit: BoxFit.contain,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'TIDAL',
@@ -753,11 +757,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               borderRadius: BorderRadius.circular(AppConstants.radiusXl),
               border: Border.all(color: const Color(0x4400FFFF), width: 1.5),
             ),
-            child: const Center(
-              child: Icon(
-                LucideIcons.waves,
-                size: 48,
-                color: Color(0xFF00FFFF),
+            child: Center(
+              child: Image.asset(
+                'assets/icons/tidal_logo.png',
+                width: 56,
+                fit: BoxFit.contain,
               ),
             ),
           ),
