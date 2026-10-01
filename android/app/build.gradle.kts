@@ -81,10 +81,6 @@ android {
 
     buildTypes {
         release {
-            // Experiment branch (raya-flick): suffix the applicationId so
-            // experiment builds install alongside the stable app instead of
-            // replacing it. Do NOT merge this into the main branch.
-            applicationIdSuffix = ".debug"
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
@@ -232,7 +228,7 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
-    
+
     // Jetpack Glance for Widgets
     val glanceVersion = "1.2.0-rc01"
     implementation("androidx.glance:glance-appwidget:$glanceVersion")
