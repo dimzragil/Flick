@@ -17,6 +17,8 @@ use crate::audio::equalizer::EqBandSpec;
 use crate::audio::manager::{AudioCapability, AudioCapabilitySnapshot, AudioEngine, EngineManager};
 use crate::audio::strategy::OutputStrategy;
 use crate::audio::wavpack_thread::WavpackDecoderThread;
+// TEMP-TIMING(raya): import for temporary instrumentation — remove afterwards.
+use crate::dev_eprintln;
 use log::{info as log_info, warn as log_warn};
 use once_cell::sync::Lazy;
 use serde::Serialize;
