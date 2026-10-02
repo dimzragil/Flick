@@ -631,6 +631,17 @@ class TidalService implements NetworkSourceService {
     return '$_coverHost/$path/${size}x$size.jpg';
   }
 
+  /// Safely transform a Tidal cover URL to a different resolution (e.g. 160, 320, 640).
+  /// Returns the original URL if it is not a recognized Tidal resource URL.
+  static String? resizedCoverUrl(String? originalUrl, int size) {
+    if (originalUrl == null || originalUrl.isEmpty) return originalUrl;
+    if (!originalUrl.contains('resources.tidal.com')) return originalUrl;
+    return originalUrl.replaceAll(
+      RegExp(r'\d+x\d+\.jpg$'),
+      '${size}x$size.jpg',
+    );
+  }
+
   // --- Stream ----------------------------------------------------------
 
   @override

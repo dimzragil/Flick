@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -140,85 +138,81 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         ),
         body: Column(
           children: [
-            // Search input
+            // Search input — wrapped in RepaintBoundary so blinking cursor does not repaint results
             Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: context.scaleSize(AppConstants.spacingMd),
                 vertical: context.scaleSize(AppConstants.spacingSm),
               ),
-              child: GlassSearchBar(
-                controller: _searchController,
-                focusNode: _focusNode,
-                autofocus: true,
-                hintText: 'Search songs, albums, artists...',
-                onChanged: _onSearchChanged,
-                onClear: _onClear,
+              child: RepaintBoundary(
+                child: GlassSearchBar(
+                  controller: _searchController,
+                  focusNode: _focusNode,
+                  autofocus: true,
+                  useFilter: false,
+                  hintText: 'Search songs, albums, artists...',
+                  onChanged: _onSearchChanged,
+                  onClear: _onClear,
+                ),
               ),
             ),
-            // Category filter chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(
-                horizontal: context.scaleSize(AppConstants.spacingMd),
-                vertical: context.scaleSize(AppConstants.spacingXs),
-              ),
-              child: Row(
-                children: TidalSearchCategory.values.map((cat) {
-                  final isSelected = _selectedCategory == cat;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusRound,
-                      ),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(
-                          sigmaX: AppConstants.glassBlurSigmaLight,
-                          sigmaY: AppConstants.glassBlurSigmaLight,
+            // Category filter chips — lightweight glass container without GPU BackdropFilter
+            RepaintBoundary(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(
+                  horizontal: context.scaleSize(AppConstants.spacingMd),
+                  vertical: context.scaleSize(AppConstants.spacingXs),
+                ),
+                child: Row(
+                  children: TidalSearchCategory.values.map((cat) {
+                    final isSelected = _selectedCategory == cat;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text(cat.label),
+                        selected: isSelected,
+                        onSelected: (_) =>
+                            setState(() => _selectedCategory = cat),
+                        backgroundColor: AppColors.glassBackgroundStrong,
+                        selectedColor: const Color(0x3300FFFF),
+                        labelStyle: TextStyle(
+                          color: isSelected
+                              ? const Color(0xFF00FFFF)
+                              : AppColors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.w500,
                         ),
-                        child: FilterChip(
-                          label: Text(cat.label),
-                          selected: isSelected,
-                          onSelected: (_) =>
-                              setState(() => _selectedCategory = cat),
-                          backgroundColor: AppColors.glassBackgroundStrong,
-                          selectedColor: const Color(0x3300FFFF),
-                          labelStyle: TextStyle(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusRound,
+                          ),
+                          side: BorderSide(
                             color: isSelected
                                 ? const Color(0xFF00FFFF)
-                                : AppColors.textPrimary,
-                            fontSize: 12,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.w500,
+                                : AppColors.glassBorder,
+                            width: 1,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppConstants.radiusRound,
-                            ),
-                            side: BorderSide(
-                              color: isSelected
-                                  ? const Color(0xFF00FFFF)
-                                  : AppColors.glassBorder,
-                              width: 1,
-                            ),
-                          ),
-                          showCheckmark: false,
                         ),
+                        showCheckmark: false,
                       ),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
-            // Content — isolated Consumer so query typing only rebuilds
-            // the results area, not the entire screen.
+            // Content — isolated Consumer wrapped in RepaintBoundary so query typing
+            // and results rendering never dirty the search bar or app bar.
             Expanded(
-              child: Consumer(
-                builder: (context, ref, _) {
-                  final searchResults = ref.watch(tidalSearchProvider);
-                  return _buildResultsView(searchResults);
-                },
+              child: RepaintBoundary(
+                child: Consumer(
+                  builder: (context, ref, _) {
+                    final searchResults = ref.watch(tidalSearchProvider);
+                    return _buildResultsView(searchResults);
+                  },
+                ),
               ),
             ),
           ],
@@ -395,27 +389,32 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
   Widget _buildTrackTile(Song song, List<Song> playlist) {
     final thumbSize = context.scaleSize(48);
+    final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 160);
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-        child: SizedBox(
-          width: thumbSize,
-          height: thumbSize,
-          child: song.albumArt != null
-              ? CachedImageWidget(
-                  imagePath: song.albumArt,
-                  audioSourcePath: song.filePath,
-                  width: thumbSize,
-                  height: thumbSize,
-                  fit: BoxFit.cover,
-                  placeholder: const FlickArtworkPlaceholder(),
-                  errorWidget: const FlickArtworkPlaceholder(),
-                )
-              : const FlickArtworkPlaceholder(),
+    return RepaintBoundary(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          child: SizedBox(
+            width: thumbSize,
+            height: thumbSize,
+            child: thumbArt != null
+                ? CachedImageWidget(
+                    imagePath: thumbArt,
+                    audioSourcePath: song.filePath,
+                    width: thumbSize,
+                    height: thumbSize,
+                    useThumbnail: true,
+                    thumbnailWidth: 160,
+                    thumbnailHeight: 160,
+                    fit: BoxFit.cover,
+                    placeholder: const FlickArtworkPlaceholder(),
+                    errorWidget: const FlickArtworkPlaceholder(),
+                  )
+                : const FlickArtworkPlaceholder(),
+          ),
         ),
-      ),
       title: Text(
         song.title,
         maxLines: 1,
@@ -479,6 +478,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         ],
       ),
       onTap: () => _playSong(song, playlist),
+      ),
     );
   }
 
@@ -506,97 +506,33 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         : null;
     final cardWidth = context.scaleSize(120);
 
-    return GestureDetector(
-      onTap: () => _openAlbum(album),
-      child: Container(
-        width: cardWidth,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-              child: SizedBox(
-                width: cardWidth,
-                height: cardWidth,
-                child: coverUrl != null
-                    ? CachedImageWidget(
-                        imagePath: coverUrl,
-                        width: cardWidth,
-                        height: cardWidth,
-                        fit: BoxFit.cover,
-                        placeholder: const FlickArtworkPlaceholder(),
-                        errorWidget: const FlickArtworkPlaceholder(),
-                      )
-                    : const FlickArtworkPlaceholder(),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlbumsGrid(List<Map<String, dynamic>> albums) {
-    return GridView.builder(
-      padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.8,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: albums.length,
-      itemBuilder: (context, index) {
-        final album = albums[index];
-        final title = album['title'] as String? ?? 'Unknown Album';
-        final artist =
-            (album['artist'] as Map<String, dynamic>?)?['name'] as String? ??
-            'Unknown Artist';
-        final coverUuid = album['cover'] as String?;
-        final coverUrl = coverUuid != null
-            ? TidalService.coverUrl(coverUuid, size: 640)
-            : null;
-
-        return GestureDetector(
-          onTap: () => _openAlbum(album),
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () => _openAlbum(album),
+        child: Container(
+          width: cardWidth,
+          margin: const EdgeInsets.only(right: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: coverUrl != null
-                        ? CachedImageWidget(
-                            imagePath: coverUrl,
-                            fit: BoxFit.cover,
-                            placeholder: const FlickArtworkPlaceholder(),
-                            errorWidget: const FlickArtworkPlaceholder(),
-                          )
-                        : const FlickArtworkPlaceholder(),
-                  ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                child: SizedBox(
+                  width: cardWidth,
+                  height: cardWidth,
+                  child: coverUrl != null
+                      ? CachedImageWidget(
+                          imagePath: coverUrl,
+                          width: cardWidth,
+                          height: cardWidth,
+                          useThumbnail: true,
+                          thumbnailWidth: 320,
+                          thumbnailHeight: 320,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
                 ),
               ),
               const SizedBox(height: 6),
@@ -621,6 +557,80 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlbumsGrid(List<Map<String, dynamic>> albums) {
+    return GridView.builder(
+      padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.8,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: albums.length,
+      itemBuilder: (context, index) {
+        final album = albums[index];
+        final title = album['title'] as String? ?? 'Unknown Album';
+        final artist =
+            (album['artist'] as Map<String, dynamic>?)?['name'] as String? ??
+            'Unknown Artist';
+        final coverUuid = album['cover'] as String?;
+        final coverUrl = coverUuid != null
+            ? TidalService.coverUrl(coverUuid, size: 320)
+            : null;
+
+        return RepaintBoundary(
+          child: GestureDetector(
+            onTap: () => _openAlbum(album),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: coverUrl != null
+                          ? CachedImageWidget(
+                              imagePath: coverUrl,
+                              fit: BoxFit.cover,
+                              useThumbnail: true,
+                              thumbnailWidth: 320,
+                              thumbnailHeight: 320,
+                              placeholder: const FlickArtworkPlaceholder(),
+                              errorWidget: const FlickArtworkPlaceholder(),
+                            )
+                          : const FlickArtworkPlaceholder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -634,42 +644,47 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         : null;
     final size = context.scaleSize(76);
 
-    return GestureDetector(
-      onTap: () => _openArtist(artist),
-      child: Container(
-        width: size + 16,
-        margin: const EdgeInsets.only(right: 8),
-        child: Column(
-          children: [
-            ClipOval(
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: pictureUrl != null
-                    ? CachedImageWidget(
-                        imagePath: pictureUrl,
-                        width: size,
-                        height: size,
-                        fit: BoxFit.cover,
-                        placeholder: const FlickArtworkPlaceholder(),
-                        errorWidget: const FlickArtworkPlaceholder(),
-                      )
-                    : const FlickArtworkPlaceholder(),
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () => _openArtist(artist),
+        child: Container(
+          width: size + 16,
+          margin: const EdgeInsets.only(right: 8),
+          child: Column(
+            children: [
+              ClipOval(
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: pictureUrl != null
+                      ? CachedImageWidget(
+                          imagePath: pictureUrl,
+                          width: size,
+                          height: size,
+                          useThumbnail: true,
+                          thumbnailWidth: 160,
+                          thumbnailHeight: 160,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              name,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 6),
+              Text(
+                name,
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -687,34 +702,39 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         final name = artist['name'] as String? ?? 'Unknown Artist';
         final picture = artist['picture'] as String?;
         final pictureUrl = picture != null
-            ? TidalService.coverUrl(picture, size: 320)
+            ? TidalService.coverUrl(picture, size: 160)
             : null;
         final size = context.scaleSize(48);
 
-        return ListTile(
-          onTap: () => _openArtist(artist),
-          leading: ClipOval(
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: pictureUrl != null
-                  ? CachedImageWidget(
-                      imagePath: pictureUrl,
-                      width: size,
-                      height: size,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
+        return RepaintBoundary(
+          child: ListTile(
+            onTap: () => _openArtist(artist),
+            leading: ClipOval(
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: pictureUrl != null
+                    ? CachedImageWidget(
+                        imagePath: pictureUrl,
+                        width: size,
+                        height: size,
+                        useThumbnail: true,
+                        thumbnailWidth: 160,
+                        thumbnailHeight: 160,
+                        fit: BoxFit.cover,
+                        placeholder: const FlickArtworkPlaceholder(),
+                        errorWidget: const FlickArtworkPlaceholder(),
+                      )
+                    : const FlickArtworkPlaceholder(),
+              ),
             ),
-          ),
-          title: Text(
-            name,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
+            title: Text(
+              name,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         );
@@ -734,41 +754,46 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         : null;
     final cardWidth = context.scaleSize(110);
 
-    return Container(
-      width: cardWidth,
-      margin: const EdgeInsets.only(right: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            child: SizedBox(
-              width: cardWidth,
-              height: cardWidth,
-              child: imageUrl != null
-                  ? CachedImageWidget(
-                      imagePath: imageUrl,
-                      width: cardWidth,
-                      height: cardWidth,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
+    return RepaintBoundary(
+      child: Container(
+        width: cardWidth,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+              child: SizedBox(
+                width: cardWidth,
+                height: cardWidth,
+                child: imageUrl != null
+                    ? CachedImageWidget(
+                        imagePath: imageUrl,
+                        width: cardWidth,
+                        height: cardWidth,
+                        useThumbnail: true,
+                        thumbnailWidth: 320,
+                        thumbnailHeight: 320,
+                        fit: BoxFit.cover,
+                        placeholder: const FlickArtworkPlaceholder(),
+                        errorWidget: const FlickArtworkPlaceholder(),
+                      )
+                    : const FlickArtworkPlaceholder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+            const SizedBox(height: 6),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -788,46 +813,51 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         final image =
             (pl['image'] as String?) ?? (pl['squareImage'] as String?);
         final imageUrl = (image != null && image.isNotEmpty)
-            ? TidalService.coverUrl(image, size: 320)
+            ? TidalService.coverUrl(image, size: 160)
             : null;
         final size = context.scaleSize(48);
 
-        return ListTile(
-          onTap: () => _openPlaylist(pl),
-          leading: ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: (imageUrl != null && imageUrl.isNotEmpty)
-                  ? CachedImageWidget(
-                      imagePath: imageUrl,
-                      width: size,
-                      height: size,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
+        return RepaintBoundary(
+          child: ListTile(
+            onTap: () => _openPlaylist(pl),
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: (imageUrl != null && imageUrl.isNotEmpty)
+                    ? CachedImageWidget(
+                        imagePath: imageUrl,
+                        width: size,
+                        height: size,
+                        useThumbnail: true,
+                        thumbnailWidth: 160,
+                        thumbnailHeight: 160,
+                        fit: BoxFit.cover,
+                        placeholder: const FlickArtworkPlaceholder(),
+                        errorWidget: const FlickArtworkPlaceholder(),
+                      )
+                    : const FlickArtworkPlaceholder(),
+              ),
             ),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
+            title: Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
+            subtitle: trackCount != null
+                ? Text(
+                    '$trackCount tracks',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  )
+                : null,
           ),
-          subtitle: trackCount != null
-              ? Text(
-                  '$trackCount tracks',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                )
-              : null,
         );
       },
     );

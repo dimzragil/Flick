@@ -362,9 +362,6 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       placeholder: (context, url) => placeholder,
       errorWidget: (context, url, error) {
         _markBadUrl(url);
-        // TODO(raya): TEMPORARY diagnostic log to identify broken image URLs.
-        // Remove once the failing URLs are identified from device logs.
-        debugPrint('[IMG-FAIL] image failed: $url ($error)');
         return SizedBox(
           width: widget.width,
           height: widget.height,
