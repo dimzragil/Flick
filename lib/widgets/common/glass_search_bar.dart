@@ -31,6 +31,9 @@ class GlassSearchBar extends StatefulWidget {
   /// Text input action for keyboard.
   final TextInputAction? textInputAction;
 
+  /// Whether to use BackdropFilter. Defaults to false for budget-friendly mobile performance.
+  final bool useFilter;
+
   const GlassSearchBar({
     super.key,
     required this.controller,
@@ -41,6 +44,7 @@ class GlassSearchBar extends StatefulWidget {
     this.focusNode,
     this.autofocus = false,
     this.textInputAction,
+    this.useFilter = false,
   });
 
   @override
@@ -136,6 +140,7 @@ class _GlassSearchBarState extends State<GlassSearchBar> {
       return GlassmorphismContainer(
         padding: EdgeInsets.zero,
         borderRadius: BorderRadius.circular(AppConstants.radiusXl),
+        useFilter: widget.useFilter,
         child: content,
       );
     }

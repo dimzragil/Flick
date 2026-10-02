@@ -93,6 +93,29 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   static final Set<String> _knownExistingPaths = {};
   static final Map<String, int> _knownMissingPaths = {};
   static const int _missingTtlMs = 15000;
+  // Negative cache for network URLs that failed to load: without this, a
+  // broken URL (bad UUID, 404, malformed) is retried on every rebuild/scroll,
+  // flooding the network with doomed requests and janking the list.
+  // Entries expire after TTL so transient failures can recover.
+  static final Map<String, int> _knownBadUrls = {};
+  static const int _badUrlTtlMs = 300000; // 5 minutes
+
+  /// Records a network URL that failed to load so it isn't retried until TTL.
+  static void _markBadUrl(String url) {
+    _knownBadUrls[url] = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  /// True if [url] failed recently and is still within the negative-cache TTL.
+  static bool _isBadUrl(String url) {
+    final badAt = _knownBadUrls[url];
+    if (badAt == null) return false;
+    if (DateTime.now().millisecondsSinceEpoch - badAt < _badUrlTtlMs) {
+      return true;
+    }
+    _knownBadUrls.remove(url);
+    return false;
+  }
+
   // Bound for decoded resolution when the widget has no explicit size:
   // without this the full 1280px+ image was decoded for a small thumbnail.
   static const int _defaultMemCacheSize = 512;
@@ -123,7 +146,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final imagePath = _resolvedImagePath ?? _usablePath(widget.imagePath);
+    var imagePath = _resolvedImagePath ?? _usablePath(widget.imagePath);
+    // _resolvedImagePath may hold a URL that failed AFTER it was cached
+    // (initState/didUpdateWidget run before the download fails). Re-check
+    // the negative cache so a doomed URL isn't retried on every rebuild.
+    if (imagePath != null && _isBadUrl(imagePath)) {
+      imagePath = null;
+      _resolvedImagePath = null;
+    }
     if (imagePath == null) {
       return SizedBox(
         width: widget.width,
@@ -213,6 +243,19 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     }
 
     if (path.startsWith('http')) {
+      // Reject malformed URLs outright: a garbage URL (e.g. a full URL fed
+      // into the UUID-based cover builder) would otherwise trigger a doomed
+      // network request on every build.
+      final uri = Uri.tryParse(path);
+      if (uri == null ||
+          !(uri.scheme == 'http' || uri.scheme == 'https') ||
+          !uri.hasAuthority) {
+        return null;
+      }
+      // Skip recently-failed URLs (negative cache with TTL).
+      if (_isBadUrl(path)) {
+        return null;
+      }
       return path;
     }
 
@@ -317,11 +360,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       height: widget.height,
       fit: widget.fit,
       placeholder: (context, url) => placeholder,
-      errorWidget: (context, url, error) => SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
-      ),
+      errorWidget: (context, url, error) {
+        _markBadUrl(url);
+        return SizedBox(
+          width: widget.width,
+          height: widget.height,
+          child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
+        );
+      },
       // Keep the previous instant swap (no fade) behavior.
       fadeInDuration: Duration.zero,
       fadeOutDuration: Duration.zero,
