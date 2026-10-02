@@ -94,6 +94,16 @@ class TidalService implements NetworkSourceService {
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, void Function()> _activeDownloads = {};
 
+  /// Catalog-known max quality tier per TIDAL track id (e.g. 'LOSSLESS').
+  ///
+  /// Populated from catalog tags in [makeEphemeralSong] (static, so this is
+  /// static too). Lets [_resolveStreamable] start its quality-tier cascade
+  /// at the right tier instead of wasting `playbackinfo` API calls on
+  /// higher tiers the track can never satisfy — CD-only ("Lossless") tracks
+  /// otherwise pay two doomed round-trips on every cold start. Tracks
+  /// without an entry fall back to the full cascade.
+  static final Map<String, String> _tierStartHintByTrackId = {};
+
   SongRepository get _repo => _songRepository ??= SongRepository();
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
 
@@ -636,7 +646,9 @@ class TidalService implements NetworkSourceService {
         remoteId,
         extension: _resolvedStreams[remoteId]?.ext ?? extension ?? 'mp4',
       );
-      if (cached != null) return null;
+      if (cached != null) {
+        return null;
+      }
     } catch (_) {}
 
     // PlayerService resolves once for display metadata, then Rust resolves
@@ -898,7 +910,18 @@ class TidalService implements NetworkSourceService {
     const qualityTiers = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
     Object? lastError;
 
-    for (final tier in qualityTiers) {
+    // Start the cascade at the catalog-known max tier when available:
+    // tracks tagged non-hi-res can never satisfy the higher tiers, so
+    // probing them first only burns API round-trips on every cold start.
+    var tierIndex = 0;
+    final hintedTier = _tierStartHintByTrackId[trackId];
+    if (hintedTier != null) {
+      final hintedIndex = qualityTiers.indexOf(hintedTier);
+      if (hintedIndex >= 0) tierIndex = hintedIndex;
+    }
+
+    for (var i = tierIndex; i < qualityTiers.length; i++) {
+      final tier = qualityTiers[i];
       try {
         final info = await _apiGet(
           server,
@@ -2482,6 +2505,21 @@ class TidalService implements NetworkSourceService {
         tags.contains('HIRES_LOSSLESS') ||
         tags.contains('HIRES_LOSSLESS_MQA') ||
         quality == 'HI_RES_LOSSLESS';
+    // Remember the catalog-known max tier so the stream-resolution cascade
+    // can skip higher tiers this track can never satisfy. Hi-res tracks
+    // keep the full cascade (subscription/region may still downgrade them);
+    // unknown quality keeps it too as the safe fallback.
+    if (remoteId.isNotEmpty && !isHiRes) {
+      final startTier = switch (quality) {
+        'HI_RES' => 'HI_RES',
+        'LOSSLESS' => 'LOSSLESS',
+        'HIGH' => 'HIGH',
+        _ => null,
+      };
+      if (startTier != null) {
+        _tierStartHintByTrackId[remoteId] = startTier;
+      }
+    }
     final initialSampleRate = isHiRes ? 96000 : 44100;
     final initialBitDepth = isHiRes ? 24 : 16;
     final initialResolution = isHiRes
