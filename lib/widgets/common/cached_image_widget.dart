@@ -93,6 +93,18 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   static final Set<String> _knownExistingPaths = {};
   static final Map<String, int> _knownMissingPaths = {};
   static const int _missingTtlMs = 15000;
+  // Negative cache for network URLs that failed to load: without this, a
+  // broken URL (bad UUID, 404, malformed) is retried on every rebuild/scroll,
+  // flooding the network with doomed requests and janking the list.
+  // Entries expire after TTL so transient failures can recover.
+  static final Map<String, int> _knownBadUrls = {};
+  static const int _badUrlTtlMs = 300000; // 5 minutes
+
+  /// Records a network URL that failed to load so it isn't retried until TTL.
+  static void _markBadUrl(String url) {
+    _knownBadUrls[url] = DateTime.now().millisecondsSinceEpoch;
+  }
+
   // Bound for decoded resolution when the widget has no explicit size:
   // without this the full 1280px+ image was decoded for a small thumbnail.
   static const int _defaultMemCacheSize = 512;
@@ -213,6 +225,23 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     }
 
     if (path.startsWith('http')) {
+      // Reject malformed URLs outright: a garbage URL (e.g. a full URL fed
+      // into the UUID-based cover builder) would otherwise trigger a doomed
+      // network request on every build.
+      final uri = Uri.tryParse(path);
+      if (uri == null ||
+          !(uri.scheme == 'http' || uri.scheme == 'https') ||
+          !uri.hasAuthority) {
+        return null;
+      }
+      // Skip recently-failed URLs (negative cache with TTL).
+      final badAt = _knownBadUrls[path];
+      if (badAt != null) {
+        if (DateTime.now().millisecondsSinceEpoch - badAt < _badUrlTtlMs) {
+          return null;
+        }
+        _knownBadUrls.remove(path);
+      }
       return path;
     }
 
@@ -317,11 +346,17 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       height: widget.height,
       fit: widget.fit,
       placeholder: (context, url) => placeholder,
-      errorWidget: (context, url, error) => SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
-      ),
+      errorWidget: (context, url, error) {
+        _markBadUrl(url);
+        // TODO(raya): TEMPORARY diagnostic log to identify broken image URLs.
+        // Remove once the failing URLs are identified from device logs.
+        debugPrint('[IMG-FAIL] image failed: $url ($error)');
+        return SizedBox(
+          width: widget.width,
+          height: widget.height,
+          child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
+        );
+      },
       // Keep the previous instant swap (no fade) behavior.
       fadeInDuration: Duration.zero,
       fadeOutDuration: Duration.zero,

@@ -725,8 +725,12 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   Widget _buildPlaylistCard(Map<String, dynamic> playlist) {
     final title = playlist['title'] as String? ?? 'Playlist';
     final image = playlist['image'] as String?;
-    final imageUrl = image != null
+    final coverUrl = (image != null && image.isNotEmpty)
         ? TidalService.coverUrl(image, size: 320)
+        : null;
+    // coverUrl returns '' for invalid UUIDs; treat as missing.
+    final imageUrl = (coverUrl != null && coverUrl.isNotEmpty)
+        ? coverUrl
         : null;
     final cardWidth = context.scaleSize(110);
 
