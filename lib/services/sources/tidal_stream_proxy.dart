@@ -628,8 +628,6 @@ class TidalBtsStreamSession {
   }
 
   Future<void> start() async {
-    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
-    final tBts = Stopwatch()..start();
     final part = File('$targetPath.part');
     if (await part.exists()) {
       await part.delete();
@@ -643,9 +641,6 @@ class TidalBtsStreamSession {
     final response = await client
         .send(request)
         .timeout(const Duration(seconds: 20));
-    devLog(
-      '[TIMING] BTS session headers ${tBts.elapsedMilliseconds}ms trackId=$trackId',
-    );
     if (response.statusCode != 200) {
       throw HttpException('BTS CDN returned HTTP ${response.statusCode}');
     }
@@ -661,9 +656,6 @@ class TidalBtsStreamSession {
       // Tail prefetch too slow; proceed without it. Tail-region requests
       // fall back to waiting for the sequential download (old behavior).
     }
-    devLog(
-      '[TIMING] BTS session ready(256KB) ${tBts.elapsedMilliseconds}ms trackId=$trackId total=$_total',
-    );
   }
 
   /// Download the last [_tailPrefetchBytes] of the source file straight to
@@ -675,8 +667,6 @@ class TidalBtsStreamSession {
   /// Best-effort: on any failure the tail simply isn't marked ready and
   /// requests fall back to waiting for the sequential download.
   Future<void> _prefetchTail(File part) async {
-    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
-    final tTail = Stopwatch()..start();
     try {
       final tailRequest = http.Request('GET', Uri.parse(sourceUrl));
       tailRequest.headers['Range'] = 'bytes=-$_tailPrefetchBytes';
@@ -721,9 +711,6 @@ class TidalBtsStreamSession {
       }
       if (!_cancelled) {
         _tailReadyStart = tailStart;
-        devLog(
-          '[TIMING] BTS tail prefetched ${tTail.elapsedMilliseconds}ms trackId=$trackId tailStart=$tailStart',
-        );
       }
     } catch (_) {
       // Best-effort; the sequential download still works without the tail.

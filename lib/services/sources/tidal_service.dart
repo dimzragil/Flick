@@ -639,9 +639,6 @@ class TidalService implements NetworkSourceService {
     String remoteId, {
     String? extension,
   }) async {
-    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
-    final tStream = Stopwatch()..start();
-    devLog('[TIMING] streamDescriptor enter remoteId=$remoteId');
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
       final cached = await _cache.getPath(
@@ -650,9 +647,6 @@ class TidalService implements NetworkSourceService {
         extension: _resolvedStreams[remoteId]?.ext ?? extension ?? 'mp4',
       );
       if (cached != null) {
-        devLog(
-          '[TIMING] streamDescriptor cache-hit ${tStream.elapsedMilliseconds}ms remoteId=$remoteId',
-        );
         return null;
       }
     } catch (_) {}
@@ -663,9 +657,6 @@ class TidalService implements NetworkSourceService {
     final activeBtsUrl = TidalStreamProxy.instance.activeBtsStreamUrl(remoteId);
     final activeResolution = _resolvedStreams[remoteId];
     if (activeBtsUrl != null && activeResolution != null) {
-      devLog(
-        '[TIMING] streamDescriptor reuse-active-session ${tStream.elapsedMilliseconds}ms remoteId=$remoteId',
-      );
       return (
         url: activeBtsUrl,
         headers: <String, String>{
@@ -676,9 +667,6 @@ class TidalService implements NetworkSourceService {
     }
 
     final resolved = await _resolveStreamable(server, remoteId);
-    devLog(
-      '[TIMING] streamDescriptor _resolveStreamable done ${tStream.elapsedMilliseconds}ms remoteId=$remoteId',
-    );
     if (resolved == null) return null;
 
     // 2. For DASH: start or prepare the progressive local stream session (~300ms)
@@ -694,9 +682,6 @@ class TidalService implements NetworkSourceService {
         targetPath: targetPath,
         client: _client,
         onFinalized: (file) => _cache.evictIfOverCap(protect: file),
-      );
-      devLog(
-        '[TIMING] streamDescriptor DASH prepareStream done ${tStream.elapsedMilliseconds}ms remoteId=$remoteId',
       );
       return (
         url: streamUrl,
@@ -732,9 +717,6 @@ class TidalService implements NetworkSourceService {
       },
       client: _client,
       onFinalized: (file) => _cache.evictIfOverCap(protect: file),
-    );
-    devLog(
-      '[TIMING] streamDescriptor BTS prepareBtsStream done ${tStream.elapsedMilliseconds}ms remoteId=$remoteId',
     );
     return (
       url: streamUrl,
