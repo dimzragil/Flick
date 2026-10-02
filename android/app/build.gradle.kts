@@ -61,8 +61,11 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+        val isSplitPerAbi = project.findProperty("split-per-abi")?.toString()?.toBoolean() == true
+        if (!isSplitPerAbi) {
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
         }
 
         externalNativeBuild {
