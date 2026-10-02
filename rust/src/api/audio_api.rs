@@ -1415,11 +1415,10 @@ pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Re
         None,
     )
     .map_err(|e| format!("Failed to decode HTTP stream: {}", e))?;
-    let play_result = with_audio_engine(|handle| {
+    with_audio_engine(|handle| {
         handle.set_dop_override(false)?;
         handle.play_prepared(source, DecoderHandle::Symphonia(decoder_thread))
-    });
-    play_result
+    })
 }
 
 /// Queue a remote HTTP stream as the next track for gapless playback.
