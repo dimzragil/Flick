@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -936,61 +935,54 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 children: [
                   // Vibes Tabs Pills ('For You' first, then the API tabs)
                   if (displayTabs.isNotEmpty) ...[
-                    SizedBox(
-                      height: 38,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: displayTabs.length,
-                        itemBuilder: (context, index) {
-                          final tab = displayTabs[index];
-                          final isActive = tab.slug == _activeFeedSlug;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(19),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(
-                                  sigmaX: AppConstants.glassBlurSigmaLight,
-                                  sigmaY: AppConstants.glassBlurSigmaLight,
+                    RepaintBoundary(
+                      child: SizedBox(
+                        height: 38,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: displayTabs.length,
+                          itemBuilder: (context, index) {
+                            final tab = displayTabs[index];
+                            final isActive = tab.slug == _activeFeedSlug;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(tab.name),
+                                selected: isActive,
+                                onSelected: (_) {
+                                  // Tapping the active pill toggles back to
+                                  // the default "For You" feed.
+                                  setState(() {
+                                    _activeFeedSlug =
+                                        tab.slug == _activeFeedSlug
+                                        ? 'static'
+                                        : tab.slug;
+                                  });
+                                },
+                                selectedColor: const Color(0x4000FFFF),
+                                backgroundColor:
+                                    AppColors.glassBackgroundStrong,
+                                labelStyle: TextStyle(
+                                  color: isActive
+                                      ? const Color(0xFF00FFFF)
+                                      : AppColors.textPrimary,
+                                  fontWeight: isActive
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                  fontSize: 13,
                                 ),
-                                child: ChoiceChip(
-                                  label: Text(tab.name),
-                                  selected: isActive,
-                                  onSelected: (_) {
-                                    // Tapping the active pill toggles back to
-                                    // the default "For You" feed.
-                                    setState(() {
-                                      _activeFeedSlug =
-                                          tab.slug == _activeFeedSlug
-                                          ? 'static'
-                                          : tab.slug;
-                                    });
-                                  },
-                                  selectedColor: const Color(0x4000FFFF),
-                                  backgroundColor:
-                                      AppColors.glassBackgroundStrong,
-                                  labelStyle: TextStyle(
-                                    color: isActive
-                                        ? const Color(0xFF00FFFF)
-                                        : AppColors.textPrimary,
-                                    fontWeight: isActive
-                                        ? FontWeight.bold
-                                        : FontWeight.w500,
-                                    fontSize: 13,
-                                  ),
-                                  side: BorderSide(
-                                    color: isActive
-                                        ? const Color(0xFF00FFFF)
-                                        : AppColors.glassBorder,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(19),
-                                  ),
+                                side: BorderSide(
+                                  color: isActive
+                                      ? const Color(0xFF00FFFF)
+                                      : AppColors.glassBorder,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(19),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
                     SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
@@ -1179,54 +1171,59 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     final imageUuid =
         (pl['image'] as String?) ?? (pl['squareImage'] as String?);
     final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
-        ? TidalService.coverUrl(imageUuid, size: 320)
+        ? TidalService.coverUrl(imageUuid, size: 160)
         : null;
     final size = context.scaleSize(52);
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: (imageUrl != null && imageUrl.isNotEmpty)
-              ? CachedImageWidget(
-                  imagePath: imageUrl,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  placeholder: const FlickArtworkPlaceholder(),
-                  errorWidget: const FlickArtworkPlaceholder(),
-                )
-              : const FlickArtworkPlaceholder(),
+    return RepaintBoundary(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: (imageUrl != null && imageUrl.isNotEmpty)
+                ? CachedImageWidget(
+                    imagePath: imageUrl,
+                    width: size,
+                    height: size,
+                    useThumbnail: true,
+                    thumbnailWidth: 160,
+                    thumbnailHeight: 160,
+                    fit: BoxFit.cover,
+                    placeholder: const FlickArtworkPlaceholder(),
+                    errorWidget: const FlickArtworkPlaceholder(),
+                  )
+                : const FlickArtworkPlaceholder(),
+          ),
         ),
-      ),
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
+        title: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
         ),
+        subtitle: trackCount != null
+            ? Text(
+                '$trackCount tracks',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              )
+            : null,
+        trailing: const Icon(
+          LucideIcons.chevronRight,
+          size: 18,
+          color: AppColors.textSecondary,
+        ),
+        onTap: () => _openPlaylistTracks(pl),
       ),
-      subtitle: trackCount != null
-          ? Text(
-              '$trackCount tracks',
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
-            )
-          : null,
-      trailing: const Icon(
-        LucideIcons.chevronRight,
-        size: 18,
-        color: AppColors.textSecondary,
-      ),
-      onTap: () => _openPlaylistTracks(pl),
     );
   }
 
@@ -1247,92 +1244,99 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
           const SizedBox(height: 8),
         ],
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisExtent: 56,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
-          itemCount: section.items.length.clamp(0, 8),
-          itemBuilder: (context, index) {
-            final item = section.items[index];
-            final effectiveImage =
-                (item.imageUrl != null && item.imageUrl!.isNotEmpty)
-                ? item.imageUrl
-                : null;
-            return Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                onTap: () => _openHomeItem(item),
-                onLongPress: () => _showItemActionSheet(item),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.glassBackgroundStrong,
+        RepaintBoundary(
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisExtent: 56,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: section.items.length.clamp(0, 8),
+            itemBuilder: (context, index) {
+              final item = section.items[index];
+              final effectiveImage =
+                  (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+                  ? TidalService.resizedCoverUrl(item.imageUrl, 160)
+                  : null;
+              return RepaintBoundary(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
                     borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                    border: Border.all(color: AppColors.glassBorder),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.horizontal(
-                          left: Radius.circular(AppConstants.radiusSm),
-                        ),
-                        child: SizedBox(
-                          width: 56,
-                          height: 56,
-                          child:
-                              (effectiveImage != null &&
-                                  effectiveImage.isNotEmpty)
-                              ? CachedImageWidget(
-                                  imagePath: effectiveImage,
-                                  width: 56,
-                                  height: 56,
-                                  fit: BoxFit.cover,
-                                  placeholder: const ColoredBox(
-                                    color: AppColors.glassBackgroundStrong,
-                                  ),
-                                  errorWidget: const ColoredBox(
-                                    color: AppColors.glassBackgroundStrong,
-                                  ),
-                                )
-                              : const ColoredBox(
-                                  color: AppColors.glassBackgroundStrong,
-                                  child: Center(
-                                    child: Icon(
-                                      LucideIcons.music,
-                                      size: 24,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                        ),
+                    onTap: () => _openHomeItem(item),
+                    onLongPress: () => _showItemActionSheet(item),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.glassBackgroundStrong,
+                        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                        border: Border.all(color: AppColors.glassBorder),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Text(
-                            item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: const BorderRadius.horizontal(
+                              left: Radius.circular(AppConstants.radiusSm),
+                            ),
+                            child: SizedBox(
+                              width: 56,
+                              height: 56,
+                              child:
+                                  (effectiveImage != null &&
+                                      effectiveImage.isNotEmpty)
+                                  ? CachedImageWidget(
+                                      imagePath: effectiveImage,
+                                      width: 56,
+                                      height: 56,
+                                      useThumbnail: true,
+                                      thumbnailWidth: 160,
+                                      thumbnailHeight: 160,
+                                      fit: BoxFit.cover,
+                                      placeholder: const ColoredBox(
+                                        color: AppColors.glassBackgroundStrong,
+                                      ),
+                                      errorWidget: const ColoredBox(
+                                        color: AppColors.glassBackgroundStrong,
+                                      ),
+                                    )
+                                  : const ColoredBox(
+                                      color: AppColors.glassBackgroundStrong,
+                                      child: Center(
+                                        child: Icon(
+                                          LucideIcons.music,
+                                          size: 24,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
         SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
       ],
@@ -1368,59 +1372,63 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               final item = section.items[index];
               final effectiveImage =
                   (item.imageUrl != null && item.imageUrl!.isNotEmpty)
-                  ? item.imageUrl
+                  ? TidalService.resizedCoverUrl(item.imageUrl, 320)
                   : null;
-              return Container(
-                width: 136,
-                margin: const EdgeInsets.only(right: 12),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                    onTap: () => _openHomeItem(item),
-                    onLongPress: () => _showItemActionSheet(item),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Artwork card with Play button overlay
-                        Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(
-                                AppConstants.radiusMd,
-                              ),
-                              child: SizedBox(
-                                width: 136,
-                                height: 136,
-                                child:
-                                    (effectiveImage != null &&
-                                        effectiveImage.isNotEmpty)
-                                    ? CachedImageWidget(
-                                        imagePath: effectiveImage,
-                                        width: 136,
-                                        height: 136,
-                                        fit: BoxFit.cover,
-                                        placeholder: const ColoredBox(
-                                          color:
-                                              AppColors.glassBackgroundStrong,
-                                        ),
-                                        errorWidget: const ColoredBox(
-                                          color:
-                                              AppColors.glassBackgroundStrong,
-                                        ),
-                                      )
-                                    : const ColoredBox(
-                                        color: AppColors.glassBackgroundStrong,
-                                        child: Center(
-                                          child: Icon(
-                                            LucideIcons.music,
-                                            size: 36,
-                                            color: AppColors.textSecondary,
+              return RepaintBoundary(
+                child: Container(
+                  width: 136,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                      onTap: () => _openHomeItem(item),
+                      onLongPress: () => _showItemActionSheet(item),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Artwork card with Play button overlay
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusMd,
+                                ),
+                                child: SizedBox(
+                                  width: 136,
+                                  height: 136,
+                                  child:
+                                      (effectiveImage != null &&
+                                          effectiveImage.isNotEmpty)
+                                      ? CachedImageWidget(
+                                          imagePath: effectiveImage,
+                                          width: 136,
+                                          height: 136,
+                                          useThumbnail: true,
+                                          thumbnailWidth: 320,
+                                          thumbnailHeight: 320,
+                                          fit: BoxFit.cover,
+                                          placeholder: const ColoredBox(
+                                            color:
+                                                AppColors.glassBackgroundStrong,
+                                          ),
+                                          errorWidget: const ColoredBox(
+                                            color:
+                                                AppColors.glassBackgroundStrong,
+                                          ),
+                                        )
+                                      : const ColoredBox(
+                                          color: AppColors.glassBackgroundStrong,
+                                          child: Center(
+                                            child: Icon(
+                                              LucideIcons.music,
+                                              size: 36,
+                                              color: AppColors.textSecondary,
+                                            ),
                                           ),
                                         ),
-                                      ),
+                                ),
                               ),
-                            ),
                             Positioned(
                               right: 6,
                               bottom: 6,
@@ -1474,8 +1482,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            );
+          },
           ),
         ),
         SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
@@ -1542,66 +1551,73 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   Widget _buildTrackListTile(TidalHomeItem item) {
-    final img = item.imageUrl;
-    return ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-        child: SizedBox(
-          width: 42,
-          height: 42,
-          child: (img != null && img.isNotEmpty)
-              ? CachedImageWidget(
-                  imagePath: img,
-                  width: 42,
-                  height: 42,
-                  fit: BoxFit.cover,
-                  placeholder: const FlickArtworkPlaceholder(),
-                  errorWidget: const FlickArtworkPlaceholder(),
-                )
-              : const FlickArtworkPlaceholder(),
-        ),
-      ),
-      title: Text(
-        item.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        item.subtitle ?? item.type,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(
-              LucideIcons.play,
-              size: 16,
-              color: Color(0xFF00FFFF),
-            ),
-            onPressed: () => _playTrackItem(item),
+    final img = (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+        ? TidalService.resizedCoverUrl(item.imageUrl, 160)
+        : null;
+    return RepaintBoundary(
+      child: ListTile(
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: (img != null && img.isNotEmpty)
+                ? CachedImageWidget(
+                    imagePath: img,
+                    width: 42,
+                    height: 42,
+                    useThumbnail: true,
+                    thumbnailWidth: 160,
+                    thumbnailHeight: 160,
+                    fit: BoxFit.cover,
+                    placeholder: const FlickArtworkPlaceholder(),
+                    errorWidget: const FlickArtworkPlaceholder(),
+                  )
+                : const FlickArtworkPlaceholder(),
           ),
-          IconButton(
-            icon: const Icon(
-              LucideIcons.ellipsisVertical,
-              size: 16,
-              color: AppColors.textSecondary,
-            ),
-            onPressed: () => _showItemActionSheet(item),
+        ),
+        title: Text(
+          item.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
           ),
-        ],
+        ),
+        subtitle: Text(
+          item.subtitle ?? item.type,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(
+                LucideIcons.play,
+                size: 16,
+                color: Color(0xFF00FFFF),
+              ),
+              onPressed: () => _playTrackItem(item),
+            ),
+            IconButton(
+              icon: const Icon(
+                LucideIcons.ellipsisVertical,
+                size: 16,
+                color: AppColors.textSecondary,
+              ),
+              onPressed: () => _showItemActionSheet(item),
+            ),
+          ],
+        ),
+        onTap: () => _playTrackItem(item),
+        onLongPress: () => _showItemActionSheet(item),
       ),
-      onTap: () => _playTrackItem(item),
-      onLongPress: () => _showItemActionSheet(item),
     );
   }
 
@@ -1661,81 +1677,88 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   Widget _buildCompactCard(TidalHomeItem item) {
-    final img = item.imageUrl;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-        onTap: () => _openHomeItem(item),
-        onLongPress: () => _showItemActionSheet(item),
-        child: Container(
-          height: 56,
-          decoration: BoxDecoration(
-            color: AppColors.glassBackgroundStrong,
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            border: Border.all(color: AppColors.glassBorder),
-          ),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.horizontal(
-                  left: Radius.circular(AppConstants.radiusSm),
+    final img = (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+        ? TidalService.resizedCoverUrl(item.imageUrl, 160)
+        : null;
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          onTap: () => _openHomeItem(item),
+          onLongPress: () => _showItemActionSheet(item),
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.glassBackgroundStrong,
+              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(AppConstants.radiusSm),
+                  ),
+                  child: SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: (img != null && img.isNotEmpty)
+                        ? CachedImageWidget(
+                            imagePath: img,
+                            width: 56,
+                            height: 56,
+                            useThumbnail: true,
+                            thumbnailWidth: 160,
+                            thumbnailHeight: 160,
+                            fit: BoxFit.cover,
+                            placeholder: const FlickArtworkPlaceholder(),
+                            errorWidget: const FlickArtworkPlaceholder(),
+                          )
+                        : const FlickArtworkPlaceholder(),
+                  ),
                 ),
-                child: SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: (img != null && img.isNotEmpty)
-                      ? CachedImageWidget(
-                          imagePath: img,
-                          width: 56,
-                          height: 56,
-                          fit: BoxFit.cover,
-                          placeholder: const FlickArtworkPlaceholder(),
-                          errorWidget: const FlickArtworkPlaceholder(),
-                        )
-                      : const FlickArtworkPlaceholder(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (item.subtitle != null && item.subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        item.subtitle!,
+                        item.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (item.subtitle != null && item.subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          item.subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Icon(
-                  LucideIcons.play,
-                  size: 14,
-                  color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    LucideIcons.play,
+                    size: 14,
+                    color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1774,94 +1797,102 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 itemCount: mixes.length,
                 itemBuilder: (context, index) {
                   final item = mixes[index];
-                  final effectiveImage = item.imageUrl;
-                  return Container(
-                    width: 136,
-                    margin: const EdgeInsets.only(right: 12),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusMd,
-                        ),
-                        onTap: () => _openHomeItem(item),
-                        onLongPress: () => _showItemActionSheet(item),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(
-                                    AppConstants.radiusMd,
-                                  ),
-                                  child: SizedBox(
-                                    width: 136,
-                                    height: 136,
-                                    child:
-                                        (effectiveImage != null &&
-                                            effectiveImage.isNotEmpty)
-                                        ? CachedImageWidget(
-                                            imagePath: effectiveImage,
-                                            width: 136,
-                                            height: 136,
-                                            fit: BoxFit.cover,
-                                            placeholder:
-                                                const FlickArtworkPlaceholder(),
-                                            errorWidget:
-                                                const FlickArtworkPlaceholder(),
-                                          )
-                                        : const FlickArtworkPlaceholder(),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 6,
-                                  bottom: 6,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: const Color(0x6600FFFF),
-                                      ),
+                  final effectiveImage =
+                      (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+                      ? TidalService.resizedCoverUrl(item.imageUrl, 320)
+                      : null;
+                  return RepaintBoundary(
+                    child: Container(
+                      width: 136,
+                      margin: const EdgeInsets.only(right: 12),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusMd,
+                          ),
+                          onTap: () => _openHomeItem(item),
+                          onLongPress: () => _showItemActionSheet(item),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(
+                                      AppConstants.radiusMd,
                                     ),
-                                    child: const Icon(
-                                      LucideIcons.play,
-                                      size: 14,
-                                      color: Color(0xFF00FFFF),
+                                    child: SizedBox(
+                                      width: 136,
+                                      height: 136,
+                                      child:
+                                          (effectiveImage != null &&
+                                              effectiveImage.isNotEmpty)
+                                          ? CachedImageWidget(
+                                              imagePath: effectiveImage,
+                                              width: 136,
+                                              height: 136,
+                                              useThumbnail: true,
+                                              thumbnailWidth: 320,
+                                              thumbnailHeight: 320,
+                                              fit: BoxFit.cover,
+                                              placeholder:
+                                                  const FlickArtworkPlaceholder(),
+                                              errorWidget:
+                                                  const FlickArtworkPlaceholder(),
+                                            )
+                                          : const FlickArtworkPlaceholder(),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+                                  Positioned(
+                                    right: 6,
+                                    bottom: 6,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: const Color(0x6600FFFF),
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        LucideIcons.play,
+                                        size: 14,
+                                        color: Color(0xFF00FFFF),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            if (item.subtitle != null &&
-                                item.subtitle!.isNotEmpty) ...[
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 6),
                               Text(
-                                item.subtitle!,
+                                item.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (item.subtitle != null &&
+                                  item.subtitle!.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  item.subtitle!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),

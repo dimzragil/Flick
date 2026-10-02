@@ -112,6 +112,20 @@ class TidalHomeItem {
           data[k] = v;
         }
       });
+    } else if (json.containsKey('item') && json['item'] is Map<String, dynamic>) {
+      data = Map<String, dynamic>.from(json['item'] as Map<String, dynamic>);
+      json.forEach((k, v) {
+        if (k != 'item' && !data.containsKey(k)) {
+          data[k] = v;
+        }
+      });
+    } else if (json.containsKey('artist') && json['artist'] is Map<String, dynamic>) {
+      data = Map<String, dynamic>.from(json['artist'] as Map<String, dynamic>);
+      json.forEach((k, v) {
+        if (k != 'artist' && !data.containsKey(k)) {
+          data[k] = v;
+        }
+      });
     } else {
       data = Map<String, dynamic>.from(json);
     }
@@ -322,7 +336,24 @@ class TidalHomeItem {
       }
     }
 
-    // 8. Direct imageUrl string
+    // 8. Nested artist picture
+    if (data['artist'] is Map) {
+      final artistPic = data['artist']['picture'] ??
+          data['artist']['squareImage'] ??
+          data['artist']['artworkId'];
+      if (artistPic is String && artistPic.isNotEmpty) {
+        return _buildTidalImageUrl(artistPic, size: size);
+      }
+    }
+
+    // 9. Nested item container
+    if (data['item'] is Map<String, dynamic>) {
+      final itemUrl =
+          _extractImageUrl(data['item'] as Map<String, dynamic>, size: size);
+      if (itemUrl != null && itemUrl.isNotEmpty) return itemUrl;
+    }
+
+    // 10. Direct imageUrl string
     if (data['imageUrl'] is String && (data['imageUrl'] as String).isNotEmpty) {
       return data['imageUrl'] as String;
     }
@@ -333,8 +364,14 @@ class TidalHomeItem {
   static String _buildTidalImageUrl(String uuid, {int size = 640}) {
     final clean = uuid.replaceAll('-', '');
     if (clean.length < 5 || clean.replaceAll('0', '').isEmpty) return '';
-    final sanitized = uuid.replaceAll('-', '/');
-    return 'https://resources.tidal.com/images/$sanitized/${size}x$size.jpg';
+    final String path;
+    if (clean.length == 32) {
+      path =
+          '${clean.substring(0, 8)}/${clean.substring(8, 12)}/${clean.substring(12, 16)}/${clean.substring(16, 20)}/${clean.substring(20)}';
+    } else {
+      path = uuid.replaceAll('-', '/');
+    }
+    return 'https://resources.tidal.com/images/$path/${size}x$size.jpg';
   }
 }
 
