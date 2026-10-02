@@ -635,6 +635,10 @@ class TidalBtsStreamSession {
       await part.delete();
     }
     _writer = await part.open(mode: FileMode.write);
+    // Fire the tail prefetch FIRST, in parallel with the main request below.
+    // A suffix range needs no prior knowledge of the total size, so both
+    // requests pay TTFB concurrently instead of sequentially.
+    final tailFuture = _prefetchTail(part);
     final request = http.Request('GET', Uri.parse(sourceUrl));
     final response = await client
         .send(request)
@@ -647,11 +651,16 @@ class TidalBtsStreamSession {
     }
     _total = response.contentLength;
     unawaited(_consume(response.stream, part));
-    // Prefetch the tail in parallel: format probes seek to the end of the
-    // file, and without this handleRequest would block such seeks until the
-    // sequential download catches up.
-    unawaited(_prefetchTail(part));
+    // Wait for BOTH the head prebuffer and the tail prefetch. They download
+    // in parallel, so the slower one dominates (~0ms added in practice), and
+    // the probe's tail seek can never race the prefetch again.
     await _ready.future.timeout(const Duration(seconds: 20));
+    try {
+      await tailFuture.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      // Tail prefetch too slow; proceed without it. Tail-region requests
+      // fall back to waiting for the sequential download (old behavior).
+    }
     devLog(
       '[TIMING] BTS session ready(256KB) ${tBts.elapsedMilliseconds}ms trackId=$trackId total=$_total',
     );
@@ -659,24 +668,41 @@ class TidalBtsStreamSession {
 
   /// Download the last [_tailPrefetchBytes] of the source file straight to
   /// its final offset in the part file, in parallel with the sequential head
-  /// download. Best-effort: on any failure the tail simply isn't marked
-  /// ready and requests fall back to waiting for the sequential download.
+  /// download. Uses a suffix range so it can start before the total size is
+  /// known. Format probes seek to the tail (symphonia reads the final ~64KB);
+  /// without this, [handleRequest] would block such seeks until the
+  /// sequential download catches up — seconds of stall on every cold start.
+  /// Best-effort: on any failure the tail simply isn't marked ready and
+  /// requests fall back to waiting for the sequential download.
   Future<void> _prefetchTail(File part) async {
     // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
     final tTail = Stopwatch()..start();
-    final total = _total;
-    if (total == null || total <= _tailPrefetchBytes) return;
-    final tailStart = total - _tailPrefetchBytes;
     try {
       final tailRequest = http.Request('GET', Uri.parse(sourceUrl));
-      tailRequest.headers['Range'] = 'bytes=$tailStart-';
+      tailRequest.headers['Range'] = 'bytes=-$_tailPrefetchBytes';
       final tailResponse = await client
           .send(tailRequest)
           .timeout(const Duration(seconds: 20));
       // Only a 206 partial response is usable: a 200 would mean the server
-      // ignored Range, and writing the full body at the tail offset would
-      // corrupt the file.
+      // ignored the suffix range, and writing the full body at a tail offset
+      // would corrupt the file.
       if (tailResponse.statusCode != 206) {
+        await tailResponse.stream.drain<void>();
+        return;
+      }
+      // "bytes 9986453-10248596/10248597" -> tailStart=9986453.
+      final contentRange = tailResponse.headers['content-range'];
+      final match = RegExp(
+        r'bytes (\d+)-\d+/(\d+)',
+      ).firstMatch(contentRange ?? '');
+      if (match == null) {
+        await tailResponse.stream.drain<void>();
+        return;
+      }
+      final tailStart = int.parse(match.group(1)!);
+      _total ??= int.parse(match.group(2)!);
+      if (tailStart == 0) {
+        // File fits in the tail window; the head download covers it all.
         await tailResponse.stream.drain<void>();
         return;
       }
