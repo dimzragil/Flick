@@ -105,6 +105,17 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     _knownBadUrls[url] = DateTime.now().millisecondsSinceEpoch;
   }
 
+  /// True if [url] failed recently and is still within the negative-cache TTL.
+  static bool _isBadUrl(String url) {
+    final badAt = _knownBadUrls[url];
+    if (badAt == null) return false;
+    if (DateTime.now().millisecondsSinceEpoch - badAt < _badUrlTtlMs) {
+      return true;
+    }
+    _knownBadUrls.remove(url);
+    return false;
+  }
+
   // Bound for decoded resolution when the widget has no explicit size:
   // without this the full 1280px+ image was decoded for a small thumbnail.
   static const int _defaultMemCacheSize = 512;
@@ -135,7 +146,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final imagePath = _resolvedImagePath ?? _usablePath(widget.imagePath);
+    var imagePath = _resolvedImagePath ?? _usablePath(widget.imagePath);
+    // _resolvedImagePath may hold a URL that failed AFTER it was cached
+    // (initState/didUpdateWidget run before the download fails). Re-check
+    // the negative cache so a doomed URL isn't retried on every rebuild.
+    if (imagePath != null && _isBadUrl(imagePath)) {
+      imagePath = null;
+      _resolvedImagePath = null;
+    }
     if (imagePath == null) {
       return SizedBox(
         width: widget.width,
@@ -235,12 +253,8 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
         return null;
       }
       // Skip recently-failed URLs (negative cache with TTL).
-      final badAt = _knownBadUrls[path];
-      if (badAt != null) {
-        if (DateTime.now().millisecondsSinceEpoch - badAt < _badUrlTtlMs) {
-          return null;
-        }
-        _knownBadUrls.remove(path);
+      if (_isBadUrl(path)) {
+        return null;
       }
       return path;
     }
