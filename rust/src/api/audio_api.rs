@@ -1396,17 +1396,17 @@ pub fn audio_queue_next(path: String) -> Result<(), String> {
 pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Result<(), String> {
     // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
     let t_http = std::time::Instant::now();
-    log_info!("[TIMING] audio_play_from_http enter");
+    dev_eprintln!("[TIMING] audio_play_from_http enter");
     clear_dsd_track_rate();
     let probe_result = probe_http(&url, headers)
         .map_err(|e| format!("Failed to probe HTTP stream: {}", e))?;
-    log_info!(
+    dev_eprintln!(
         "[TIMING] audio_play_from_http probe done in {:?}",
         t_http.elapsed()
     );
     let file_rate = probe_result.source_info.original_sample_rate;
     ensure_audio_engine(resolve_track_playback_output_sample_rate(Some(file_rate))?)?;
-    log_info!(
+    dev_eprintln!(
         "[TIMING] audio_play_from_http ensure_engine done in {:?}",
         t_http.elapsed()
     );
@@ -1426,7 +1426,7 @@ pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Re
         None,
     )
     .map_err(|e| format!("Failed to decode HTTP stream: {}", e))?;
-    log_info!(
+    dev_eprintln!(
         "[TIMING] audio_play_from_http decoder_spawn done in {:?}",
         t_http.elapsed()
     );
@@ -1434,7 +1434,7 @@ pub fn audio_play_from_http(url: String, headers: HashMap<String, String>) -> Re
         handle.set_dop_override(false)?;
         handle.play_prepared(source, DecoderHandle::Symphonia(decoder_thread))
     });
-    log_info!(
+    dev_eprintln!(
         "[TIMING] audio_play_from_http play_prepared done in {:?}",
         t_http.elapsed()
     );

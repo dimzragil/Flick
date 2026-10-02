@@ -340,7 +340,7 @@ impl EngineManager {
 
             if should_reuse {
                 // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
-                log::info!("[TIMING] ensure_rust_engine: reused existing engine (no rebuild)");
+                crate::dev_eprintln!("[TIMING] ensure_rust_engine: reused existing engine (no rebuild)");
                 state.current = Some(AudioEngine::Rust);
                 return Ok(());
             }
@@ -375,7 +375,7 @@ impl EngineManager {
         .await
         .map_err(|error| format!("Rust engine initialization task failed: {}", error))??;
         // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
-        log::info!(
+        crate::dev_eprintln!(
             "[TIMING] ensure_rust_engine: REBUILT engine in {:?}",
             t_rebuild.elapsed()
         );

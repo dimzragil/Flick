@@ -60,6 +60,9 @@ impl HttpMediaSource {
         }
         req = req.set("Range", &format!("bytes={}-{}", self.pos, end));
 
+        // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+        let t_hreq = std::time::Instant::now();
+        crate::dev_eprintln!("[TIMING] HttpMediaSource: GET range pos={}", self.pos);
         let resp = match req.call() {
             Ok(r) => r,
             Err(ureq::Error::Status(416, _)) => {
@@ -70,6 +73,12 @@ impl HttpMediaSource {
             }
             Err(e) => return Err(io::Error::other(format!("HTTP GET failed: {}", e))),
         };
+        // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+        crate::dev_eprintln!(
+            "[TIMING] HttpMediaSource: response headers in {:?} pos={}",
+            t_hreq.elapsed(),
+            self.pos
+        );
 
         let status = resp.status();
         let content_range = resp.header("Content-Range").map(|s| s.to_string());
@@ -78,6 +87,13 @@ impl HttpMediaSource {
         self.buf_start = self.pos;
         self.buf.clear();
         resp.into_reader().read_to_end(&mut self.buf)?;
+        // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+        crate::dev_eprintln!(
+            "[TIMING] HttpMediaSource: body {} bytes in {:?} pos={}",
+            self.buf.len(),
+            t_hreq.elapsed(),
+            self.pos
+        );
 
         if status == 206 {
             if let Some(cr) = content_range {
