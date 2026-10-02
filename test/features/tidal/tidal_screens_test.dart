@@ -90,9 +90,6 @@ void main() {
 
     expect(find.text('TIDAL'), findsOneWidget);
     expect(find.byTooltip('Search'), findsOneWidget);
-<<<<<<< HEAD
-    expect(find.byIcon(LucideIcons.waves), findsWidgets);
-=======
     expect(
       find.byWidgetPredicate(
         (w) =>
@@ -102,7 +99,6 @@ void main() {
       ),
       findsOneWidget,
     );
->>>>>>> raya-flick
     expect(find.text('My Playlists'), findsOneWidget);
     expect(find.text('My Audiophile Tracks'), findsOneWidget);
   });
