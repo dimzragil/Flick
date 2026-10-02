@@ -113,8 +113,9 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final searchResults = ref.watch(tidalSearchProvider);
-
+    // NOTE: tidalSearchProvider is watched inside the results Consumer
+    // below (not here) so typing a query doesn't rebuild the whole
+    // screen (background, app bar, search bar, chips) on every keystroke.
     return BlurredSongBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -210,8 +211,16 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                 }).toList(),
               ),
             ),
-            // Content
-            Expanded(child: _buildResultsView(searchResults)),
+            // Content — isolated Consumer so query typing only rebuilds
+            // the results area, not the entire screen.
+            Expanded(
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final searchResults = ref.watch(tidalSearchProvider);
+                  return _buildResultsView(searchResults);
+                },
+              ),
+            ),
           ],
         ),
       ),

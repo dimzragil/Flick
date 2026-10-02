@@ -1157,77 +1157,76 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 );
               }
 
-              return ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: playlists.length,
-                itemBuilder: (context, index) {
-                  final pl = playlists[index];
-                  final title = pl['title'] as String? ?? 'Playlist';
-                  final trackCount =
-                      (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
-                  final imageUuid =
-                      (pl['image'] as String?) ??
-                      (pl['squareImage'] as String?);
-                  final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
-                      ? TidalService.coverUrl(imageUuid, size: 320)
-                      : null;
-                  final size = context.scaleSize(52);
-
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusSm,
-                      ),
-                      child: SizedBox(
-                        width: size,
-                        height: size,
-                        child: (imageUrl != null && imageUrl.isNotEmpty)
-                            ? CachedImageWidget(
-                                imagePath: imageUrl,
-                                width: size,
-                                height: size,
-                                fit: BoxFit.cover,
-                                placeholder: const FlickArtworkPlaceholder(),
-                                errorWidget: const FlickArtworkPlaceholder(),
-                              )
-                            : const FlickArtworkPlaceholder(),
-                      ),
-                    ),
-                    title: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    subtitle: trackCount != null
-                        ? Text(
-                            '$trackCount tracks',
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          )
-                        : null,
-                    trailing: const Icon(
-                      LucideIcons.chevronRight,
-                      size: 18,
-                      color: AppColors.textSecondary,
-                    ),
-                    onTap: () => _openPlaylistTracks(pl),
-                  );
-                },
+              // Column instead of shrinkWrap ListView: shrinkWrap already
+              // defeats builder laziness (all items are laid out anyway),
+              // so a Column avoids the nested Scrollable/Viewport overhead.
+              return Column(
+                children: [
+                  for (final pl in playlists) _buildPlaylistTile(pl),
+                ],
               );
             },
           ),
           SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlaylistTile(Map<String, dynamic> pl) {
+    final title = pl['title'] as String? ?? 'Playlist';
+    final trackCount = (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
+    final imageUuid =
+        (pl['image'] as String?) ?? (pl['squareImage'] as String?);
+    final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
+        ? TidalService.coverUrl(imageUuid, size: 320)
+        : null;
+    final size = context.scaleSize(52);
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: (imageUrl != null && imageUrl.isNotEmpty)
+              ? CachedImageWidget(
+                  imagePath: imageUrl,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  placeholder: const FlickArtworkPlaceholder(),
+                  errorWidget: const FlickArtworkPlaceholder(),
+                )
+              : const FlickArtworkPlaceholder(),
+        ),
+      ),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: trackCount != null
+          ? Text(
+              '$trackCount tracks',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            )
+          : null,
+      trailing: const Icon(
+        LucideIcons.chevronRight,
+        size: 18,
+        color: AppColors.textSecondary,
+      ),
+      onTap: () => _openPlaylistTracks(pl),
     );
   }
 
@@ -1520,89 +1519,89 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             borderRadius: BorderRadius.circular(AppConstants.radiusMd),
             border: Border.all(color: AppColors.glassBorder),
           ),
-          child: ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: displayItems.length,
-            separatorBuilder: (_, __) => const Divider(
-              color: AppColors.glassBorder,
-              height: 1,
-              indent: 56,
-            ),
-            itemBuilder: (context, index) {
-              final item = displayItems[index];
-              final img = item.imageUrl;
-              return ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 2,
-                ),
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                  child: SizedBox(
-                    width: 42,
-                    height: 42,
-                    child: (img != null && img.isNotEmpty)
-                        ? CachedImageWidget(
-                            imagePath: img,
-                            width: 42,
-                            height: 42,
-                            fit: BoxFit.cover,
-                            placeholder: const FlickArtworkPlaceholder(),
-                            errorWidget: const FlickArtworkPlaceholder(),
-                          )
-                        : const FlickArtworkPlaceholder(),
+          // Column instead of shrinkWrap ListView.separated: shrinkWrap
+          // already defeats builder laziness, so a Column avoids the
+          // nested Scrollable/Viewport overhead for these 6 items.
+          child: Column(
+            children: [
+              for (int i = 0; i < displayItems.length; i++) ...[
+                if (i > 0)
+                  const Divider(
+                    color: AppColors.glassBorder,
+                    height: 1,
+                    indent: 56,
                   ),
-                ),
-                title: Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Text(
-                  item.subtitle ?? item.type,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        LucideIcons.play,
-                        size: 16,
-                        color: Color(0xFF00FFFF),
-                      ),
-                      onPressed: () => _playTrackItem(item),
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        LucideIcons.ellipsisVertical,
-                        size: 16,
-                        color: AppColors.textSecondary,
-                      ),
-                      onPressed: () => _showItemActionSheet(item),
-                    ),
-                  ],
-                ),
-                onTap: () => _playTrackItem(item),
-                onLongPress: () => _showItemActionSheet(item),
-              );
-            },
+                _buildTrackListTile(displayItems[i]),
+              ],
+            ],
           ),
         ),
         SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
       ],
+    );
+  }
+
+  Widget _buildTrackListTile(TidalHomeItem item) {
+    final img = item.imageUrl;
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+        child: SizedBox(
+          width: 42,
+          height: 42,
+          child: (img != null && img.isNotEmpty)
+              ? CachedImageWidget(
+                  imagePath: img,
+                  width: 42,
+                  height: 42,
+                  fit: BoxFit.cover,
+                  placeholder: const FlickArtworkPlaceholder(),
+                  errorWidget: const FlickArtworkPlaceholder(),
+                )
+              : const FlickArtworkPlaceholder(),
+        ),
+      ),
+      title: Text(
+        item.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        item.subtitle ?? item.type,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(
+              LucideIcons.play,
+              size: 16,
+              color: Color(0xFF00FFFF),
+            ),
+            onPressed: () => _playTrackItem(item),
+          ),
+          IconButton(
+            icon: const Icon(
+              LucideIcons.ellipsisVertical,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            onPressed: () => _showItemActionSheet(item),
+          ),
+        ],
+      ),
+      onTap: () => _playTrackItem(item),
+      onLongPress: () => _showItemActionSheet(item),
     );
   }
 
