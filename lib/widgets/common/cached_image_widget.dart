@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -92,6 +93,9 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   static final Set<String> _knownExistingPaths = {};
   static final Map<String, int> _knownMissingPaths = {};
   static const int _missingTtlMs = 15000;
+  // Bound for decoded resolution when the widget has no explicit size:
+  // without this the full 1280px+ image was decoded for a small thumbnail.
+  static const int _defaultMemCacheSize = 512;
 
   String? _resolvedImagePath;
   bool _hasPendingResolve = false;
@@ -192,6 +196,17 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     });
   }
 
+  /// Decoded pixel bound: explicit thumbnail size wins, then 2x the widget
+  /// size for retina, then a bounded default so a sizeless widget never
+  /// decodes full resolution.
+  int _memCacheFor(double? dimension, int? thumbnailDimension) {
+    if (widget.useThumbnail && thumbnailDimension != null) {
+      return thumbnailDimension;
+    }
+    if (dimension != null) return (dimension * 2).round();
+    return _defaultMemCacheSize;
+  }
+
   String? _usablePath(String? path) {
     if (path == null || path.isEmpty) {
       return null;
@@ -255,17 +270,10 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
           child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
         );
       },
-      // Use lower resolution for thumbnails
-      cacheWidth: widget.useThumbnail && widget.thumbnailWidth != null
-          ? widget.thumbnailWidth
-          : widget.width != null
-              ? (widget.width! * 2).round()
-              : null,
-      cacheHeight: widget.useThumbnail && widget.thumbnailHeight != null
-          ? widget.thumbnailHeight
-          : widget.height != null
-              ? (widget.height! * 2).round()
-              : null,
+      // Use lower resolution for thumbnails; bounded default when sizeless
+      // so a small thumbnail never decodes the full-resolution file.
+      cacheWidth: _memCacheFor(widget.width, widget.thumbnailWidth),
+      cacheHeight: _memCacheFor(widget.height, widget.thumbnailHeight),
     );
   }
 
@@ -294,49 +302,31 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   }
 
   Widget _buildNetworkImage(String imagePath) {
-    return Image.network(
-      imagePath,
+    // Disk-backed cache (via flutter_cache_manager): the file is stored on
+    // disk after the first download, so scrolling back never re-downloads.
+    // The old Image.network only used the 100MB in-memory cache, causing
+    // constant re-fetch during scroll (late reloads + heat).
+    final placeholder = SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: widget.placeholder ?? CachedImageWidget.defaultPlaceholder(),
+    );
+    return CachedNetworkImage(
+      imageUrl: imagePath,
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
-      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-        if (wasSynchronouslyLoaded || frame != null) {
-          return child;
-        }
-        return SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: widget.placeholder ?? CachedImageWidget.defaultPlaceholder(),
-        );
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
-        );
-      },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) {
-          return child;
-        }
-        return SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: widget.placeholder ?? CachedImageWidget.defaultPlaceholder(),
-        );
-      },
-      // Use lower resolution for thumbnails
-      cacheWidth: widget.useThumbnail && widget.thumbnailWidth != null
-          ? widget.thumbnailWidth
-          : widget.width != null
-              ? (widget.width! * 2).round()
-              : null,
-      cacheHeight: widget.useThumbnail && widget.thumbnailHeight != null
-          ? widget.thumbnailHeight
-          : widget.height != null
-              ? (widget.height! * 2).round()
-              : null,
+      placeholder: (context, url) => placeholder,
+      errorWidget: (context, url, error) => SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
+      ),
+      // Keep the previous instant swap (no fade) behavior.
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      memCacheWidth: _memCacheFor(widget.width, widget.thumbnailWidth),
+      memCacheHeight: _memCacheFor(widget.height, widget.thumbnailHeight),
     );
   }
 }
