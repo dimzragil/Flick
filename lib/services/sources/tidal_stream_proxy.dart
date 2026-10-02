@@ -566,6 +566,12 @@ class TidalStreamSession {
 /// Progressive local file proxy for a single, unsegmented BTS asset.
 class TidalBtsStreamSession {
   static const int _initialBufferBytes = 256 * 1024;
+
+  /// Tail prefetch size. Format probes (symphonia) seek to the last ~64KB of
+  /// the file; prefetching the tail in parallel means those seeks are served
+  /// instantly instead of stalling until the sequential download catches up
+  /// (measured 2.8-5.2s stall on every TIDAL CD cold start).
+  static const int _tailPrefetchBytes = 256 * 1024;
   TidalBtsStreamSession({
     required this.streamToken,
     required this.trackId,
@@ -584,6 +590,10 @@ class TidalBtsStreamSession {
   bool get isFinished => _finished;
   int _written = 0;
   int? _total;
+
+  /// Start offset of the prefetched tail region, once fully written to disk.
+  /// Null until the parallel tail download completes.
+  int? _tailReadyStart;
   RandomAccessFile? _writer;
   final Completer<void> _ready = Completer<void>();
   final Completer<void> _finalizingFile = Completer<void>();
@@ -637,10 +647,61 @@ class TidalBtsStreamSession {
     }
     _total = response.contentLength;
     unawaited(_consume(response.stream, part));
+    // Prefetch the tail in parallel: format probes seek to the end of the
+    // file, and without this handleRequest would block such seeks until the
+    // sequential download catches up.
+    unawaited(_prefetchTail(part));
     await _ready.future.timeout(const Duration(seconds: 20));
     devLog(
       '[TIMING] BTS session ready(256KB) ${tBts.elapsedMilliseconds}ms trackId=$trackId total=$_total',
     );
+  }
+
+  /// Download the last [_tailPrefetchBytes] of the source file straight to
+  /// its final offset in the part file, in parallel with the sequential head
+  /// download. Best-effort: on any failure the tail simply isn't marked
+  /// ready and requests fall back to waiting for the sequential download.
+  Future<void> _prefetchTail(File part) async {
+    // TEMP-TIMING(raya): TIDAL cold-start investigation — remove afterwards.
+    final tTail = Stopwatch()..start();
+    final total = _total;
+    if (total == null || total <= _tailPrefetchBytes) return;
+    final tailStart = total - _tailPrefetchBytes;
+    try {
+      final tailRequest = http.Request('GET', Uri.parse(sourceUrl));
+      tailRequest.headers['Range'] = 'bytes=$tailStart-';
+      final tailResponse = await client
+          .send(tailRequest)
+          .timeout(const Duration(seconds: 20));
+      // Only a 206 partial response is usable: a 200 would mean the server
+      // ignored Range, and writing the full body at the tail offset would
+      // corrupt the file.
+      if (tailResponse.statusCode != 206) {
+        await tailResponse.stream.drain<void>();
+        return;
+      }
+      // append mode (not write) so the in-progress head download is preserved;
+      // setPosition moves the cursor to the tail offset.
+      final tailWriter = await part.open(mode: FileMode.append);
+      try {
+        await tailWriter.setPosition(tailStart);
+        await for (final chunk in tailResponse.stream) {
+          if (_cancelled) break;
+          await tailWriter.writeFrom(chunk);
+        }
+        await tailWriter.flush();
+      } finally {
+        await tailWriter.close();
+      }
+      if (!_cancelled) {
+        _tailReadyStart = tailStart;
+        devLog(
+          '[TIMING] BTS tail prefetched ${tTail.elapsedMilliseconds}ms trackId=$trackId tailStart=$tailStart',
+        );
+      }
+    } catch (_) {
+      // Best-effort; the sequential download still works without the tail.
+    }
   }
 
   Future<void> _consume(Stream<List<int>> stream, File part) async {
@@ -701,10 +762,15 @@ class TidalBtsStreamSession {
 
     final initialRequest = start == 0;
 
+    // Tail region prefetched in parallel: serve immediately without waiting
+    // for the sequential download to catch up (format probes seek here).
+    final tailStart = _tailReadyStart;
+    final servesTail = tailStart != null && start >= tailStart;
+
     // For the initial probe request, wait until _initialBufferBytes are ready.
     // For subsequent streaming requests, only wait until the requested `start` offset has data.
     final minRequired = initialRequest ? _initialBufferBytes : (start + 1);
-    if (_written < minRequired && !_finished && !_cancelled) {
+    if (!servesTail && _written < minRequired && !_finished && !_cancelled) {
       await _waitForBytes(minRequired);
     }
 
@@ -723,7 +789,11 @@ class TidalBtsStreamSession {
     }
 
     if (_isFinalizing) await _finalizingFile.future;
-    final available = _total == null ? _written : min(_written, _total!);
+    // The prefetched tail is fully present on disk even though the sequential
+    // head download hasn't reached it yet.
+    final available = servesTail
+        ? (_total ?? _written)
+        : (_total == null ? _written : min(_written, _total!));
 
     // Probe request is capped to _initialBufferBytes to minimize startup latency.
     // Subsequent streaming requests return whatever bytes are currently buffered.
