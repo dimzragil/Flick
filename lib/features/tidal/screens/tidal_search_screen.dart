@@ -19,6 +19,7 @@ import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_album_screen.dart';
 import 'tidal_artist_screen.dart';
 import 'tidal_playlist_screen.dart';
+import '../widgets/tidal_playlist_cover_widget.dart';
 
 enum TidalSearchCategory {
   all('All'),
@@ -89,11 +90,11 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final playlistId =
         playlist['uuid']?.toString() ?? playlist['id']?.toString();
     if (playlistId == null) return;
-    final image =
-        (playlist['image'] as String?) ?? (playlist['squareImage'] as String?);
-    final imageUrl = (image != null && image.isNotEmpty)
-        ? TidalService.coverUrl(image, size: 640)
-        : null;
+    final directCover =
+        TidalService.extractPlaylistCover(playlist, size: 640);
+    final fallbackCover =
+        ref.read(tidalPlaylistCoverProvider(playlistId)).value;
+    final imageUrl = directCover ?? fallbackCover;
     NavigationHelper.pushFade(
       context,
       (_) => TidalPlaylistScreen(
@@ -744,14 +745,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
   Widget _buildPlaylistCard(Map<String, dynamic> playlist) {
     final title = playlist['title'] as String? ?? 'Playlist';
-    final image = playlist['image'] as String?;
-    final coverUrl = (image != null && image.isNotEmpty)
-        ? TidalService.coverUrl(image, size: 320)
-        : null;
-    // coverUrl returns '' for invalid UUIDs; treat as missing.
-    final imageUrl = (coverUrl != null && coverUrl.isNotEmpty)
-        ? coverUrl
-        : null;
     final cardWidth = context.scaleSize(110);
 
     return RepaintBoundary(
@@ -761,25 +754,9 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-              child: SizedBox(
-                width: cardWidth,
-                height: cardWidth,
-                child: imageUrl != null
-                    ? CachedImageWidget(
-                        imagePath: imageUrl,
-                        width: cardWidth,
-                        height: cardWidth,
-                        useThumbnail: true,
-                        thumbnailWidth: 320,
-                        thumbnailHeight: 320,
-                        fit: BoxFit.cover,
-                        placeholder: const FlickArtworkPlaceholder(),
-                        errorWidget: const FlickArtworkPlaceholder(),
-                      )
-                    : const FlickArtworkPlaceholder(),
-              ),
+            TidalPlaylistCoverWidget(
+              playlist: playlist,
+              size: cardWidth,
             ),
             const SizedBox(height: 6),
             Text(
@@ -810,35 +787,14 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         final title = pl['title'] as String? ?? 'Playlist';
         final trackCount =
             (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
-        final image =
-            (pl['image'] as String?) ?? (pl['squareImage'] as String?);
-        final imageUrl = (image != null && image.isNotEmpty)
-            ? TidalService.coverUrl(image, size: 160)
-            : null;
         final size = context.scaleSize(48);
 
         return RepaintBoundary(
           child: ListTile(
             onTap: () => _openPlaylist(pl),
-            leading: ClipRRect(
-              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: (imageUrl != null && imageUrl.isNotEmpty)
-                    ? CachedImageWidget(
-                        imagePath: imageUrl,
-                        width: size,
-                        height: size,
-                        useThumbnail: true,
-                        thumbnailWidth: 160,
-                        thumbnailHeight: 160,
-                        fit: BoxFit.cover,
-                        placeholder: const FlickArtworkPlaceholder(),
-                        errorWidget: const FlickArtworkPlaceholder(),
-                      )
-                    : const FlickArtworkPlaceholder(),
-              ),
+            leading: TidalPlaylistCoverWidget(
+              playlist: pl,
+              size: size,
             ),
             title: Text(
               title,

@@ -159,12 +159,8 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
             final creatorName = creator != null
                 ? (creator['id'] == 0 ? 'TIDAL' : (creator['name'] as String?))
                 : null;
-            final imageUuid =
-                (playlist['image'] as String?) ??
-                (playlist['squareImage'] as String?);
-            final nativeCover = (imageUuid != null && imageUuid.isNotEmpty)
-                ? TidalService.coverUrl(imageUuid, size: 640)
-                : null;
+            final nativeCover =
+                TidalService.extractPlaylistCover(playlist, size: 640);
             final imageUrl = (nativeCover != null && nativeCover.isNotEmpty)
                 ? nativeCover
                 : ((tracks.isNotEmpty &&

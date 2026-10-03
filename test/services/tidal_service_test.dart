@@ -106,6 +106,61 @@ void main() {
     });
   });
 
+  group('extractPlaylistCover', () {
+    test('extracts direct cover UUID', () {
+      final pl = {'cover': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab'};
+      final url = TidalService.extractPlaylistCover(pl, size: 640);
+      expect(
+        url,
+        'https://resources.tidal.com/images/1bce0bf4/a3b9/4c0a/9f2e/1234567890ab/640x640.jpg',
+      );
+    });
+
+    test('extracts squareImage or image UUID', () {
+      final pl = {'squareImage': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab'};
+      final url = TidalService.extractPlaylistCover(pl, size: 320);
+      expect(
+        url,
+        'https://resources.tidal.com/images/1bce0bf4/a3b9/4c0a/9f2e/1234567890ab/320x320.jpg',
+      );
+    });
+
+    test('returns direct HTTP url if provided', () {
+      final pl = {'cover': 'https://example.com/cover.jpg'};
+      expect(
+        TidalService.extractPlaylistCover(pl),
+        'https://example.com/cover.jpg',
+      );
+    });
+
+    test('extracts from images map or list', () {
+      final plMap = {
+        'images': {
+          'LARGE': {'url': 'https://cdn.tidal.com/large.jpg'},
+        },
+      };
+      expect(
+        TidalService.extractPlaylistCover(plMap),
+        'https://cdn.tidal.com/large.jpg',
+      );
+
+      final plList = {
+        'images': [
+          {'url': 'https://cdn.tidal.com/list.jpg'},
+        ],
+      };
+      expect(
+        TidalService.extractPlaylistCover(plList),
+        'https://cdn.tidal.com/list.jpg',
+      );
+    });
+
+    test('returns null when no cover is present', () {
+      final pl = {'title': 'My Empty Playlist'};
+      expect(TidalService.extractPlaylistCover(pl), isNull);
+    });
+  });
+
   group('extFromMime', () {
     test('maps flac / m4a / mp3', () {
       expect(TidalService.extFromMime('audio/flac'), 'flac');

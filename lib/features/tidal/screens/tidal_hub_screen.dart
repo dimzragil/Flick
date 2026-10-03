@@ -20,6 +20,7 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/tidal_import_playlist_dialog.dart';
+import '../widgets/tidal_playlist_cover_widget.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
 import '../../favorites/screens/favorites_screen.dart';
 import 'tidal_album_screen.dart';
@@ -351,11 +352,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   void _openPlaylistTracks(Map<String, dynamic> pl) {
     final playlistId = pl['uuid']?.toString() ?? pl['id']?.toString();
     if (playlistId == null) return;
-    final imageUuid =
-        (pl['image'] as String?) ?? (pl['squareImage'] as String?);
-    final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
-        ? TidalService.coverUrl(imageUuid, size: 640)
-        : null;
+    final directCover = TidalService.extractPlaylistCover(pl, size: 640);
+    final fallbackCover =
+        ref.read(tidalPlaylistCoverProvider(playlistId)).value;
+    final imageUrl = directCover ?? fallbackCover;
     NavigationHelper.pushFade(
       context,
       (_) => TidalPlaylistScreen(
@@ -1168,47 +1168,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   Widget _buildPlaylistTile(Map<String, dynamic> pl) {
     final title = pl['title'] as String? ?? 'Playlist';
     final trackCount = (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
-    final imageUuid =
-        (pl['image'] as String?) ?? (pl['squareImage'] as String?);
-    final String? imageUrl;
-    if (imageUuid == null || imageUuid.isEmpty) {
-      imageUrl = null;
-    } else if (imageUuid.startsWith('http') ||
-        imageUuid.startsWith('file:') ||
-        imageUuid.startsWith('/')) {
-      imageUrl = imageUuid;
-    } else {
-      final generated = TidalService.coverUrl(imageUuid, size: 160);
-      imageUrl = generated.isNotEmpty ? generated : null;
-    }
     final size = context.scaleSize(52);
-    final fallbackWidget = Container(
-      color: AppColors.surfaceLight,
-      child: const FlickArtworkPlaceholder(size: 24, opacity: 0.9),
-    );
 
     return RepaintBoundary(
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(vertical: 4),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: (imageUrl != null && imageUrl.isNotEmpty)
-                ? CachedImageWidget(
-                    imagePath: imageUrl,
-                    width: size,
-                    height: size,
-                    useThumbnail: true,
-                    thumbnailWidth: 160,
-                    thumbnailHeight: 160,
-                    fit: BoxFit.cover,
-                    placeholder: fallbackWidget,
-                    errorWidget: fallbackWidget,
-                  )
-                : fallbackWidget,
-          ),
+        leading: TidalPlaylistCoverWidget(
+          playlist: pl,
+          size: size,
         ),
         title: Text(
           title,

@@ -8,11 +8,10 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/sources/network_source_service.dart';
-import 'package:flick/services/sources/tidal_service.dart';
-import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 import 'package:flick/widgets/common/flick_dialog.dart';
 import '../../tidal/providers/tidal_providers.dart';
+import '../../tidal/widgets/tidal_playlist_cover_widget.dart';
 
 class AddToPlaylistSheet extends ConsumerStatefulWidget {
   final List<Song> songs;
@@ -487,47 +486,11 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
               final title = pl['title'] as String? ?? 'Untitled Playlist';
               final trackCount =
                   (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
-              final imageUuid =
-                  (pl['image'] as String?) ?? (pl['squareImage'] as String?);
-              final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
-                  ? TidalService.coverUrl(imageUuid, size: 320)
-                  : null;
-
               return ListTile(
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: imageUrl != null && imageUrl.isNotEmpty
-                        ? CachedImageWidget(
-                            imagePath: imageUrl,
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            placeholder: Container(
-                              color: AppColors.surfaceLight,
-                              child: const FlickArtworkPlaceholder(
-                                size: 22,
-                                opacity: 0.9,
-                              ),
-                            ),
-                            errorWidget: Container(
-                              color: AppColors.surfaceLight,
-                              child: const FlickArtworkPlaceholder(
-                                size: 22,
-                                opacity: 0.9,
-                              ),
-                            ),
-                          )
-                        : Container(
-                            color: AppColors.surfaceLight,
-                            child: const FlickArtworkPlaceholder(
-                              size: 22,
-                              opacity: 0.9,
-                            ),
-                          ),
-                  ),
+                leading: TidalPlaylistCoverWidget(
+                  playlist: pl,
+                  size: 48,
+                  borderRadius: 8,
                 ),
                 title: Text(
                   title,

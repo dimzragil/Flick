@@ -5,10 +5,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/responsive.dart';
-import '../../../services/sources/tidal_service.dart';
-import '../../../widgets/common/cached_image_widget.dart';
-import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
+import 'tidal_playlist_cover_widget.dart';
 
 class TidalAddToPlaylistDialog extends ConsumerStatefulWidget {
   final String trackId;
@@ -330,13 +328,6 @@ class _TidalAddToPlaylistDialogState
                         final trackCount =
                             (pl['numberOfTracks'] ?? pl['numberOfItems'])
                                 as num?;
-                        final imageUuid =
-                            (pl['image'] as String?) ??
-                            (pl['squareImage'] as String?);
-                        final imageUrl =
-                            (imageUuid != null && imageUuid.isNotEmpty)
-                            ? TidalService.coverUrl(imageUuid, size: 320)
-                            : null;
                         final size = context.scaleSize(44);
 
                         return ListTile(
@@ -344,26 +335,9 @@ class _TidalAddToPlaylistDialogState
                             horizontal: 4,
                             vertical: 2,
                           ),
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              AppConstants.radiusSm,
-                            ),
-                            child: SizedBox(
-                              width: size,
-                              height: size,
-                              child: (imageUrl != null && imageUrl.isNotEmpty)
-                                  ? CachedImageWidget(
-                                      imagePath: imageUrl,
-                                      width: size,
-                                      height: size,
-                                      fit: BoxFit.cover,
-                                      placeholder:
-                                          const FlickArtworkPlaceholder(),
-                                      errorWidget:
-                                          const FlickArtworkPlaceholder(),
-                                    )
-                                  : const FlickArtworkPlaceholder(),
-                            ),
+                          leading: TidalPlaylistCoverWidget(
+                            playlist: pl,
+                            size: size,
                           ),
                           title: Text(
                             title,

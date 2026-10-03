@@ -999,13 +999,15 @@ class _PlaylistTile extends ConsumerWidget {
       final ids = (playlist.songIds as List).cast<String>().toSet();
       final playlistSongs =
           songsState.songs.where((s) => ids.contains(s.id)).toList();
-      final arts = playlistSongs
-          .map((s) => s.albumArt)
-          .where((a) => a != null && a.isNotEmpty)
-          .cast<String>()
-          .take(4)
+      final songsWithArt = playlistSongs
+          .where((s) => s.albumArt != null && s.albumArt!.isNotEmpty)
           .toList();
-      if (arts.isEmpty) {
+      final songsWithoutArt = playlistSongs
+          .where((s) => s.albumArt == null || s.albumArt!.isEmpty)
+          .toList();
+      final coverSongs =
+          [...songsWithArt, ...songsWithoutArt].take(4).toList();
+      if (coverSongs.isEmpty) {
         leading = Container(
           width: 48,
           height: 48,
@@ -1016,14 +1018,18 @@ class _PlaylistTile extends ConsumerWidget {
           ),
           child: const FlickArtworkPlaceholder(size: 22, opacity: 0.9),
         );
-      } else if (arts.length == 1) {
+      } else if (coverSongs.length == 1) {
         leading = ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: SizedBox(
             width: 48,
             height: 48,
             child: CachedImageWidget(
-              imagePath: arts[0],
+              imagePath: coverSongs[0].albumArt,
+              audioSourcePath: coverSongs[0].filePath,
+              useThumbnail: true,
+              thumbnailWidth: 96,
+              thumbnailHeight: 96,
               fit: BoxFit.cover,
               placeholder: Container(color: AppColors.surfaceLight),
               errorWidget: Container(color: AppColors.surfaceLight),
@@ -1039,9 +1045,13 @@ class _PlaylistTile extends ConsumerWidget {
             child: GridView.count(
               crossAxisCount: 2,
               physics: const NeverScrollableScrollPhysics(),
-              children: arts.take(4).map((path) {
+              children: coverSongs.map((song) {
                 return CachedImageWidget(
-                  imagePath: path,
+                  imagePath: song.albumArt,
+                  audioSourcePath: song.filePath,
+                  useThumbnail: true,
+                  thumbnailWidth: 48,
+                  thumbnailHeight: 48,
                   fit: BoxFit.cover,
                   placeholder: Container(color: AppColors.surfaceLight),
                   errorWidget: Container(color: AppColors.surfaceLight),

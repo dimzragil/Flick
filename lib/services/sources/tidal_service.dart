@@ -642,6 +642,74 @@ class TidalService implements NetworkSourceService {
     );
   }
 
+  /// Extracts the best available cover URL from a TIDAL playlist object.
+  /// Checks `cover`, `image`, `squareImage`, `picture`, `images`, and `imageUrl`.
+  static String? extractPlaylistCover(
+    Map<String, dynamic> playlist, {
+    int size = 320,
+  }) {
+    final cover = playlist['cover'] ??
+        playlist['image'] ??
+        playlist['squareImage'] ??
+        playlist['picture'] ??
+        playlist['artworkId'] ??
+        playlist['customImage'] ??
+        playlist['squareImageUuid'];
+    if (cover is String && cover.isNotEmpty) {
+      if (cover.startsWith('http') ||
+          cover.startsWith('file:') ||
+          cover.startsWith('/')) {
+        return cover;
+      }
+      final url = coverUrl(cover, size: size);
+      if (url.isNotEmpty) return url;
+    }
+
+    // Handle nested images structure (Map or List)
+    final rawImages = playlist['images'] ?? playlist['squareImages'];
+    if (rawImages is Map) {
+      final large = rawImages['LARGE'] ??
+          rawImages['large'] ??
+          rawImages['MEDIUM'] ??
+          rawImages['medium'] ??
+          rawImages['SMALL'] ??
+          rawImages['small'];
+      if (large is Map) {
+        final u = large['url']?.toString();
+        if (u != null && u.isNotEmpty) return u;
+      } else if (large is String && large.isNotEmpty) {
+        if (large.startsWith('http')) return large;
+        final url = coverUrl(large, size: size);
+        if (url.isNotEmpty) return url;
+      }
+      for (final val in rawImages.values) {
+        if (val is Map &&
+            val['url'] is String &&
+            (val['url'] as String).isNotEmpty) {
+          return val['url'] as String;
+        }
+      }
+    } else if (rawImages is List && rawImages.isNotEmpty) {
+      for (final item in rawImages) {
+        if (item is Map) {
+          final u = item['url']?.toString();
+          if (u != null && u.isNotEmpty) return u;
+        } else if (item is String && item.isNotEmpty) {
+          if (item.startsWith('http')) return item;
+          final url = coverUrl(item, size: size);
+          if (url.isNotEmpty) return url;
+        }
+      }
+    }
+
+    if (playlist['imageUrl'] is String &&
+        (playlist['imageUrl'] as String).isNotEmpty) {
+      return playlist['imageUrl'] as String;
+    }
+
+    return null;
+  }
+
   // --- Stream ----------------------------------------------------------
 
   @override
@@ -1233,15 +1301,17 @@ class TidalService implements NetworkSourceService {
   /// Get track items for a specific playlist by its [playlistId].
   Future<List<Map<String, dynamic>>> getPlaylistTracks(
     NetworkServerEntity server,
-    String playlistId,
-  ) async {
+    String playlistId, {
+    int limit = 100,
+    int offset = 0,
+  }) async {
     // Official TIDAL API uses /playlists/{id}/items (wrapping each entry in {"item": ..., "type": "track"}),
     // NOT /playlists/{id}/tracks.
     try {
       final res = await _apiGet(
         server,
         '/playlists/$playlistId/items',
-        query: {'limit': '100', 'offset': '0'},
+        query: {'limit': '$limit', 'offset': '$offset'},
       );
       final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
       return rawList.whereType<Map<String, dynamic>>().toList();
@@ -1253,7 +1323,7 @@ class TidalService implements NetworkSourceService {
         final res = await _apiGet(
           server,
           '/playlists/$playlistId/tracks',
-          query: {'limit': '100', 'offset': '0'},
+          query: {'limit': '$limit', 'offset': '$offset'},
         );
         final rawList = (res['items'] ?? res['data']) as List<dynamic>? ?? [];
         return rawList.whereType<Map<String, dynamic>>().toList();
