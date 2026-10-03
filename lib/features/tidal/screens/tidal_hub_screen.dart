@@ -675,10 +675,17 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           elevation: 0,
           title: Row(
             children: [
-              Image.asset(
-                'assets/icons/tidal_logo.png',
-                height: 22,
-                fit: BoxFit.contain,
+              // Nudged up slightly: all-caps "TIDAL" text's visual center
+              // sits above the line-box center, so an unadjusted image
+              // looks like it hangs too low next to it.
+              // (The asset itself is horizontally centered.)
+              Transform.translate(
+                offset: const Offset(0, -1.5),
+                child: Image.asset(
+                  'assets/icons/tidal_logo.png',
+                  height: 22,
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(width: 8),
               const Text(

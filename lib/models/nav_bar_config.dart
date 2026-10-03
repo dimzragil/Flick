@@ -32,10 +32,15 @@ Widget navBarButtonIcon(
   Color? color,
 }) {
   if (button == NavBarButton.tidal) {
+    // The TIDAL mark is wider than it is tall, so at `size` x `size` with
+    // BoxFit.contain it renders visually smaller than the IconData glyphs.
+    // Scale up slightly for optical parity with the other nav bar icons.
+    // (The asset itself is horizontally centered; see assets/icons/tidal_logo.png.)
+    final logoSize = size * 1.15;
     return Image.asset(
       'assets/icons/tidal_logo.png',
-      width: size,
-      height: size,
+      width: logoSize,
+      height: logoSize,
       fit: BoxFit.contain,
       color: color,
       colorBlendMode: BlendMode.srcIn,
