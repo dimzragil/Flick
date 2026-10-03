@@ -395,7 +395,6 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       placeholder: (context, url) => placeholder,
       errorWidget: (context, url, error) {
         _markBadUrl(url);
-        debugPrint('[CachedImageWidget] Failed to load network image: $url, error: $error');
         return SizedBox(
           width: widget.width,
           height: widget.height,

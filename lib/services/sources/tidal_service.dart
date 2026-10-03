@@ -712,7 +712,8 @@ class TidalService implements NetworkSourceService {
     int size = 320,
   }) {
     // 1. Square image identifiers (must be first - square dimensions work on CDN)
-    final squareCover = playlist['squareImage'] ??
+    final squareCover =
+        playlist['squareImage'] ??
         playlist['squareImageUuid'] ??
         playlist['cover'] ??
         playlist['artworkId'] ??
@@ -730,7 +731,8 @@ class TidalService implements NetworkSourceService {
     // 2. Handle nested images structure (Map or List)
     final rawImages = playlist['squareImages'] ?? playlist['images'];
     if (rawImages is Map) {
-      final large = rawImages['LARGE'] ??
+      final large =
+          rawImages['LARGE'] ??
           rawImages['large'] ??
           rawImages['MEDIUM'] ??
           rawImages['medium'] ??

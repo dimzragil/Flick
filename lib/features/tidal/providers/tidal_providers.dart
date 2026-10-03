@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
@@ -241,8 +240,10 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
 
 /// Fetches the cover art URL for a playlist, falling back to the first track's album art
 /// if the playlist itself has no custom cover image.
-final tidalPlaylistCoverProvider =
-    FutureProvider.family<String?, String>((ref, playlistId) async {
+final tidalPlaylistCoverProvider = FutureProvider.family<String?, String>((
+  ref,
+  playlistId,
+) async {
   if (playlistId.isEmpty) return null;
   final server = await ref.watch(tidalServerProvider.future);
   if (server == null || server.token == null || server.token!.isEmpty) {
@@ -266,8 +267,7 @@ final tidalPlaylistCoverProvider =
       }
     }
     return null;
-  } catch (e) {
-    developer.log('[tidalPlaylistCoverProvider] failed to resolve cover for $playlistId: $e');
+  } catch (_) {
     return null;
   }
 });

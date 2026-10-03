@@ -19,11 +19,7 @@ class TidalHomeTab {
     return TidalHomeTab(name: name, type: type, slug: slug);
   }
 
-  Map<String, dynamic> toJson() => {
-    'name': name,
-    'type': type,
-    'slug': slug,
-  };
+  Map<String, dynamic> toJson() => {'name': name, 'type': type, 'slug': slug};
 }
 
 /// Represents an individual item in a TIDAL Home Feed section.
@@ -49,7 +45,11 @@ class TidalHomeItem {
   bool get isMix {
     final t = type.toUpperCase();
     if (t == 'MIX' || t == 'MIX_ITEM' || t.contains('MIX')) return true;
-    if (raw['mixType'] != null || raw['mixImages'] != null || raw['mixId'] != null) return true;
+    if (raw['mixType'] != null ||
+        raw['mixImages'] != null ||
+        raw['mixId'] != null) {
+      return true;
+    }
     return false;
   }
 
@@ -78,7 +78,9 @@ class TidalHomeItem {
   bool get isTrack {
     final t = type.toUpperCase();
     if (t == 'TRACK' || t == 'TRACK_ITEM') return true;
-    if (raw['duration'] != null && (raw['artist'] != null || raw['artists'] != null) && raw['album'] != null) {
+    if (raw['duration'] != null &&
+        (raw['artist'] != null || raw['artists'] != null) &&
+        raw['album'] != null) {
       return true;
     }
     return false;
@@ -97,13 +99,18 @@ class TidalHomeItem {
     if (t == 'ALBUM' || t == 'ALBUM_ITEM') return true;
     if (!isMix && !isPlaylist && !isArtist && !isTrack && !isMyTracks) {
       if (raw['cover'] != null) return true;
-      if (id.isNotEmpty && !id.contains('-') && int.tryParse(id) != null) return true;
+      if (id.isNotEmpty && !id.contains('-') && int.tryParse(id) != null) {
+        return true;
+      }
     }
     return false;
   }
 
   /// Extract a TidalHomeItem from either a flat object or a `{ type, data }` wrapper.
-  factory TidalHomeItem.fromJson(Map<String, dynamic> json, {String? typeHint}) {
+  factory TidalHomeItem.fromJson(
+    Map<String, dynamic> json, {
+    String? typeHint,
+  }) {
     final Map<String, dynamic> data;
     if (json.containsKey('data') && json['data'] is Map<String, dynamic>) {
       data = Map<String, dynamic>.from(json['data'] as Map<String, dynamic>);
@@ -112,14 +119,16 @@ class TidalHomeItem {
           data[k] = v;
         }
       });
-    } else if (json.containsKey('item') && json['item'] is Map<String, dynamic>) {
+    } else if (json.containsKey('item') &&
+        json['item'] is Map<String, dynamic>) {
       data = Map<String, dynamic>.from(json['item'] as Map<String, dynamic>);
       json.forEach((k, v) {
         if (k != 'item' && !data.containsKey(k)) {
           data[k] = v;
         }
       });
-    } else if (json.containsKey('artist') && json['artist'] is Map<String, dynamic>) {
+    } else if (json.containsKey('artist') &&
+        json['artist'] is Map<String, dynamic>) {
       data = Map<String, dynamic>.from(json['artist'] as Map<String, dynamic>);
       json.forEach((k, v) {
         if (k != 'artist' && !data.containsKey(k)) {
@@ -130,7 +139,8 @@ class TidalHomeItem {
       data = Map<String, dynamic>.from(json);
     }
 
-    final rawType = (json['type'] as String?) ??
+    final rawType =
+        (json['type'] as String?) ??
         (data['_itemType'] as String?) ??
         (data['type'] as String?) ??
         '';
@@ -139,7 +149,13 @@ class TidalHomeItem {
     final title = _extractTitle(data);
     final subtitle = _extractSubtitle(data);
     final imageUrl = _extractImageUrl(data);
-    final resolvedType = _resolveItemType(rawType, data, json, id: id, typeHint: typeHint);
+    final resolvedType = _resolveItemType(
+      rawType,
+      data,
+      json,
+      id: id,
+      typeHint: typeHint,
+    );
 
     return TidalHomeItem(
       id: id,
@@ -182,7 +198,10 @@ class TidalHomeItem {
     if (t == 'ARTIST' ||
         t == 'ARTIST_LIST' ||
         typeHint == 'ARTIST_LIST' ||
-        (data['picture'] != null && data['cover'] == null && data['album'] == null && data['images'] == null)) {
+        (data['picture'] != null &&
+            data['cover'] == null &&
+            data['album'] == null &&
+            data['images'] == null)) {
       return 'ARTIST';
     }
     if (t == 'TRACK' ||
@@ -212,7 +231,10 @@ class TidalHomeItem {
     return t.isNotEmpty ? t : (typeHint ?? 'UNKNOWN');
   }
 
-  static String _extractId(Map<String, dynamic> data, Map<String, dynamic> root) {
+  static String _extractId(
+    Map<String, dynamic> data,
+    Map<String, dynamic> root,
+  ) {
     if (data['id'] != null) return data['id'].toString();
     if (data['uuid'] != null) return data['uuid'].toString();
     if (data['mixId'] != null) return data['mixId'].toString();
@@ -235,7 +257,8 @@ class TidalHomeItem {
       final text = data['titleTextInfo']['text'];
       if (text is String && text.isNotEmpty) return text;
     }
-    if (data['shortHeader'] is String && (data['shortHeader'] as String).isNotEmpty) {
+    if (data['shortHeader'] is String &&
+        (data['shortHeader'] as String).isNotEmpty) {
       return data['shortHeader'] as String;
     }
     return '';
@@ -245,7 +268,8 @@ class TidalHomeItem {
     if (data['subTitle'] is String && (data['subTitle'] as String).isNotEmpty) {
       return data['subTitle'] as String;
     }
-    if (data['shortSubtitle'] is String && (data['shortSubtitle'] as String).isNotEmpty) {
+    if (data['shortSubtitle'] is String &&
+        (data['shortSubtitle'] as String).isNotEmpty) {
       return data['shortSubtitle'] as String;
     }
     if (data['subtitleTextInfo'] is Map) {
@@ -266,7 +290,9 @@ class TidalHomeItem {
       final creator = data['creator'] as Map;
       final name = creator['name']?.toString();
       final id = creator['id'];
-      final creatorName = (id == 0) ? 'By TIDAL' : (name != null ? 'By $name' : null);
+      final creatorName = (id == 0)
+          ? 'By TIDAL'
+          : (name != null ? 'By $name' : null);
       final numTracks = data['numberOfTracks'];
       if (creatorName != null && numTracks != null) {
         return '$creatorName · $numTracks tracks';
@@ -277,7 +303,8 @@ class TidalHomeItem {
     if (data['numberOfTracks'] != null) {
       return '${data['numberOfTracks']} tracks';
     }
-    if (data['description'] is String && (data['description'] as String).isNotEmpty) {
+    if (data['description'] is String &&
+        (data['description'] as String).isNotEmpty) {
       return data['description'] as String;
     }
     return null;
@@ -302,7 +329,8 @@ class TidalHomeItem {
     }
 
     // 3. Detail mix images (detailMixImages)
-    if (data['detailMixImages'] is List && (data['detailMixImages'] as List).isNotEmpty) {
+    if (data['detailMixImages'] is List &&
+        (data['detailMixImages'] as List).isNotEmpty) {
       final first = (data['detailMixImages'] as List).first;
       if (first is Map && first['url'] is String) return first['url'] as String;
     }
@@ -346,7 +374,8 @@ class TidalHomeItem {
 
     // 8. Nested artist picture
     if (data['artist'] is Map) {
-      final artistPic = data['artist']['picture'] ??
+      final artistPic =
+          data['artist']['picture'] ??
           data['artist']['squareImage'] ??
           data['artist']['artworkId'];
       if (artistPic is String && artistPic.isNotEmpty) {
@@ -356,8 +385,10 @@ class TidalHomeItem {
 
     // 9. Nested item container
     if (data['item'] is Map<String, dynamic>) {
-      final itemUrl =
-          _extractImageUrl(data['item'] as Map<String, dynamic>, size: size);
+      final itemUrl = _extractImageUrl(
+        data['item'] as Map<String, dynamic>,
+        size: size,
+      );
       if (itemUrl != null && itemUrl.isNotEmpty) return itemUrl;
     }
 
@@ -417,7 +448,8 @@ class TidalHomeItem {
 /// Represents a section in the TIDAL Home Feed (e.g. SHORTCUT_LIST, HORIZONTAL_LIST).
 class TidalHomeSection {
   final String title;
-  final String sectionType; // SHORTCUT_LIST, HORIZONTAL_LIST, TRACK_LIST, MIXED_LIST, etc.
+  final String
+  sectionType; // SHORTCUT_LIST, HORIZONTAL_LIST, TRACK_LIST, MIXED_LIST, etc.
   final List<TidalHomeItem> items;
   final bool hasMore;
   final String? apiPath;

@@ -128,14 +128,17 @@ void main() {
       );
     });
 
-    test('formats wide image with 3:2 aspect ratio when only image is present', () {
-      final pl = {'image': '6aedd9bd-d973-4203-a584-71a652d84399'};
-      final url = TidalService.extractPlaylistCover(pl, size: 320);
-      expect(
-        url,
-        'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/640x428.jpg',
-      );
-    });
+    test(
+      'formats wide image with 3:2 aspect ratio when only image is present',
+      () {
+        final pl = {'image': '6aedd9bd-d973-4203-a584-71a652d84399'};
+        final url = TidalService.extractPlaylistCover(pl, size: 320);
+        expect(
+          url,
+          'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/640x428.jpg',
+        );
+      },
+    );
 
     test('returns direct HTTP url if provided', () {
       final pl = {'cover': 'https://example.com/cover.jpg'};
@@ -167,15 +170,18 @@ void main() {
       );
     });
 
-    test('resizedCoverUrl preserves 3:2 aspect ratio for wide landscape images', () {
-      const wideUrl =
-          'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/480x320.jpg';
-      final resized = TidalService.resizedCoverUrl(wideUrl, 160);
-      expect(
-        resized,
-        'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/320x214.jpg',
-      );
-    });
+    test(
+      'resizedCoverUrl preserves 3:2 aspect ratio for wide landscape images',
+      () {
+        const wideUrl =
+            'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/480x320.jpg';
+        final resized = TidalService.resizedCoverUrl(wideUrl, 160);
+        expect(
+          resized,
+          'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/320x214.jpg',
+        );
+      },
+    );
 
     test('returns null when no cover is present', () {
       final pl = {'title': 'My Empty Playlist'};
