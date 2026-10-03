@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
 /// Service to extract dominant colors from images for adaptive theming.
@@ -17,9 +18,15 @@ class ColorExtractionService {
   // Cache extracted colors to avoid recomputation
   final Map<String, Color> _colorCache = {};
 
-  /// Extracts the dominant/average color from an image file.
+  /// Extracts the dominant/average color from an image file or remote URL.
   ///
-  /// Returns null if extraction fails or file doesn't exist.
+  /// Remote (http/https) images are resolved through the shared disk cache
+  /// ([DefaultCacheManager]): a cache hit is used directly, otherwise the
+  /// image is downloaded once. This lets network-sourced artwork (e.g.
+  /// TIDAL covers) participate in adaptive theming just like local files.
+  ///
+  /// Returns null if extraction fails, the file doesn't exist, or the
+  /// remote image can't be fetched.
   Future<Color?> extractDominantColor(String? imagePath) async {
     if (imagePath == null || imagePath.isEmpty) {
       return null;
@@ -31,7 +38,12 @@ class ColorExtractionService {
     }
 
     try {
-      final file = File(imagePath);
+      final localPath = await _resolveLocalPath(imagePath);
+      if (localPath == null) {
+        return null;
+      }
+
+      final file = File(localPath);
       if (!await file.exists()) {
         return null;
       }
@@ -64,6 +76,34 @@ class ColorExtractionService {
       devLog('ColorExtractionService: Failed to extract color: $e');
       return null;
     }
+  }
+
+  /// Resolves [imagePath] to a local file path.
+  ///
+  /// Plain file paths are returned as-is. Remote URLs go through
+  /// [DefaultCacheManager]: the disk-cached file is preferred so no network
+  /// fetch happens when the image was already loaded elsewhere in the app
+  /// (e.g. by [CachedImageWidget]); otherwise it is downloaded once.
+  /// Returns null when the path can't be resolved to a readable file.
+  Future<String?> _resolveLocalPath(String imagePath) async {
+    if (!imagePath.startsWith('http://') &&
+        !imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+    try {
+      final cacheManager = DefaultCacheManager();
+      final cached = await cacheManager.getFileFromCache(imagePath);
+      if (cached != null && await cached.file.exists()) {
+        return cached.file.path;
+      }
+      final downloaded = await cacheManager.getSingleFile(imagePath);
+      if (await downloaded.exists()) {
+        return downloaded.path;
+      }
+    } catch (e) {
+      devLog('ColorExtractionService: Failed to fetch remote image: $e');
+    }
+    return null;
   }
 
   /// Calculates the average color from pixel data, with brightness adjustment.
