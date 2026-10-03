@@ -2069,144 +2069,152 @@ class _HeroCardWithBlobsState extends State<_HeroCardWithBlobs>
     final gradientColors = _adaptiveGradientColors();
     final blobColors = _adaptiveBlobColors();
 
-    return AnimatedBuilder(
-      animation: _blobController,
-      builder: (context, _) {
-        return Container(
-          clipBehavior: Clip.hardEdge,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: gradientColors,
-              stops: const [0.0, 0.56, 1.0],
-            ),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF08111B).withValues(alpha: 0.42),
-                blurRadius: 28,
-                offset: const Offset(0, 18),
-              ),
-            ],
+    return Container(
+      clipBehavior: Clip.hardEdge,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradientColors,
+          stops: const [0.0, 0.56, 1.0],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF08111B).withValues(alpha: 0.42),
+            blurRadius: 28,
+            offset: const Offset(0, 18),
           ),
-          child: LayoutBuilder(
-            builder: (context, box) {
-              return Stack(
-                children: [
-                  _buildBlob(
-                    blobColors[0],
-                    170,
-                    Alignment(1.15, -0.45),
-                    0,
-                    box.maxWidth,
-                    box.maxHeight,
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Animated blobs layer isolated to its own RepaintBoundary
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  return AnimatedBuilder(
+                    animation: _blobController,
+                    builder: (context, _) {
+                      return Stack(
+                        children: [
+                          _buildBlob(
+                            blobColors[0],
+                            170,
+                            const Alignment(1.15, -0.45),
+                            0,
+                            box.maxWidth,
+                            box.maxHeight,
+                          ),
+                          _buildBlob(
+                            blobColors[1],
+                            190,
+                            const Alignment(-0.15, 1.70),
+                            1,
+                            box.maxWidth,
+                            box.maxHeight,
+                          ),
+                          _buildBlob(
+                            blobColors[2],
+                            140,
+                            const Alignment(0.50, -0.80),
+                            2,
+                            box.maxWidth,
+                            box.maxHeight,
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+          // Static foreground content: does not rebuild or repaint on animation frames
+          Padding(
+            padding: const EdgeInsets.all(AppConstants.spacingLg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.title,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
-                  _buildBlob(
-                    blobColors[1],
-                    190,
-                    Alignment(-0.15, 1.70),
-                    1,
-                    box.maxWidth,
-                    box.maxHeight,
+                ),
+                const SizedBox(height: AppConstants.spacingXs),
+                Text(
+                  widget.subtitle,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.78),
+                    height: 1.45,
                   ),
-                  _buildBlob(
-                    blobColors[2],
-                    140,
-                    Alignment(0.50, -0.80),
-                    2,
-                    box.maxWidth,
-                    box.maxHeight,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(AppConstants.spacingLg),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.title,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                        ),
-                        const SizedBox(height: AppConstants.spacingXs),
-                        Text(
-                          widget.subtitle,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.78),
-                                height: 1.45,
-                              ),
-                        ),
-                        const SizedBox(height: AppConstants.spacingLg),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isCompactHero = constraints.maxWidth < 520;
-                            final compactButtons = <Widget>[
-                              widget.primaryButton,
-                            ];
-                            if (widget.secondaryButton != null) {
-                              compactButtons.add(widget.secondaryButton!);
-                            }
+                ),
+                const SizedBox(height: AppConstants.spacingLg),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isCompactHero = constraints.maxWidth < 520;
+                    final compactButtons = <Widget>[
+                      widget.primaryButton,
+                    ];
+                    if (widget.secondaryButton != null) {
+                      compactButtons.add(widget.secondaryButton!);
+                    }
 
-                            if (isCompactHero) {
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  widget.featureTile,
-                                  const SizedBox(
-                                    height: AppConstants.spacingMd,
-                                  ),
-                                  Row(
-                                    children: [
-                                      Expanded(child: widget.primaryButton),
-                                      if (widget.secondaryButton != null) ...[
-                                        const SizedBox(
-                                          width: AppConstants.spacingSm,
-                                        ),
-                                        Expanded(
-                                          child: widget.secondaryButton!,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              );
-                            }
-
-                            return Row(
-                              children: [
-                                Expanded(child: widget.featureTile),
-                                const SizedBox(width: AppConstants.spacingMd),
-                                IntrinsicWidth(
-                                  child: Column(
-                                    children: [
-                                      widget.primaryButton,
-                                      if (widget.secondaryButton != null) ...[
-                                        const SizedBox(
-                                          height: AppConstants.spacingSm,
-                                        ),
-                                        widget.secondaryButton!,
-                                      ],
-                                    ],
-                                  ),
+                    if (isCompactHero) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          widget.featureTile,
+                          const SizedBox(
+                            height: AppConstants.spacingMd,
+                          ),
+                          Row(
+                            children: [
+                              Expanded(child: widget.primaryButton),
+                              if (widget.secondaryButton != null) ...[
+                                const SizedBox(
+                                  width: AppConstants.spacingSm,
+                                ),
+                                Expanded(
+                                  child: widget.secondaryButton!,
                                 ),
                               ],
-                            );
-                          },
+                            ],
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(child: widget.featureTile),
+                        const SizedBox(width: AppConstants.spacingMd),
+                        IntrinsicWidth(
+                          child: Column(
+                            children: [
+                              widget.primaryButton,
+                              if (widget.secondaryButton != null) ...[
+                                const SizedBox(
+                                  height: AppConstants.spacingSm,
+                                ),
+                                widget.secondaryButton!,
+                              ],
+                            ],
+                          ),
                         ),
                       ],
-                    ),
-                  ),
-                ],
-              );
-            },
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' show pi;
-import 'dart:ui';
 
 import 'package:flick/widgets/common/flick_dialog.dart';
 import 'package:flutter/material.dart';
@@ -851,12 +850,19 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
           body: Stack(
             fit: StackFit.expand,
             children: [
-              BackdropFilter(
-                filter: ImageFilter.blur(
-                  sigmaX: AppConstants.glassBlurSigma,
-                  sigmaY: AppConstants.glassBlurSigma,
+              // Opaque gradient overlay instead of BackdropFilter to avoid
+              // full-screen GPU blur pass re-rasterizing on every scan tick.
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      AppColors.background.withValues(alpha: 0.95),
+                      AppColors.backgroundDark.withValues(alpha: 0.98),
+                    ],
+                  ),
                 ),
-                child: const SizedBox.expand(),
               ),
               SafeArea(
                 child: ValueListenableBuilder<ScanProgress?>(

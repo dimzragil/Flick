@@ -26,6 +26,12 @@ import 'package:flick/services/sources/tidal_service.dart';
 // black during navigation.
 // ---------------------------------------------------------------------------
 
+/// Max album art rasters kept in GPU memory (~360KB per 300x300 image).
+const int _maxBlurCacheSize = 25;
+
+/// Max resolved input path mappings kept in memory.
+const int _maxResolvedPathIndexSize = 50;
+
 /// Shared cache so parallel [AmbientBackground] instances don't recompute.
 final Map<String, ui.Image> _blurCache = {};
 
@@ -34,6 +40,49 @@ final Map<String, ui.Image> _blurCache = {};
 /// screens seed their first frame synchronously instead of flashing empty
 /// while the async resolution runs.
 final Map<String, String> _resolvedPathIndex = {};
+
+/// Tracks paths actively displayed by any mounted [AmbientBackground] instance
+/// to ensure actively visible artwork is never evicted or disposed.
+final Set<String> _activePaths = {};
+
+ui.Image? _getBlurCache(String key) {
+  final image = _blurCache.remove(key);
+  if (image != null) {
+    _blurCache[key] = image; // LRU touch: move to end
+  }
+  return image;
+}
+
+void _putBlurCache(String key, ui.Image image) {
+  if (_blurCache.containsKey(key)) {
+    final old = _blurCache.remove(key);
+    if (old != null && old != image) {
+      old.dispose();
+    }
+  }
+  _blurCache[key] = image;
+
+  while (_blurCache.length > _maxBlurCacheSize) {
+    String? evictKey;
+    for (final candidate in _blurCache.keys) {
+      if (!_activePaths.contains(candidate)) {
+        evictKey = candidate;
+        break;
+      }
+    }
+    if (evictKey == null) break;
+    final evicted = _blurCache.remove(evictKey);
+    evicted?.dispose();
+  }
+}
+
+void _putResolvedPath(String input, String resolved) {
+  _resolvedPathIndex.remove(input);
+  _resolvedPathIndex[input] = resolved;
+  if (_resolvedPathIndex.length > _maxResolvedPathIndexSize) {
+    _resolvedPathIndex.remove(_resolvedPathIndex.keys.first);
+  }
+}
 
 /// Marks a subtree as already sitting on a shared [AmbientBackground]
 /// (the bottom-bar shell). Any [AmbientBackground] under this scope
@@ -96,22 +145,32 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
     return widget.song?.filePath;
   }
 
+  void _setActivePath(String? path) {
+    if (_currentPath != null) {
+      _activePaths.remove(_currentPath);
+    }
+    _currentPath = path;
+    if (path != null) {
+      _activePaths.add(path);
+    }
+  }
+
   /// Seeded synchronously so [build] never starts with a null image
   /// when the artwork is already cached.
   void _syncInitFromCache() {
     final key = _inputKey;
     if (key == null) return;
     final resolved = _resolvedPathIndex[key] ?? key;
-    final image = _blurCache[resolved];
+    final image = _getBlurCache(resolved);
     if (image != null) {
       _blurredImage = image;
-      _currentPath = resolved;
+      _setActivePath(resolved);
     }
   }
 
   @override
   void dispose() {
-    // Don't dispose cached images — they're shared across instances.
+    _setActivePath(null);
     _blurredImage = null;
     super.dispose();
   }
@@ -122,7 +181,7 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
       if (mounted) {
         setState(() {
           _blurredImage = null;
-          _currentPath = null;
+          _setActivePath(null);
           _loadingPath = null;
         });
       }
@@ -130,14 +189,15 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
     }
 
     final input = _inputKey;
-    if (input != null) _resolvedPathIndex[input] = resolvedPath;
+    if (input != null) _putResolvedPath(input, resolvedPath);
 
     // If another widget already blurred this path, reuse it instantly.
-    if (_blurCache.containsKey(resolvedPath)) {
+    final cached = _getBlurCache(resolvedPath);
+    if (cached != null) {
       if (mounted) {
         setState(() {
-          _blurredImage = _blurCache[resolvedPath];
-          _currentPath = resolvedPath;
+          _blurredImage = cached;
+          _setActivePath(resolvedPath);
         });
       }
       return;
@@ -209,10 +269,10 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
         return;
       }
 
-      _blurCache[resolvedPath] = blurred;
+      _putBlurCache(resolvedPath, blurred);
       setState(() {
         _blurredImage = blurred;
-        _currentPath = resolvedPath;
+        _setActivePath(resolvedPath);
       });
     } catch (e) {
       devLog('[AmbientBackground] blur failed: $e');
