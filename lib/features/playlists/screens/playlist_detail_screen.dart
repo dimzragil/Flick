@@ -729,13 +729,13 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
       return fallback;
     }
 
-    final firstArtSong = _getArtSong(_songs);
+    final firstArtSong = _getArtSong(_songs) ?? _songs.firstOrNull;
     final firstArt = firstArtSong?.albumArt;
-    final firstSource = _getSourcePath(_songs);
-    if (firstArt != null) {
+    final firstSource = firstArtSong?.filePath ?? _getSourcePath(_songs);
+    if (firstArt != null || firstSource != null) {
       final prefs = ref.watch(appPreferencesProvider);
       final animated = prefs.animatedAlbumArt && prefs.animationsEnabled;
-      if (animated) {
+      if (animated && firstArt != null) {
         return ScrollFadeWrapper(
           scrollController: _scrollController,
           child: AnimatedAlbumArt(
@@ -754,6 +754,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
         imagePath: firstArt,
         audioSourcePath: firstSource,
         fit: BoxFit.cover,
+        useThumbnail: true,
+        thumbnailWidth: 640,
+        thumbnailHeight: 640,
         placeholder: fallback,
         errorWidget: fallback,
       );

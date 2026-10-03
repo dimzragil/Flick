@@ -1170,10 +1170,22 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     final trackCount = (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
     final imageUuid =
         (pl['image'] as String?) ?? (pl['squareImage'] as String?);
-    final imageUrl = (imageUuid != null && imageUuid.isNotEmpty)
-        ? TidalService.coverUrl(imageUuid, size: 160)
-        : null;
+    final String? imageUrl;
+    if (imageUuid == null || imageUuid.isEmpty) {
+      imageUrl = null;
+    } else if (imageUuid.startsWith('http') ||
+        imageUuid.startsWith('file:') ||
+        imageUuid.startsWith('/')) {
+      imageUrl = imageUuid;
+    } else {
+      final generated = TidalService.coverUrl(imageUuid, size: 160);
+      imageUrl = generated.isNotEmpty ? generated : null;
+    }
     final size = context.scaleSize(52);
+    final fallbackWidget = Container(
+      color: AppColors.surfaceLight,
+      child: const FlickArtworkPlaceholder(size: 24, opacity: 0.9),
+    );
 
     return RepaintBoundary(
       child: ListTile(
@@ -1192,10 +1204,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     thumbnailWidth: 160,
                     thumbnailHeight: 160,
                     fit: BoxFit.cover,
-                    placeholder: const FlickArtworkPlaceholder(),
-                    errorWidget: const FlickArtworkPlaceholder(),
+                    placeholder: fallbackWidget,
+                    errorWidget: fallbackWidget,
                   )
-                : const FlickArtworkPlaceholder(),
+                : fallbackWidget,
           ),
         ),
         title: Text(

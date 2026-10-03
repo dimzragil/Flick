@@ -8,6 +8,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/models/playlist.dart';
+import 'package:flick/models/song.dart';
 import 'package:flick/providers/playlist_provider.dart';
 import 'package:flick/providers/songs_provider.dart';
 import 'package:flick/services/sources/network_source_service.dart';
@@ -682,14 +683,18 @@ class _PlaylistCover extends ConsumerWidget {
           return _buildCoverPlaceholder(context);
         }
 
-        final artworkPaths = playlistSongs
-            .map((s) => s.albumArt)
-            .where((art) => art != null && art.isNotEmpty)
-            .cast<String>()
-            .take(4)
+        final songsWithArt = playlistSongs
+            .where((s) => s.albumArt != null && s.albumArt!.isNotEmpty)
             .toList();
+        final songsWithoutArt = playlistSongs
+            .where((s) => s.albumArt == null || s.albumArt!.isEmpty)
+            .toList();
+        final coverSongs =
+            [...songsWithArt, ...songsWithoutArt].take(4).toList();
 
-        return _buildCoverGrid(context, artworkPaths);
+        return RepaintBoundary(
+          child: _buildCoverGrid(context, coverSongs),
+        );
       },
     );
   }
@@ -707,22 +712,26 @@ class _PlaylistCover extends ConsumerWidget {
     );
   }
 
-  Widget _buildCoverGrid(BuildContext context, List<String> artworkPaths) {
+  Widget _buildCoverGrid(BuildContext context, List<Song> songs) {
     final size = context.scaleSize(56);
 
-    if (artworkPaths.isEmpty) {
+    if (songs.isEmpty) {
       return _buildCoverPlaceholder(context);
     }
 
-    if (artworkPaths.length == 1) {
+    if (songs.length == 1) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(AppConstants.radiusMd),
         child: SizedBox(
           width: size,
           height: size,
           child: CachedImageWidget(
-            imagePath: artworkPaths[0],
+            imagePath: songs[0].albumArt,
+            audioSourcePath: songs[0].filePath,
             fit: BoxFit.cover,
+            useThumbnail: true,
+            thumbnailWidth: 112,
+            thumbnailHeight: 112,
             placeholder: _buildPlaceholderIcon(context),
             errorWidget: _buildPlaceholderIcon(context),
           ),
@@ -735,19 +744,23 @@ class _PlaylistCover extends ConsumerWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: _buildGridArt(context, artworkPaths, size),
+        child: _buildGridArt(context, songs, size),
       ),
     );
   }
 
-  Widget _buildGridArt(BuildContext context, List<String> artworkPaths, double size) {
+  Widget _buildGridArt(BuildContext context, List<Song> songs, double size) {
     return GridView.count(
       crossAxisCount: 2,
       physics: const NeverScrollableScrollPhysics(),
-      children: artworkPaths.take(4).map((path) {
+      children: songs.take(4).map((song) {
         return CachedImageWidget(
-          imagePath: path,
+          imagePath: song.albumArt,
+          audioSourcePath: song.filePath,
           fit: BoxFit.cover,
+          useThumbnail: true,
+          thumbnailWidth: 112,
+          thumbnailHeight: 112,
           placeholder: Container(color: AppColors.surfaceLight),
           errorWidget: Container(color: AppColors.surfaceLight),
         );

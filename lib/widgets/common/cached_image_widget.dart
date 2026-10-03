@@ -267,28 +267,61 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       }
     }
 
-    if (_knownExistingPaths.contains(path)) {
-      return path;
+    String cleanPath = path;
+    if (cleanPath.startsWith('file://')) {
+      try {
+        final uri = Uri.tryParse(cleanPath);
+        if (uri != null && uri.isScheme('file')) {
+          cleanPath = uri.toFilePath();
+        } else {
+          cleanPath = cleanPath.substring(7);
+        }
+      } catch (_) {
+        cleanPath = cleanPath.substring(7);
+      }
+    }
+
+    if (cleanPath.isEmpty) {
+      return null;
+    }
+
+    if (_knownExistingPaths.contains(cleanPath)) {
+      return cleanPath;
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final lastCheck = _knownMissingPaths[path];
+    final lastCheck = _knownMissingPaths[cleanPath];
     if (lastCheck != null && (now - lastCheck) < _missingTtlMs) {
       return null;
     }
 
-    if (File(path).existsSync()) {
-      _knownExistingPaths.add(path);
-      _knownMissingPaths.remove(path);
-      return path;
-    }
+    try {
+      if (File(cleanPath).existsSync()) {
+        _knownExistingPaths.add(cleanPath);
+        _knownMissingPaths.remove(cleanPath);
+        return cleanPath;
+      }
+    } catch (_) {}
 
-    _knownMissingPaths[path] = now;
+    _knownMissingPaths[cleanPath] = now;
     return null;
   }
 
   Widget _buildFileImage(String imagePath) {
-    final file = File(imagePath);
+    String cleanPath = imagePath;
+    if (cleanPath.startsWith('file://')) {
+      try {
+        final uri = Uri.tryParse(cleanPath);
+        if (uri != null && uri.isScheme('file')) {
+          cleanPath = uri.toFilePath();
+        } else {
+          cleanPath = cleanPath.substring(7);
+        }
+      } catch (_) {
+        cleanPath = cleanPath.substring(7);
+      }
+    }
+    final file = File(cleanPath);
 
     return Image.file(
       file,
@@ -306,7 +339,7 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        _recoverFailedFile(imagePath);
+        _recoverFailedFile(cleanPath);
         return SizedBox(
           width: widget.width,
           height: widget.height,
