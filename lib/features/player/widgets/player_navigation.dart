@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/navigation/root_navigator.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
+import 'package:flick/data/database.dart';
 import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/features/artists/screens/artist_detail_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_artist_screen.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/sources/network_source_service.dart';
+import 'package:flick/services/sources/tidal_service.dart';
 
 class PlayerNavigation {
   final PlayerService playerService;
@@ -47,6 +51,11 @@ class PlayerNavigation {
       return;
     }
 
+    if (_isTidalSong(song)) {
+      await _openTidalArtistFromSong(context, song, artistName);
+      return;
+    }
+
     final artistMap = await songRepository.getSongsByArtist();
     final artistSongs = artistMap[artistName];
     if (!context.mounted) return;
@@ -65,6 +74,84 @@ class PlayerNavigation {
         artistArt: _firstArt(artistSongs),
         artistArtSourcePath: _firstSourcePath(artistSongs),
         playerService: playerService,
+      ),
+    );
+
+    if (_isFullPlayerContext(context)) {
+      await _popFullPlayerAndPushNested(context, route);
+      return;
+    }
+
+    await Navigator.of(context).push(route);
+  }
+
+  /// TIDAL songs are not in the local library, so artist lookup by name
+  /// against [songRepository] can never find them. Same detection as
+  /// PlayerService._reportTidalPlayIfNeeded.
+  bool _isTidalSong(Song song) {
+    return song.sourceType == NetworkProtocol.tidal ||
+        (song.filePath != null && song.filePath!.startsWith('tidal://')) ||
+        song.id.startsWith('tidal_');
+  }
+
+  /// Opens the TIDAL artist page for a TIDAL song.
+  ///
+  /// [Song] does not carry the TIDAL artist id, so the artist is resolved
+  /// by name through the catalog search (first ARTISTS hit), mirroring how
+  /// the local path matches by artist name. The raw artist JSON is passed
+  /// as initial data so the artist screen can render immediately.
+  Future<void> _openTidalArtistFromSong(
+    BuildContext context,
+    Song song,
+    String artistName,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    void fail(String message) {
+      if (context.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
+
+    final serverId = song.remoteServerId;
+    final server = serverId != null
+        ? await Database.networkServers.get(serverId)
+        : null;
+    if (server == null) {
+      fail('TIDAL is not connected');
+      return;
+    }
+
+    final service = networkSourceServiceFor(NetworkProtocol.tidal);
+    if (service is! TidalService) {
+      fail('Could not load artist');
+      return;
+    }
+
+    Map<String, dynamic>? artistJson;
+    try {
+      final res = await service.searchCatalog(
+        server,
+        artistName,
+        types: 'ARTISTS',
+        limit: 3,
+      );
+      final items = res['artists']?['items'] as List<dynamic>?;
+      artistJson = items?.whereType<Map<String, dynamic>>().firstOrNull;
+    } catch (_) {
+      artistJson = null;
+    }
+    if (!context.mounted) return;
+
+    final artistId = artistJson?['id']?.toString();
+    if (artistId == null || artistId.isEmpty) {
+      fail('Could not find artist on TIDAL');
+      return;
+    }
+
+    final route = MaterialPageRoute<void>(
+      builder: (_) => TidalArtistScreen(
+        artistId: artistId,
+        initialArtistData: artistJson,
       ),
     );
 
