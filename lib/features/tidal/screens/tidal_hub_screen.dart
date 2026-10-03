@@ -352,10 +352,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   void _openPlaylistTracks(Map<String, dynamic> pl) {
     final playlistId = pl['uuid']?.toString() ?? pl['id']?.toString();
     if (playlistId == null) return;
-    final directCover = TidalService.extractPlaylistCover(pl, size: 640);
-    final fallbackCover =
-        ref.read(tidalPlaylistCoverProvider(playlistId)).value;
-    final imageUrl = directCover ?? fallbackCover;
+    final imageUrl = TidalService.extractPlaylistCover(pl, size: 640);
     NavigationHelper.pushFade(
       context,
       (_) => TidalPlaylistScreen(

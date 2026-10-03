@@ -238,40 +238,6 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
   return tidal.getUserPlaylists(server);
 });
 
-/// Fetches the cover art URL for a playlist, falling back to the first track's album art
-/// if the playlist itself has no custom cover image.
-final tidalPlaylistCoverProvider = FutureProvider.family<String?, String>((
-  ref,
-  playlistId,
-) async {
-  if (playlistId.isEmpty) return null;
-  final server = await ref.watch(tidalServerProvider.future);
-  if (server == null || server.token == null || server.token!.isEmpty) {
-    return null;
-  }
-  final tidal = ref.read(tidalServiceProvider);
-  try {
-    // 1. Try playlist metadata first (in case it contains squareImage or cover)
-    try {
-      final pl = await tidal.getPlaylist(server, playlistId);
-      final direct = TidalService.extractPlaylistCover(pl);
-      if (direct != null && direct.isNotEmpty) return direct;
-    } catch (_) {}
-
-    // 2. Fetch tracks (limit 5) to find the first track with album art
-    final tracks = await tidal.getPlaylistTracks(server, playlistId, limit: 5);
-    for (final t in tracks) {
-      final song = TidalService.makeEphemeralSong(server, t);
-      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
-        return song.albumArt;
-      }
-    }
-    return null;
-  } catch (_) {
-    return null;
-  }
-});
-
 /// Fetches the user's custom mixes & daily discovery (My Mix 1..8, Daily Discovery).
 final tidalFavoriteMixesProvider = FutureProvider<List<TidalHomeItem>>((
   ref,

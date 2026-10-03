@@ -275,47 +275,6 @@ void main() {
       expect(playlists.first['title'], 'Chill Vibes');
     });
 
-    test('tidalPlaylistCoverProvider resolves first track albumArt', () async {
-      final client = MockClient((request) async {
-        if (request.url.path.contains('/playlists/pl-cover-1/items')) {
-          return http.Response(
-            jsonEncode({
-              'items': [
-                {
-                  'item': {
-                    'id': 12345,
-                    'title': 'Track With Art',
-                    'album': {
-                      'id': 6789,
-                      'title': 'Album One',
-                      'cover': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab',
-                    },
-                  },
-                },
-              ],
-            }),
-            200,
-          );
-        }
-        return http.Response('', 404);
-      });
-
-      final mockService = TidalService.create(client: client);
-      final container = ProviderContainer(
-        overrides: [
-          tidalServiceProvider.overrideWithValue(mockService),
-          tidalServerProvider.overrideWith(
-            () => _MockTidalServerNotifier(_testServer(token: _validToken())),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      final cover = await container.read(
-        tidalPlaylistCoverProvider('pl-cover-1').future,
-      );
-      expect(cover, contains('1bce0bf4/a3b9/4c0a/9f2e/1234567890ab'));
-    });
   });
 }
 

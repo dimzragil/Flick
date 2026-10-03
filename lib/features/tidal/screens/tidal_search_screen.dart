@@ -90,11 +90,8 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final playlistId =
         playlist['uuid']?.toString() ?? playlist['id']?.toString();
     if (playlistId == null) return;
-    final directCover =
+    final imageUrl =
         TidalService.extractPlaylistCover(playlist, size: 640);
-    final fallbackCover =
-        ref.read(tidalPlaylistCoverProvider(playlistId)).value;
-    final imageUrl = directCover ?? fallbackCover;
     NavigationHelper.pushFade(
       context,
       (_) => TidalPlaylistScreen(
