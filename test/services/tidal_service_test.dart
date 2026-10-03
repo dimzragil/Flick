@@ -116,12 +116,24 @@ void main() {
       );
     });
 
-    test('extracts squareImage or image UUID', () {
-      final pl = {'squareImage': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab'};
+    test('prioritizes squareImage over wide image when both are present', () {
+      final pl = {
+        'squareImage': '59a2c0e0-625a-493a-9e7f-0e5f51a16a50',
+        'image': '6aedd9bd-d973-4203-a584-71a652d84399',
+      };
       final url = TidalService.extractPlaylistCover(pl, size: 320);
       expect(
         url,
-        'https://resources.tidal.com/images/1bce0bf4/a3b9/4c0a/9f2e/1234567890ab/320x320.jpg',
+        'https://resources.tidal.com/images/59a2c0e0/625a/493a/9e7f/0e5f51a16a50/320x320.jpg',
+      );
+    });
+
+    test('formats wide image with 3:2 aspect ratio when only image is present', () {
+      final pl = {'image': '6aedd9bd-d973-4203-a584-71a652d84399'};
+      final url = TidalService.extractPlaylistCover(pl, size: 320);
+      expect(
+        url,
+        'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/640x428.jpg',
       );
     });
 
@@ -152,6 +164,16 @@ void main() {
       expect(
         TidalService.extractPlaylistCover(plList),
         'https://cdn.tidal.com/list.jpg',
+      );
+    });
+
+    test('resizedCoverUrl preserves 3:2 aspect ratio for wide landscape images', () {
+      const wideUrl =
+          'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/480x320.jpg';
+      final resized = TidalService.resizedCoverUrl(wideUrl, 160);
+      expect(
+        resized,
+        'https://resources.tidal.com/images/6aedd9bd/d973/4203/a584/71a652d84399/320x214.jpg',
       );
     });
 

@@ -631,11 +631,73 @@ class TidalService implements NetworkSourceService {
     return '$_coverHost/$path/${size}x$size.jpg';
   }
 
+  /// Build a `resources.tidal.com` image URL for 3:2 landscape images (e.g. playlist `image`).
+  /// Supported resolutions on Tidal CDN are 320x214, 480x320, 640x428, 750x500, 1080x720.
+  static String wideCoverUrl(String coverUuid, {int width = 480}) {
+    if (coverUuid.isEmpty) return '';
+    final clean = coverUuid.replaceAll('-', '');
+    if (clean.length < 5) return '';
+    if (clean.replaceAll('0', '').isEmpty) return '';
+    final String path;
+    if (clean.length == 32) {
+      path =
+          '${clean.substring(0, 8)}/${clean.substring(8, 12)}/${clean.substring(12, 16)}/${clean.substring(16, 20)}/${clean.substring(20)}';
+    } else {
+      path = coverUuid.replaceAll('-', '/');
+    }
+    final int targetW;
+    final int targetH;
+    if (width <= 320) {
+      targetW = 320;
+      targetH = 214;
+    } else if (width <= 480) {
+      targetW = 480;
+      targetH = 320;
+    } else if (width <= 640) {
+      targetW = 640;
+      targetH = 428;
+    } else if (width <= 750) {
+      targetW = 750;
+      targetH = 500;
+    } else {
+      targetW = 1080;
+      targetH = 720;
+    }
+    return '$_coverHost/$path/${targetW}x$targetH.jpg';
+  }
+
   /// Safely transform a Tidal cover URL to a different resolution (e.g. 160, 320, 640).
+  /// Preserves 3:2 aspect ratios if the URL is a wide landscape image.
   /// Returns the original URL if it is not a recognized Tidal resource URL.
   static String? resizedCoverUrl(String? originalUrl, int size) {
     if (originalUrl == null || originalUrl.isEmpty) return originalUrl;
     if (!originalUrl.contains('resources.tidal.com')) return originalUrl;
+    final wideMatch = RegExp(r'(\d+)x(\d+)\.jpg$').firstMatch(originalUrl);
+    if (wideMatch != null) {
+      final w = int.tryParse(wideMatch.group(1) ?? '') ?? 0;
+      final h = int.tryParse(wideMatch.group(2) ?? '') ?? 0;
+      if (w != h && w > 0 && h > 0) {
+        final int targetW;
+        final int targetH;
+        if (size <= 160) {
+          targetW = 320;
+          targetH = 214;
+        } else if (size <= 320) {
+          targetW = 480;
+          targetH = 320;
+        } else if (size <= 480) {
+          targetW = 640;
+          targetH = 428;
+        } else {
+          targetW = 750;
+          targetH = 500;
+        }
+        return originalUrl.replaceAll(
+          RegExp(r'\d+x\d+\.jpg$'),
+          '${targetW}x$targetH.jpg',
+        );
+      }
+    }
     return originalUrl.replaceAll(
       RegExp(r'\d+x\d+\.jpg$'),
       '${size}x$size.jpg',
@@ -643,30 +705,30 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Extracts the best available cover URL from a TIDAL playlist object.
-  /// Checks `cover`, `image`, `squareImage`, `picture`, `images`, and `imageUrl`.
+  /// Prioritizes square imagery (`squareImage`, `squareImageUuid`, `cover`)
+  /// over wide landscape imagery (`image`), ensuring CloudFront returns 200 instead of 403.
   static String? extractPlaylistCover(
     Map<String, dynamic> playlist, {
     int size = 320,
   }) {
-    final cover = playlist['cover'] ??
-        playlist['image'] ??
-        playlist['squareImage'] ??
-        playlist['picture'] ??
+    // 1. Square image identifiers (must be first - square dimensions work on CDN)
+    final squareCover = playlist['squareImage'] ??
+        playlist['squareImageUuid'] ??
+        playlist['cover'] ??
         playlist['artworkId'] ??
-        playlist['customImage'] ??
-        playlist['squareImageUuid'];
-    if (cover is String && cover.isNotEmpty) {
-      if (cover.startsWith('http') ||
-          cover.startsWith('file:') ||
-          cover.startsWith('/')) {
-        return cover;
+        playlist['customImage'];
+    if (squareCover is String && squareCover.isNotEmpty) {
+      if (squareCover.startsWith('http') ||
+          squareCover.startsWith('file:') ||
+          squareCover.startsWith('/')) {
+        return squareCover;
       }
-      final url = coverUrl(cover, size: size);
+      final url = coverUrl(squareCover, size: size);
       if (url.isNotEmpty) return url;
     }
 
-    // Handle nested images structure (Map or List)
-    final rawImages = playlist['images'] ?? playlist['squareImages'];
+    // 2. Handle nested images structure (Map or List)
+    final rawImages = playlist['squareImages'] ?? playlist['images'];
     if (rawImages is Map) {
       final large = rawImages['LARGE'] ??
           rawImages['large'] ??
@@ -702,9 +764,30 @@ class TidalService implements NetworkSourceService {
       }
     }
 
+    // 3. Direct imageUrl string
     if (playlist['imageUrl'] is String &&
         (playlist['imageUrl'] as String).isNotEmpty) {
       return playlist['imageUrl'] as String;
+    }
+
+    // 4. Picture identifier
+    final picture = playlist['picture'];
+    if (picture is String && picture.isNotEmpty) {
+      if (picture.startsWith('http')) return picture;
+      final url = coverUrl(picture, size: size);
+      if (url.isNotEmpty) return url;
+    }
+
+    // 5. Landscape/wide image fallback (using 3:2 aspect ratio so CDN doesn't 403)
+    final wideImage = playlist['image'];
+    if (wideImage is String && wideImage.isNotEmpty) {
+      if (wideImage.startsWith('http') ||
+          wideImage.startsWith('file:') ||
+          wideImage.startsWith('/')) {
+        return wideImage;
+      }
+      final url = wideCoverUrl(wideImage, width: size > 160 ? 640 : 480);
+      if (url.isNotEmpty) return url;
     }
 
     return null;

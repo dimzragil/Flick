@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
@@ -249,11 +250,24 @@ final tidalPlaylistCoverProvider =
   }
   final tidal = ref.read(tidalServiceProvider);
   try {
-    final tracks = await tidal.getPlaylistTracks(server, playlistId, limit: 1);
-    if (tracks.isEmpty) return null;
-    final firstSong = TidalService.makeEphemeralSong(server, tracks.first);
-    return firstSong.albumArt;
-  } catch (_) {
+    // 1. Try playlist metadata first (in case it contains squareImage or cover)
+    try {
+      final pl = await tidal.getPlaylist(server, playlistId);
+      final direct = TidalService.extractPlaylistCover(pl);
+      if (direct != null && direct.isNotEmpty) return direct;
+    } catch (_) {}
+
+    // 2. Fetch tracks (limit 5) to find the first track with album art
+    final tracks = await tidal.getPlaylistTracks(server, playlistId, limit: 5);
+    for (final t in tracks) {
+      final song = TidalService.makeEphemeralSong(server, t);
+      if (song.albumArt != null && song.albumArt!.isNotEmpty) {
+        return song.albumArt;
+      }
+    }
+    return null;
+  } catch (e) {
+    developer.log('[tidalPlaylistCoverProvider] failed to resolve cover for $playlistId: $e');
     return null;
   }
 });

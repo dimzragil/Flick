@@ -317,9 +317,17 @@ class TidalHomeItem {
     }
 
     // 5. Album / Playlist Cover UUID
-    final cover = data['cover'] ?? data['squareImage'] ?? data['image'];
+    final square = data['squareImage'] ?? data['squareImageUuid'];
+    if (square is String && square.isNotEmpty) {
+      return _buildTidalImageUrl(square, size: size);
+    }
+    final cover = data['cover'];
     if (cover is String && cover.isNotEmpty) {
       return _buildTidalImageUrl(cover, size: size);
+    }
+    final image = data['image'];
+    if (image is String && image.isNotEmpty) {
+      return _buildTidalWideImageUrl(image, width: size > 160 ? 640 : 480);
     }
 
     // 6. Artist picture UUID
@@ -372,6 +380,37 @@ class TidalHomeItem {
       path = uuid.replaceAll('-', '/');
     }
     return 'https://resources.tidal.com/images/$path/${size}x$size.jpg';
+  }
+
+  static String _buildTidalWideImageUrl(String uuid, {int width = 480}) {
+    final clean = uuid.replaceAll('-', '');
+    if (clean.length < 5 || clean.replaceAll('0', '').isEmpty) return '';
+    final String path;
+    if (clean.length == 32) {
+      path =
+          '${clean.substring(0, 8)}/${clean.substring(8, 12)}/${clean.substring(12, 16)}/${clean.substring(16, 20)}/${clean.substring(20)}';
+    } else {
+      path = uuid.replaceAll('-', '/');
+    }
+    final int targetW;
+    final int targetH;
+    if (width <= 320) {
+      targetW = 320;
+      targetH = 214;
+    } else if (width <= 480) {
+      targetW = 480;
+      targetH = 320;
+    } else if (width <= 640) {
+      targetW = 640;
+      targetH = 428;
+    } else if (width <= 750) {
+      targetW = 750;
+      targetH = 500;
+    } else {
+      targetW = 1080;
+      targetH = 720;
+    }
+    return 'https://resources.tidal.com/images/$path/${targetW}x$targetH.jpg';
   }
 }
 

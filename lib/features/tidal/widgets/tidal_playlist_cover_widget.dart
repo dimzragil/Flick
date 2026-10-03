@@ -9,12 +9,11 @@ import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 
 /// Cover artwork for a TIDAL playlist.
 ///
-/// If the playlist defines direct cover art (UUID, URL, images map, etc.),
+/// If the playlist defines direct cover art (squareImage, UUID, URL, images map, etc.),
 /// it is rendered immediately via [CachedImageWidget].
-/// If the playlist has no direct cover (typical for user playlists), it lazily
-/// falls back to the cover art of the first track in the playlist via
-/// [tidalPlaylistCoverProvider].
-class TidalPlaylistCoverWidget extends ConsumerWidget {
+/// If the direct cover fails or is missing, it lazily falls back to the cover art
+/// of the first track in the playlist via [tidalPlaylistCoverProvider].
+class TidalPlaylistCoverWidget extends StatelessWidget {
   final Map<String, dynamic> playlist;
   final double size;
   final double borderRadius;
@@ -27,7 +26,7 @@ class TidalPlaylistCoverWidget extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final directCover = TidalService.extractPlaylistCover(
       playlist,
       size: size > 160 ? 320 : 160,
@@ -41,6 +40,18 @@ class TidalPlaylistCoverWidget extends ConsumerWidget {
       ),
       child: FlickArtworkPlaceholder(size: size * 0.45, opacity: 0.9),
     );
+
+    final playlistId =
+        playlist['uuid']?.toString() ?? playlist['id']?.toString() ?? '';
+
+    final trackFallback = playlistId.isNotEmpty
+        ? _PlaylistTrackCover(
+            playlistId: playlistId,
+            size: size,
+            borderRadius: borderRadius,
+            fallback: fallback,
+          )
+        : fallback;
 
     if (directCover != null && directCover.isNotEmpty) {
       return ClipRRect(
@@ -57,18 +68,31 @@ class TidalPlaylistCoverWidget extends ConsumerWidget {
             thumbnailHeight: size > 160 ? 320 : 160,
             fit: BoxFit.cover,
             placeholder: fallback,
-            errorWidget: fallback,
+            errorWidget: trackFallback,
           ),
         ),
       );
     }
 
-    final playlistId =
-        playlist['uuid']?.toString() ?? playlist['id']?.toString() ?? '';
-    if (playlistId.isEmpty) {
-      return fallback;
-    }
+    return trackFallback;
+  }
+}
 
+class _PlaylistTrackCover extends ConsumerWidget {
+  final String playlistId;
+  final double size;
+  final double borderRadius;
+  final Widget fallback;
+
+  const _PlaylistTrackCover({
+    required this.playlistId,
+    required this.size,
+    required this.borderRadius,
+    required this.fallback,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final coverAsync = ref.watch(tidalPlaylistCoverProvider(playlistId));
     return coverAsync.when(
       data: (url) {

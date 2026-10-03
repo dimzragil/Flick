@@ -98,7 +98,7 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   // flooding the network with doomed requests and janking the list.
   // Entries expire after TTL so transient failures can recover.
   static final Map<String, int> _knownBadUrls = {};
-  static const int _badUrlTtlMs = 300000; // 5 minutes
+  static const int _badUrlTtlMs = 30000; // 30 seconds
 
   /// Records a network URL that failed to load so it isn't retried until TTL.
   static void _markBadUrl(String url) {
@@ -395,6 +395,7 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       placeholder: (context, url) => placeholder,
       errorWidget: (context, url, error) {
         _markBadUrl(url);
+        debugPrint('[CachedImageWidget] Failed to load network image: $url, error: $error');
         return SizedBox(
           width: widget.width,
           height: widget.height,
