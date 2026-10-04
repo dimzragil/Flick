@@ -14,6 +14,11 @@ class _FakeAudioPlayer implements just_audio.AudioPlayer {
   final List<String> callLog = [];
   final List<Duration> seekPositions = [];
 
+  /// The `initialPosition` values seen by `setAudioSource`, in call order.
+  /// Rearm now resumes atomically through this parameter instead of issuing
+  /// a separate seek after load.
+  final List<Duration?> setAudioSourceInitialPositions = [];
+
   @override
   bool get playing => _playing;
 
@@ -48,7 +53,11 @@ class _FakeAudioPlayer implements just_audio.AudioPlayer {
     Duration? initialPosition,
   }) async {
     callLog.add('setAudioSource');
+    setAudioSourceInitialPositions.add(initialPosition);
     _source = audioSource;
+    // Atomic start: the player begins at the initial position, with no
+    // separate seek involved.
+    _position = initialPosition ?? Duration.zero;
     return null;
   }
 
@@ -125,12 +134,12 @@ class _FakeAudioPlayer implements just_audio.AudioPlayer {
 }
 
 Song _song(String id) => Song(
-      id: id,
-      title: 'Title $id',
-      artist: 'Artist',
-      duration: const Duration(minutes: 4),
-      fileType: 'FLAC',
-    );
+  id: id,
+  title: 'Title $id',
+  artist: 'Artist',
+  duration: const Duration(minutes: 4),
+  fileType: 'FLAC',
+);
 
 void main() {
   group('AndroidAudioEngine sink rearm', () {
@@ -159,50 +168,61 @@ void main() {
       await engine.dispose();
     });
 
-    test('rearmSink() stops player, reloads track source, seeks to position and resumes play', () async {
-      await engine.load(playlist[0]);
-      await engine.play();
-      await engine.seek(const Duration(seconds: 45));
+    test(
+      'rearmSink() stops player, reloads track source at the saved position atomically and resumes play',
+      () async {
+        await engine.load(playlist[0]);
+        await engine.play();
+        await engine.seek(const Duration(seconds: 45));
 
-      fakePlayer.callLog.clear();
+        fakePlayer.callLog.clear();
+        fakePlayer.seekPositions.clear();
+        fakePlayer.setAudioSourceInitialPositions.clear();
 
-      await engine.rearmSink();
+        await engine.rearmSink();
 
-      // Verify sequence: stop -> setAudioSource -> seek:0 (from load) -> seek:45000 -> play
-      expect(fakePlayer.callLog, contains('stop'));
-      expect(fakePlayer.callLog, contains('setAudioSource'));
-      expect(fakePlayer.callLog, contains('seek:45000'));
-      expect(fakePlayer.callLog, contains('play'));
+        // Verify sequence: stop -> setAudioSource(initialPosition: 45s) -> play.
+        // The resume position goes through setAudioSource atomically; no
+        // separate seek may be issued after the load.
+        expect(fakePlayer.callLog, contains('stop'));
+        expect(fakePlayer.callLog, contains('setAudioSource'));
+        expect(fakePlayer.callLog, contains('play'));
+        expect(fakePlayer.seekPositions, isEmpty);
 
-      final stopIndex = fakePlayer.callLog.indexOf('stop');
-      final setSourceIndex = fakePlayer.callLog.lastIndexOf('setAudioSource');
-      final seekPosIndex = fakePlayer.callLog.lastIndexOf('seek:45000');
-      final playIndex = fakePlayer.callLog.lastIndexOf('play');
+        final stopIndex = fakePlayer.callLog.indexOf('stop');
+        final setSourceIndex = fakePlayer.callLog.lastIndexOf('setAudioSource');
+        final playIndex = fakePlayer.callLog.lastIndexOf('play');
 
-      expect(stopIndex, lessThan(setSourceIndex));
-      expect(setSourceIndex, lessThan(seekPosIndex));
-      expect(seekPosIndex, lessThan(playIndex));
-      expect(fakePlayer.playing, isTrue);
-    });
+        expect(stopIndex, lessThan(setSourceIndex));
+        expect(setSourceIndex, lessThan(playIndex));
+        expect(fakePlayer.playing, isTrue);
+        expect(fakePlayer.setAudioSourceInitialPositions, [
+          const Duration(seconds: 45),
+        ]);
+      },
+    );
 
-    test('standard pause() followed by play() does fast resume without rearm', () async {
-      await engine.load(playlist[0]);
-      await engine.play();
-      await engine.seek(const Duration(seconds: 30));
+    test(
+      'standard pause() followed by play() does fast resume without rearm',
+      () async {
+        await engine.load(playlist[0]);
+        await engine.play();
+        await engine.seek(const Duration(seconds: 30));
 
-      await engine.pause();
-      expect(fakePlayer.callLog, contains('pause'));
+        await engine.pause();
+        expect(fakePlayer.callLog, contains('pause'));
 
-      fakePlayer.callLog.clear();
+        fakePlayer.callLog.clear();
 
-      // Standard unpause should resume immediately without expensive rearm
-      await engine.play();
+        // Standard unpause should resume immediately without expensive rearm
+        await engine.play();
 
-      expect(fakePlayer.callLog, isNot(contains('stop')));
-      expect(fakePlayer.callLog, isNot(contains('setAudioSource')));
-      expect(fakePlayer.callLog, contains('play'));
-      expect(fakePlayer.playing, isTrue);
-    });
+        expect(fakePlayer.callLog, isNot(contains('stop')));
+        expect(fakePlayer.callLog, isNot(contains('setAudioSource')));
+        expect(fakePlayer.callLog, contains('play'));
+        expect(fakePlayer.playing, isTrue);
+      },
+    );
 
     test('markSinkNeedsRearm() followed by play() triggers sink rearm', () async {
       await engine.load(playlist[0]);
@@ -213,6 +233,8 @@ void main() {
       engine.markSinkNeedsRearm();
 
       fakePlayer.callLog.clear();
+      fakePlayer.seekPositions.clear();
+      fakePlayer.setAudioSourceInitialPositions.clear();
 
       // Now resume with play()
       await engine.play();
@@ -220,8 +242,13 @@ void main() {
       // play() should have invoked rearmSink() because _sinkNeedsRearmOnPlay was true
       expect(fakePlayer.callLog, contains('stop'));
       expect(fakePlayer.callLog, contains('setAudioSource'));
-      expect(fakePlayer.callLog, contains('seek:30000'));
       expect(fakePlayer.callLog, contains('play'));
+      // Atomic resume: no separate seek after the load; the position went
+      // through setAudioSource initialPosition.
+      expect(fakePlayer.seekPositions, isEmpty);
+      expect(fakePlayer.setAudioSourceInitialPositions, [
+        const Duration(seconds: 30),
+      ]);
       expect(fakePlayer.playing, isTrue);
     });
 

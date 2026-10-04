@@ -387,6 +387,40 @@ bool shouldThrottleSpeakerSinkRearm({
   return false;
 }
 
+/// True when an 'audio route changed' notification fired but the route
+/// identity (deviceInfo.routeSummary, e.g. '23053RN02A' for the phone
+/// speaker) is unchanged since the last evaluation. Such notifications are
+/// spurious — Android re-fires route listeners on focus/gain events without
+/// any actual route switch — so a sink rearm would only inject an audible
+/// gap for no benefit.
+/// Conservative: with no previously evaluated signature (null) we cannot
+/// prove the change is spurious, so this returns false and the rearm
+/// proceeds (a brief gap beats permanent HAL-wedge silence).
+@visibleForTesting
+bool shouldSkipSpeakerSinkRearmForSpuriousRoute({
+  required String? previousRouteSignature,
+  required String currentRouteSignature,
+}) {
+  return previousRouteSignature != null &&
+      previousRouteSignature == currentRouteSignature;
+}
+
+/// True when the app was backgrounded for less than [threshold] before
+/// resuming. Notification-shade peeks and quick settings taps background the
+/// app for a second or two; rearming the speaker sink on those trivial
+/// resumes restarts the song for no reason.
+/// Conservative: unknown background time (null) or a real backgrounding
+/// (>= threshold) returns false so the rearm still fires.
+@visibleForTesting
+bool shouldSkipSpeakerSinkRearmForTrivialBackground({
+  required DateTime? backgroundedAt,
+  required DateTime now,
+  Duration threshold = const Duration(seconds: 10),
+}) {
+  if (backgroundedAt == null) return false;
+  return now.difference(backgroundedAt) < threshold;
+}
+
 /// Singleton service to manage global audio playback state.
 ///
 /// Uses just_audio for playback with gapless playback support.
@@ -442,6 +476,16 @@ class PlayerService {
   DateTime? _lastSpeakerSinkRearmTime;
   bool _speakerSinkRearmQueued = false;
   static const Duration _speakerSinkRearmCooldown = Duration(seconds: 2);
+  // Last audio-route identity (deviceInfo.routeSummary) evaluated by a
+  // 'audio route changed' rearm trigger; used to detect spurious
+  // notifications where the route demonstrably did not change.
+  String? _lastEvaluatedAudioRouteSignature;
+  // Timestamp of the last app-background transition; consumed once by the
+  // next 'app resumed' rearm evaluation to skip trivial backgrounding.
+  DateTime? _appBackgroundedAt;
+  static const Duration _trivialBackgroundRearmThreshold = Duration(
+    seconds: 10,
+  );
   StreamSubscription<PlaybackState>? _playbackStateSubscription;
   PlaybackState? _lastPlaybackState;
   Timer? _playbackDiagnosticsDebounceTimer;
@@ -1126,6 +1170,7 @@ class PlayerService {
 
   Future<void> onAppPaused() async {
     _appInForeground = false;
+    _appBackgroundedAt = DateTime.now();
     _rustAudioService.setAppInBackground(true);
     if (!Platform.isAndroid) return;
     final enabled = await _appPreferencesService.getFloatingPlayerEnabled();
@@ -1191,6 +1236,48 @@ class PlayerService {
     final engine = _androidAudioEngine;
     if (engine == null) return;
 
+    final now = DateTime.now();
+
+    // Gate 1: skip rearm on spurious route-change notifications where the
+    // route identity is unchanged since the last evaluation.
+    if (reason == 'audio route changed') {
+      final routeSignature = AndroidAudioDeviceService
+          .instance
+          .deviceInfoNotifier
+          .value
+          .routeSummary;
+      if (shouldSkipSpeakerSinkRearmForSpuriousRoute(
+        previousRouteSignature: _lastEvaluatedAudioRouteSignature,
+        currentRouteSignature: routeSignature,
+      )) {
+        _debugLog(
+          '[Playback] Skipping speaker sink rearm: spurious route change '
+          '(route=$routeSignature)',
+        );
+        return;
+      }
+      _lastEvaluatedAudioRouteSignature = routeSignature;
+    }
+
+    // Gate 2: skip rearm on trivial backgrounding (notification-shade peeks
+    // must not nuke playback). Consumes the background timestamp so each
+    // pause->resume cycle is evaluated exactly once.
+    if (reason == 'app resumed') {
+      final backgroundedAt = _appBackgroundedAt;
+      _appBackgroundedAt = null;
+      if (shouldSkipSpeakerSinkRearmForTrivialBackground(
+        backgroundedAt: backgroundedAt,
+        now: now,
+        threshold: _trivialBackgroundRearmThreshold,
+      )) {
+        _debugLog(
+          '[Playback] Skipping speaker sink rearm: trivial backgrounding '
+          '(${now.difference(backgroundedAt!).inMilliseconds}ms)',
+        );
+        return;
+      }
+    }
+
     if (!isPlayingNotifier.value) {
       _debugLog(
         '[Playback] Speaker sink rearm deferred (paused, marked for next play): reason=$reason',
@@ -1199,7 +1286,6 @@ class PlayerService {
       return;
     }
 
-    final now = DateTime.now();
     if (shouldThrottleSpeakerSinkRearm(
       isQueued: _speakerSinkRearmQueued,
       lastRearmTime: _lastSpeakerSinkRearmTime,

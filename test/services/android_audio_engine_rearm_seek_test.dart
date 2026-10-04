@@ -1,26 +1,32 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 
 import 'package:flick/models/song.dart';
 import 'package:flick/services/android_audio_engine.dart';
 
-/// Fake player with switchable dropped-seek behavior: when [dropSeek] is
-/// true, [seek] completes without throwing but never moves [position],
-/// mimicking just_audio silently discarding a seek issued while the player
-/// is still loading.
-class _DropSeekAudioPlayer implements just_audio.AudioPlayer {
-  /// When true, [seek] completes without throwing but never moves [position],
-  /// mimicking just_audio silently discarding a seek issued while the player
-  /// is still loading.
-  bool dropSeek = false;
+/// Fake player that records `setAudioSource` args and `seek` calls so tests
+/// can assert the atomic rearm contract: the resume position goes through
+/// `setAudioSource(initialPosition:)` and no separate `seek` is issued.
+///
+/// Unlike a naive stub, it mirrors just_audio/ExoPlayer by starting AT the
+/// initial position given to `setAudioSource`.
+class _RearmAudioPlayer implements just_audio.AudioPlayer {
   Duration _position = Duration.zero;
   just_audio.AudioSource? _source;
   bool _playing = false;
 
-  final List<String> callLog = [];
+  /// The `initialPosition` values seen by `setAudioSource`, in call order.
+  final List<Duration?> setAudioSourceInitialPositions = [];
+
+  /// The positions passed to `seek`, in call order.
   final List<Duration> seekPositions = [];
+
+  /// Clears the recorded call history (e.g. between an initial `load` and
+  /// the `rearmSink` under test).
+  void resetCallLog() {
+    setAudioSourceInitialPositions.clear();
+    seekPositions.clear();
+  }
 
   @override
   bool get playing => _playing;
@@ -55,36 +61,33 @@ class _DropSeekAudioPlayer implements just_audio.AudioPlayer {
     int? initialIndex,
     Duration? initialPosition,
   }) async {
-    callLog.add('setAudioSource');
+    setAudioSourceInitialPositions.add(initialPosition);
     _source = audioSource;
+    // Atomic start: the player begins at the initial position, with no
+    // separate seek involved.
+    _position = initialPosition ?? Duration.zero;
     return null;
   }
 
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     final pos = position ?? Duration.zero;
-    callLog.add('seek:${pos.inMilliseconds}');
     seekPositions.add(pos);
-    if (!dropSeek) {
-      _position = pos;
-    }
+    _position = pos;
   }
 
   @override
   Future<void> play() async {
-    callLog.add('play');
     _playing = true;
   }
 
   @override
   Future<void> pause() async {
-    callLog.add('pause');
     _playing = false;
   }
 
   @override
   Future<void> stop() async {
-    callLog.add('stop');
     _playing = false;
     _source = null;
   }
@@ -142,31 +145,14 @@ Song _song(String id) => Song(
   fileType: 'FLAC',
 );
 
-/// Runs [body] while capturing everything routed through [print]
-/// (devLog and debugPrintStack both end up there in tests) and returns the
-/// captured lines.
-Future<List<String>> _capturePrint(Future<void> Function() body) async {
-  final lines = <String>[];
-  await runZonedGuarded(
-    () => body(),
-    (Object error, StackTrace stack) {},
-    zoneSpecification: ZoneSpecification(
-      print: (Zone self, ZoneDelegate parent, Zone zone, String line) {
-        lines.add(line);
-      },
-    ),
-  );
-  return lines;
-}
-
 void main() {
-  group('AndroidAudioEngine rearm seek verification', () {
-    late _DropSeekAudioPlayer fakePlayer;
+  group('AndroidAudioEngine atomic rearm seek', () {
+    late _RearmAudioPlayer fakePlayer;
     late AndroidAudioEngine engine;
     late List<Song> playlist;
 
     setUp(() {
-      fakePlayer = _DropSeekAudioPlayer();
+      fakePlayer = _RearmAudioPlayer();
       playlist = [_song('s1'), _song('s2')];
       engine = AndroidAudioEngine(
         playerProvider: () async => fakePlayer,
@@ -187,68 +173,64 @@ void main() {
     });
 
     test(
-      'rearm seek that sticks is not retried and logs nothing loud',
+      'rearm passes the target position atomically via setAudioSource',
       () async {
         const target = Duration(seconds: 45);
         await engine.load(playlist[0]);
+        fakePlayer.resetCallLog();
 
-        final lines = await _capturePrint(
-          () => engine.rearmSink(targetPosition: target),
-        );
+        await engine.rearmSink(targetPosition: target, resumePlayback: false);
 
-        final targetSeeks = fakePlayer.seekPositions
-            .where((p) => p == target)
-            .toList();
+        expect(fakePlayer.setAudioSourceInitialPositions, [
+          target,
+        ], reason: 'rearm must resume via setAudioSource initialPosition');
         expect(
-          targetSeeks,
-          hasLength(1),
-          reason: 'a stuck seek must not be retried',
+          fakePlayer.seekPositions,
+          isEmpty,
+          reason: 'no separate seek may be issued after the atomic load',
         );
         expect(
-          lines.any((l) => l.contains('rearmSink seek FAILED')),
-          isFalse,
-          reason: 'no loud log on the happy path',
-        );
-        expect(
-          lines.any((l) => l.contains('rearmSink seek discarded')),
-          isFalse,
-          reason: 'no retry log on the happy path',
+          fakePlayer.position,
+          target,
+          reason: 'the player must start at the target, not at 0',
         );
       },
     );
 
-    test('dropped rearm seek is retried once then logged loudly', () async {
-      const target = Duration(seconds: 45);
-      fakePlayer.dropSeek = true;
+    test('rearm with no target keeps the legacy seek-to-zero reset', () async {
       await engine.load(playlist[0]);
+      fakePlayer.resetCallLog();
 
-      final lines = await _capturePrint(
-        () => engine.rearmSink(targetPosition: target),
-      );
+      await engine.rearmSink(resumePlayback: false);
 
-      final targetSeeks = fakePlayer.seekPositions
-          .where((p) => p == target)
-          .toList();
-      expect(
-        targetSeeks,
-        hasLength(2),
-        reason: 'a dropped seek must be retried exactly once',
-      );
-      expect(
-        lines.any((l) => l.contains('rearmSink seek discarded')),
-        isTrue,
-        reason: 'the dropped first seek must be logged',
-      );
-      expect(
-        lines.any((l) => l.contains('rearmSink seek FAILED to stick')),
-        isTrue,
-        reason: 'the loud log path must be hit when the retry also fails',
-      );
-      expect(
-        lines.any((l) => l.contains('#0')),
-        isTrue,
-        reason: 'debugPrintStack must have emitted a stack trace',
-      );
+      expect(fakePlayer.setAudioSourceInitialPositions, [
+        isNull,
+      ], reason: 'a zero target must not set initialPosition');
+      expect(fakePlayer.seekPositions, [
+        Duration.zero,
+      ], reason: 'zero-position loads keep the seek(Duration.zero) reset');
     });
+
+    test(
+      'load(initialPosition:) passes it through and skips the zero seek',
+      () async {
+        const target = Duration(seconds: 12);
+
+        await engine.load(playlist[0], initialPosition: target);
+
+        expect(fakePlayer.setAudioSourceInitialPositions, [target]);
+        expect(fakePlayer.seekPositions, isEmpty);
+      },
+    );
+
+    test(
+      'load() without initialPosition keeps the seek-to-zero reset',
+      () async {
+        await engine.load(playlist[0]);
+
+        expect(fakePlayer.setAudioSourceInitialPositions, [isNull]);
+        expect(fakePlayer.seekPositions, [Duration.zero]);
+      },
+    );
   });
 }

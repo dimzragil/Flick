@@ -414,8 +414,14 @@ class AndroidAudioEngine implements AudioEngine {
     _controller.add(next);
   }
 
+  /// Optional [initialPosition] is passed straight through to
+  /// `setAudioSource(initialPosition:)` so ExoPlayer starts AT the position
+  /// atomically. That avoids the separate `player.seek(...)` after load,
+  /// which just_audio can silently discard while the player is still loading
+  /// (the optimistic `position` getter would then lie about the seek having
+  /// landed). When null, the load keeps its old `seek(Duration.zero)` reset.
   @override
-  Future<void> load(Song track) async {
+  Future<void> load(Song track, {Duration? initialPosition}) async {
     _sinkNeedsRearmOnPlay = false;
     _emit(_state.copyWith(clearError: true));
     await _cancelCrossfade();
@@ -441,14 +447,18 @@ class AndroidAudioEngine implements AudioEngine {
     if (cfg.enabled) {
       // Crossfade needs a single-track source so the engine can intercept the
       // tail; a ConcatenatingAudioSource would auto-advance with a hard cut.
-      devLog(
-        '[Playback] Android load(${track.id}) single-track (crossfade)',
-      );
+      devLog('[Playback] Android load(${track.id}) single-track (crossfade)');
       _awaitingInitialSeek = true;
       try {
         final source = await _sourceBuilder(track);
-        await player.setAudioSource(source, preload: true);
-        await player.seek(Duration.zero);
+        await player.setAudioSource(
+          source,
+          initialPosition: initialPosition,
+          preload: true,
+        );
+        if (initialPosition == null) {
+          await player.seek(Duration.zero);
+        }
       } finally {
         _awaitingInitialSeek = false;
       }
@@ -487,8 +497,14 @@ class AndroidAudioEngine implements AudioEngine {
       _awaitingInitialSeek = true;
       try {
         final source = await _sourceBuilder(track);
-        await player.setAudioSource(source, preload: true);
-        await player.seek(Duration.zero);
+        await player.setAudioSource(
+          source,
+          initialPosition: initialPosition,
+          preload: true,
+        );
+        if (initialPosition == null) {
+          await player.seek(Duration.zero);
+        }
       } finally {
         _awaitingInitialSeek = false;
       }
@@ -506,8 +522,14 @@ class AndroidAudioEngine implements AudioEngine {
           track,
         ).timeout(const Duration(seconds: 30));
         concat = just_audio.ConcatenatingAudioSource(children: [currentSource]);
-        await player.setAudioSource(concat, preload: true);
-        await player.seek(Duration.zero);
+        await player.setAudioSource(
+          concat,
+          initialPosition: initialPosition,
+          preload: true,
+        );
+        if (initialPosition == null) {
+          await player.seek(Duration.zero);
+        }
       } finally {
         _awaitingInitialSeek = false;
       }
@@ -664,64 +686,14 @@ class AndroidAudioEngine implements AudioEngine {
       devLog('[Playback] Android rearmSink stop error: $e');
     }
 
-    await load(track);
-
-    if (pos > Duration.zero) {
-      try {
-        await player.seek(pos);
-        await _verifyRearmSeek(player, pos);
-      } catch (e) {
-        devLog('[Playback] Android rearmSink seek error: $e');
-      }
-    }
+    // Atomic resume: ExoPlayer starts AT the position inside setAudioSource
+    // (see load's initialPosition), so there is no separate seek to be
+    // silently discarded while the player is still loading. The old
+    // seek-after-load path restarted the track from 0 on every rearm.
+    await load(track, initialPosition: pos > Duration.zero ? pos : null);
 
     if (shouldPlay) {
       await _playInternal(player);
-    }
-  }
-
-  /// Guards the rearm seek against just_audio silently discarding it.
-  ///
-  /// Just_audio answers [just_audio.AudioPlayer.seek] with success even when
-  /// the player is still loading, so a discarded seek never reaches the
-  /// `catch` above and playback would restart from 0 with no trace.
-  /// Verifies the position actually landed near the target, retries the seek
-  /// once on mismatch, and logs loudly (devLog + stack) if the position
-  /// still doesn't stick.
-  Future<void> _verifyRearmSeek(
-    just_audio.AudioPlayer player,
-    Duration target,
-  ) async {
-    // Tolerance is deliberately loose: right after load() the player may
-    // legitimately report 0 briefly, and just_audio's position cache can lag
-    // the seek by a moment. A position more than a few seconds off the target
-    // means the seek was discarded.
-    const tolerance = Duration(seconds: 3);
-
-    bool stuck() => (player.position - target).abs() <= tolerance;
-    if (stuck()) {
-      return;
-    }
-
-    devLog(
-      '[Playback] Android rearmSink seek discarded: '
-      'target=${target.inSeconds}s position=${player.position.inSeconds}s, '
-      'retrying once',
-    );
-    try {
-      await player.seek(target);
-    } catch (e) {
-      devLog('[Playback] Android rearmSink seek error: $e');
-      return;
-    }
-
-    if (!stuck()) {
-      devLog(
-        '[Playback] Android rearmSink seek FAILED to stick: '
-        'target=${target.inSeconds}s position=${player.position.inSeconds}s — '
-        'playback will restart from 0',
-      );
-      debugPrintStack(stackTrace: StackTrace.current);
     }
   }
 
