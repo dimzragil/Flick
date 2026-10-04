@@ -109,6 +109,19 @@ bool shouldExitSingleTrackMode({
   return loadedSingleTrackOnly && playerSequenceLength > 1;
 }
 
+/// Playback failure details surfaced from just_audio's `errorStream`.
+class AndroidPlaybackError {
+  const AndroidPlaybackError({
+    required this.code,
+    required this.message,
+    this.index,
+  });
+
+  final int code;
+  final String message;
+  final int? index;
+}
+
 class AndroidAudioEngine implements AudioEngine {
   AndroidAudioEngine({
     required AndroidPlayerProvider playerProvider,
@@ -173,6 +186,7 @@ class AndroidAudioEngine implements AudioEngine {
   AndroidCrossfadeCurve _rampCurve = AndroidCrossfadeCurve.equalPower;
 
   VoidCallback? onTrackEnded;
+  void Function(AndroidPlaybackError details)? onPlaybackError;
 
   static const int fastStartPlaylistThreshold = 24;
   static const Duration _rampTick = Duration(milliseconds: 20);
@@ -280,6 +294,15 @@ class AndroidAudioEngine implements AudioEngine {
           'trackFileType=${_loadedTrack?.fileType} '
           'trackTitle=${_loadedTrack?.title}',
         );
+        final message = error.message ?? 'Unknown playback error';
+        _emit(_state.copyWith(errorMessage: message));
+        onPlaybackError?.call(
+          AndroidPlaybackError(
+            code: error.code,
+            message: message,
+            index: error.index,
+          ),
+        );
       }),
     );
   }
@@ -341,6 +364,7 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> load(Song track) async {
+    _emit(_state.copyWith(clearError: true));
     await _cancelCrossfade();
     final player = await _ensurePlayer();
     final playlist = _playlistProvider();

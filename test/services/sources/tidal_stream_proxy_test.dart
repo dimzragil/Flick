@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -179,5 +180,67 @@ void main() {
       );
       httpClient.close();
     });
+
+    test(
+      'cancel during prebuffer fails start() fast with StateError instead of '
+      'hanging on the 20s timeout',
+      () async {
+        final targetPath = '${tempDir.path}/cancel_prebuffer.flac';
+        // The main download stream never emits: the prebuffer can only
+        // complete via cancel (or the 20s timeout).
+        final downloadController = StreamController<List<int>>();
+        final client = MockClient.streaming((request, bodyStream) async {
+          final range = request.headers.entries
+              .where((e) => e.key.toLowerCase() == 'range')
+              .map((e) => e.value)
+              .firstOrNull;
+          if (range != null && range.startsWith('bytes=-')) {
+            // Tail prefetch: pretend the CDN ignores the suffix range.
+            return http.StreamedResponse(
+              const Stream<List<int>>.empty(),
+              200,
+              contentLength: 0,
+            );
+          }
+          return http.StreamedResponse(
+            downloadController.stream,
+            200,
+            contentLength: 8 * 1024 * 1024,
+          );
+        });
+
+        final session = TidalBtsStreamSession(
+          streamToken: 'tok-cancel',
+          trackId: 'cancel_prebuffer',
+          sourceUrl: 'https://cdn.tidal.com/track.flac',
+          targetPath: targetPath,
+          client: client,
+          contentType: 'audio/flac',
+        );
+
+        final stopwatch = Stopwatch()..start();
+        final startFuture = session.start();
+        // Let start() open the part file and enter the download loop.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        session.cancel();
+        // End the download stream so the consume loop observes the cancel.
+        await downloadController.close();
+
+        await expectLater(
+          startFuture,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'BTS session cancelled',
+            ),
+          ),
+        );
+        stopwatch.stop();
+        // Without the cancel fix, start() would hang until the 20s _ready
+        // timeout fired.
+        expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+      },
+    );
   });
 }

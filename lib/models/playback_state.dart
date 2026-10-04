@@ -10,6 +10,7 @@ class PlaybackState {
   final Duration bufferedPosition;
   final Duration duration;
   final AudioEngineType engine;
+  final String? errorMessage;
 
   const PlaybackState({
     required this.currentTrack,
@@ -18,6 +19,7 @@ class PlaybackState {
     required this.bufferedPosition,
     required this.duration,
     required this.engine,
+    this.errorMessage,
   });
 
   factory PlaybackState.empty(AudioEngineType engine) => PlaybackState(
@@ -37,6 +39,8 @@ class PlaybackState {
     Duration? duration,
     AudioEngineType? engine,
     bool clearTrack = false,
+    String? errorMessage,
+    bool clearError = false,
   }) {
     return PlaybackState(
       currentTrack: clearTrack ? null : (currentTrack ?? this.currentTrack),
@@ -45,6 +49,7 @@ class PlaybackState {
       bufferedPosition: bufferedPosition ?? this.bufferedPosition,
       duration: duration ?? this.duration,
       engine: engine ?? this.engine,
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
 
@@ -58,16 +63,17 @@ class PlaybackState {
           other.position == position &&
           other.bufferedPosition == bufferedPosition &&
           other.duration == duration &&
-          other.engine == engine;
+          other.engine == engine &&
+          other.errorMessage == errorMessage;
 
   @override
-  int get hashCode =>
-      Object.hash(
-        currentTrack?.id,
-        isPlaying,
-        position,
-        bufferedPosition,
-        duration,
-        engine,
-      );
+  int get hashCode => Object.hash(
+    currentTrack?.id,
+    isPlaying,
+    position,
+    bufferedPosition,
+    duration,
+    engine,
+    errorMessage,
+  );
 }

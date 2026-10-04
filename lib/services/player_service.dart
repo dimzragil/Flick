@@ -479,6 +479,14 @@ class PlayerService {
   Future<void>? _audioInitInFlight;
   Future<void>? _appLaunchPreparationInFlight;
   Future<void> _playRequestQueue = Future<void>.value();
+
+  /// Guards speaker-path playback-error recovery. While the one-shot retry
+  /// of the failed track is in flight, a second error means the retry itself
+  /// failed, so we advance instead of retrying again. Checked at
+  /// error-callback time because the retry op holds the playback queue
+  /// until it finishes.
+  bool _playbackErrorRecoveryInFlight = false;
+
   Future<bool>? _rustInitInFlight;
   Future<void>? _rustCapabilityRefreshInFlight;
   Future<void>? _rustEnginePreparationInFlight;
@@ -1943,6 +1951,10 @@ class PlayerService {
       if (_usingRustBackend) return;
       unawaited(_onSongFinished());
     };
+    engine.onPlaybackError = (details) {
+      if (_usingRustBackend) return;
+      unawaited(_onPlaybackError(details));
+    };
     return engine;
   }
 
@@ -3329,6 +3341,55 @@ class PlayerService {
     return _enqueuePlaybackRequest(
       () => _onSongFinishedInternal(endedPath: endedPath),
     );
+  }
+
+  /// Speaker-path playback error (just_audio errorStream via the engine).
+  /// Double-guarded against the DAC/Rust path: the wiring lambda above
+  /// returns early when [_usingRustBackend], and so does this handler.
+  Future<void> _onPlaybackError(AndroidPlaybackError details) {
+    if (_usingRustBackend) return Future<void>.value();
+    _debugLog(
+      '[Playback] Android playback error: '
+      'code=${details.code} message=${details.message} index=${details.index} '
+      'trackId=${currentSongNotifier.value?.id} '
+      'trackFileType=${currentSongNotifier.value?.fileType} '
+      'trackTitle=${currentSongNotifier.value?.title}',
+    );
+    if (_playbackErrorRecoveryInFlight) {
+      // The one-shot retry below errored again: no more retries, advance
+      // with the normal next() machinery (loop/shuffle aware).
+      _playbackErrorRecoveryInFlight = false;
+      _debugLog('[Playback] error recovery failed; advancing to next track');
+      return _enqueuePlaybackRequest(
+        () => _nextInternal(targetAlreadySelected: false),
+      );
+    }
+    _playbackErrorRecoveryInFlight = true;
+    return _enqueuePlaybackRequest(_retryFailedTrackOnce);
+  }
+
+  /// Retries the failed track exactly once with a FRESH stream resolve:
+  /// [_playSongAtCurrentIndex] -> [_playInternal] rebuilds the audio source
+  /// from scratch (new proxy session / stream URL), never reusing the
+  /// errored URL/session. A second failure surfaces either through
+  /// [_onPlaybackError] again (which flips the in-flight flag off and
+  /// queues the advance) or as a load exception, both of which end in a
+  /// single advance — never another retry.
+  Future<void> _retryFailedTrackOnce() async {
+    try {
+      _debugLog('[Playback] retrying failed track once with a fresh resolve');
+      await _playSongAtCurrentIndex();
+    } catch (e) {
+      _debugLog('[Playback] retry of failed track failed: $e; advancing');
+      // Advance here only if no second error callback arrived: if the engine
+      // fired another error while the retry was in flight, that callback
+      // already queued the advance.
+      if (_playbackErrorRecoveryInFlight) {
+        await _nextInternal(targetAlreadySelected: false);
+      }
+    } finally {
+      _playbackErrorRecoveryInFlight = false;
+    }
   }
 
   Future<void> _onSongFinishedInternal({String? endedPath}) async {

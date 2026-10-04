@@ -747,6 +747,12 @@ class TidalBtsStreamSession {
         if (onFinalized != null) unawaited(onFinalized!(File(targetPath)));
         if (!_ready.isCompleted) _ready.complete();
         _notifyWaiters();
+      } else {
+        // Cancelled before the prebuffer completed: fail _ready so start()
+        // unblocks immediately instead of hanging out the 20s timeout.
+        if (!_ready.isCompleted) {
+          _ready.completeError(StateError('BTS session cancelled'));
+        }
       }
     } catch (e) {
       _finished = true;
