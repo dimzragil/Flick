@@ -42,7 +42,7 @@ final Map<String, ui.Image> _blurCache = {};
 final Map<String, String> _resolvedPathIndex = {};
 
 /// Tracks paths actively displayed by any mounted [AmbientBackground] instance
-/// to ensure actively visible artwork is never evicted or disposed.
+/// so eviction prefers artwork that isn't currently visible (avoids recompute).
 final Set<String> _activePaths = {};
 
 ui.Image? _getBlurCache(String key) {
@@ -54,12 +54,14 @@ ui.Image? _getBlurCache(String key) {
 }
 
 void _putBlurCache(String key, ui.Image image) {
-  if (_blurCache.containsKey(key)) {
-    final old = _blurCache.remove(key);
-    if (old != null && old != image) {
-      old.dispose();
-    }
-  }
+  // Remove-then-reinsert to refresh the LRU position. Never dispose the
+  // replaced or evicted image here: a cached ui.Image may still be referenced
+  // by a live RawImage (parallel AmbientBackground instances share this cache,
+  // and AnimatedSwitcher keeps the fade-out child mounted), and disposing it
+  // causes "Bad state: Cannot clone a disposed image" on the next rebuild.
+  // Evicted images are reclaimed by the engine's finalizer on GC; the
+  // 25-entry bound caps the transient overhead at ~9MB.
+  _blurCache.remove(key);
   _blurCache[key] = image;
 
   while (_blurCache.length > _maxBlurCacheSize) {
@@ -71,8 +73,7 @@ void _putBlurCache(String key, ui.Image image) {
       }
     }
     if (evictKey == null) break;
-    final evicted = _blurCache.remove(evictKey);
-    evicted?.dispose();
+    _blurCache.remove(evictKey);
   }
 }
 
