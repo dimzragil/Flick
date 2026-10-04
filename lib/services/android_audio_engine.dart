@@ -180,6 +180,11 @@ class AndroidAudioEngine implements AudioEngine {
   just_audio.AudioPlayer? _secondary;
   Timer? _crossfadeTimer;
   bool _crossfadeArmed = false;
+  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
+  // Periodically dumps the audible-player state so we can tell "app muted
+  // itself" (vol=0.0) apart from "system sink dead" (vol=1.0, still silent).
+  Timer? _diagTimer;
+  static const Duration _diagTick = Duration(seconds: 10);
   double _rampUserVolume = 1.0;
   Duration _rampElapsed = Duration.zero;
   Duration _rampTotal = Duration.zero;
@@ -200,7 +205,33 @@ class AndroidAudioEngine implements AudioEngine {
     final player = await _playerProvider();
     _player = player;
     _attachListeners(player);
+    _startDiagTimer();
     return player;
+  }
+
+  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
+  void _startDiagTimer() {
+    _diagTimer?.cancel();
+    _diagTimer = Timer.periodic(_diagTick, (_) {
+      final active = _player;
+      if (active == null) return;
+      try {
+        final sec = _secondary;
+        devLog(
+          '[AudioDiag] TEMP vol=${active.volume.toStringAsFixed(2)} '
+          'state=${active.processingState} playing=${active.playing} '
+          'pos=${active.position.inSeconds}s '
+          'buf=${active.bufferedPosition.inSeconds}s'
+          '${sec == null ? '' : ' secVol=${sec.volume.toStringAsFixed(2)}'}',
+        );
+      } catch (_) {}
+    });
+  }
+
+  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
+  void _stopDiagTimer() {
+    _diagTimer?.cancel();
+    _diagTimer = null;
   }
 
   Future<just_audio.AudioPlayer> _ensureSecondary() async {
@@ -710,6 +741,7 @@ class AndroidAudioEngine implements AudioEngine {
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
     _crossfadeArmed = false;
+    _stopDiagTimer(); // TEMP-DIAG
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
