@@ -170,10 +170,6 @@ class _Harness {
     player = _FakeAudioPlayer();
     engine = AndroidAudioEngine(
       playerProvider: () async => player,
-      // The old resolve-everything-up-front path used `sourcesBuilder`;
-      // the two-phase load must never call it, so fail loudly if it does.
-      sourcesBuilder: () =>
-          throw StateError('sourcesBuilder must not be called'),
       sourceBuilder: (song) {
         final override = buildOverride;
         if (override != null) return override(song);

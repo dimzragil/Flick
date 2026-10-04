@@ -416,6 +416,7 @@ class PlayerService {
   late final AudioSessionManager _sessionManager;
   late final AudioEngineManager _playbackManager;
   RustAudioEngine? _rustEngine;
+  AndroidAudioEngine? _androidAudioEngine;
   StreamSubscription<PlaybackState>? _playbackStateSubscription;
   PlaybackState? _lastPlaybackState;
   Timer? _playbackDiagnosticsDebounceTimer;
@@ -680,6 +681,14 @@ class PlayerService {
     });
     AndroidAudioDeviceService.instance.deviceInfoNotifier.addListener(() {
       unawaited(_refreshAudioOutputDiagnostics(reason: 'audio route changed'));
+      final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+      final isSpeaker = info.isInternalRoute ||
+          (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
+      if (isSpeaker &&
+          isPlayingNotifier.value &&
+          currentEngineType == AudioEngineType.normalAndroid) {
+        unawaited(_rearmSpeakerSinkIfNeeded(reason: 'audio route changed'));
+      }
     });
     _uac2Service.bitPerfectEnabledNotifier.addListener(() {
       unawaited(_handleBitPerfectPreferenceChanged());
@@ -1106,6 +1115,14 @@ class PlayerService {
       await _deactivateFloatingPlayer();
     }
     unawaited(_restoreBitPerfectEngineAfterForeground());
+    final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+    final isSpeaker = info.isInternalRoute ||
+        (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
+    if (isSpeaker &&
+        isPlayingNotifier.value &&
+        currentEngineType == AudioEngineType.normalAndroid) {
+      unawaited(_rearmSpeakerSinkIfNeeded(reason: 'app resumed'));
+    }
   }
 
   /// One UI suspends userspace USB transfers while the app is backgrounded,
@@ -1142,6 +1159,27 @@ class PlayerService {
     } catch (e) {
       _debugLog('[Engine] Foreground bit-perfect restore failed: $e');
     }
+  }
+
+  Future<void> _rearmSpeakerSinkIfNeeded({required String reason}) async {
+    if (!Platform.isAndroid) return;
+    if (!isPlayingNotifier.value) return;
+    if (currentEngineType != AudioEngineType.normalAndroid) return;
+    final engine = _androidAudioEngine;
+    if (engine == null) return;
+
+    _debugLog('[Playback] Rearming speaker sink: reason=$reason');
+    await _enqueuePlaybackRequest(() async {
+      if (!isPlayingNotifier.value ||
+          currentEngineType != AudioEngineType.normalAndroid) {
+        return;
+      }
+      try {
+        await engine.rearmSink();
+      } catch (e, stack) {
+        _debugLog('[Playback] Rearm speaker sink failed: $e\n$stack');
+      }
+    });
   }
 
   bool get _isGaplessActive =>
@@ -1923,7 +1961,6 @@ class PlayerService {
   AndroidAudioEngine _createAndroidEngine() {
     final engine = AndroidAudioEngine(
       playerProvider: _ensureAndroidPlayer,
-      sourcesBuilder: _buildAudioSources,
       sourceBuilder: _buildAudioSourceForSong,
       playlistProvider: () => List<Song>.unmodifiable(_playlist),
       configurePlayer: _configureAndroidPlayer,
@@ -1947,6 +1984,7 @@ class PlayerService {
       onNextSong: _resolveAndroidCrossfadeNext,
       onTrackAdvanced: _onAndroidTrackAdvanced,
     );
+    _androidAudioEngine = engine;
     engine.onTrackEnded = () {
       if (_usingRustBackend) return;
       unawaited(_onSongFinished());
@@ -4252,6 +4290,7 @@ class PlayerService {
   }
 
   Future<void> _disposeAndroidEngine() async {
+    _androidAudioEngine = null;
     final player = _justAudioPlayer;
     if (player == null) return;
 

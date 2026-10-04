@@ -9,8 +9,6 @@ import 'package:flick/models/song.dart';
 import 'package:flick/services/audio_engine.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
-typedef AndroidAudioSourcesBuilder =
-    Future<just_audio.AudioSource> Function();
 typedef AndroidAudioSourceBuilder =
     Future<just_audio.AudioSource> Function(Song track);
 typedef AndroidPlaylistProvider = List<Song> Function();
@@ -125,7 +123,6 @@ class AndroidPlaybackError {
 class AndroidAudioEngine implements AudioEngine {
   AndroidAudioEngine({
     required AndroidPlayerProvider playerProvider,
-    required AndroidAudioSourcesBuilder sourcesBuilder,
     required AndroidAudioSourceBuilder sourceBuilder,
     required AndroidPlaylistProvider playlistProvider,
     required AndroidPlayerConfigurator configurePlayer,
@@ -137,7 +134,6 @@ class AndroidAudioEngine implements AudioEngine {
     AndroidNextSongProvider? onNextSong,
     AndroidTrackAdvancedCallback? onTrackAdvanced,
   }) : _playerProvider = playerProvider,
-       _sourcesBuilder = sourcesBuilder,
        _sourceBuilder = sourceBuilder,
        _playlistProvider = playlistProvider,
        _configurePlayer = configurePlayer,
@@ -151,7 +147,6 @@ class AndroidAudioEngine implements AudioEngine {
        _onTrackAdvanced = onTrackAdvanced;
 
   final AndroidPlayerProvider _playerProvider;
-  final AndroidAudioSourcesBuilder _sourcesBuilder;
   final AndroidAudioSourceBuilder _sourceBuilder;
   final AndroidPlaylistProvider _playlistProvider;
   final AndroidPlayerConfigurator _configurePlayer;
@@ -185,11 +180,8 @@ class AndroidAudioEngine implements AudioEngine {
   just_audio.AudioPlayer? _secondary;
   Timer? _crossfadeTimer;
   bool _crossfadeArmed = false;
-  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
-  // Periodically dumps the audible-player state so we can tell "app muted
-  // itself" (vol=0.0) apart from "system sink dead" (vol=1.0, still silent).
-  Timer? _diagTimer;
-  static const Duration _diagTick = Duration(seconds: 10);
+  bool _sinkNeedsRearmOnPlay = false;
+  Future<void>? _rearmInFlight;
   double _rampUserVolume = 1.0;
   Duration _rampElapsed = Duration.zero;
   Duration _rampTotal = Duration.zero;
@@ -210,33 +202,7 @@ class AndroidAudioEngine implements AudioEngine {
     final player = await _playerProvider();
     _player = player;
     _attachListeners(player);
-    _startDiagTimer();
     return player;
-  }
-
-  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
-  void _startDiagTimer() {
-    _diagTimer?.cancel();
-    _diagTimer = Timer.periodic(_diagTick, (_) {
-      final active = _player;
-      if (active == null) return;
-      try {
-        final sec = _secondary;
-        devLog(
-          '[AudioDiag] TEMP vol=${active.volume.toStringAsFixed(2)} '
-          'state=${active.processingState} playing=${active.playing} '
-          'pos=${active.position.inSeconds}s '
-          'buf=${active.bufferedPosition.inSeconds}s'
-          '${sec == null ? '' : ' secVol=${sec.volume.toStringAsFixed(2)}'}',
-        );
-      } catch (_) {}
-    });
-  }
-
-  // TEMP-DIAG: silent-speaker diagnosis — REMOVE after root cause confirmed.
-  void _stopDiagTimer() {
-    _diagTimer?.cancel();
-    _diagTimer = null;
   }
 
   Future<just_audio.AudioPlayer> _ensureSecondary() async {
@@ -450,6 +416,7 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> load(Song track) async {
+    _sinkNeedsRearmOnPlay = false;
     _emit(_state.copyWith(clearError: true));
     await _cancelCrossfade();
     final player = await _ensurePlayer();
@@ -565,7 +532,15 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> play() async {
+    if (_sinkNeedsRearmOnPlay) {
+      await rearmSink(resumePlayback: true);
+      return;
+    }
     final player = await _ensurePlayer();
+    await _playInternal(player);
+  }
+
+  Future<void> _playInternal(just_audio.AudioPlayer player) async {
     // just_audio keeps this future alive while playback is active, which would
     // block the PlayerService command queue until the track ends.
     try {
@@ -595,6 +570,7 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> pause() async {
+    _sinkNeedsRearmOnPlay = true;
     final player = await _ensurePlayer();
     await player.pause();
     if (_crossfadeArmed) {
@@ -612,6 +588,7 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> stop() async {
+    _sinkNeedsRearmOnPlay = false;
     await _cancelCrossfade();
     final player = await _ensurePlayer();
     await player.stop();
@@ -623,6 +600,77 @@ class AndroidAudioEngine implements AudioEngine {
         duration: player.duration ?? _state.duration,
       ),
     );
+  }
+
+  /// Re-arms the Android audio sink by tearing down and reallocating the
+  /// underlying AudioTrack in ExoPlayer.
+  ///
+  /// Used when the hardware ALSA sink stalls (e.g. concurrent system sounds
+  /// wedging the MediaTek speaker amplifier) or after unpausing.
+  Future<void> rearmSink({
+    Duration? targetPosition,
+    bool? resumePlayback,
+  }) async {
+    final inFlight = _rearmInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    final future = _doRearmSink(
+      targetPosition: targetPosition,
+      resumePlayback: resumePlayback,
+    );
+    _rearmInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_rearmInFlight, future)) {
+        _rearmInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doRearmSink({
+    Duration? targetPosition,
+    bool? resumePlayback,
+  }) async {
+    _sinkNeedsRearmOnPlay = false;
+    final track = _loadedTrack ?? _state.currentTrack;
+    if (track == null) {
+      return;
+    }
+    final player = await _ensurePlayer();
+    final pos = targetPosition ?? player.position;
+    final shouldPlay = resumePlayback ?? (player.playing || _state.isPlaying);
+
+    devLog(
+      '[Playback] Android rearmSink: track=${track.id} pos=${pos.inSeconds}s shouldPlay=$shouldPlay',
+    );
+
+    await _cancelCrossfade();
+    _playlistSignature = const <String>[];
+    _isBackgroundFilling = false;
+    _fillGeneration++;
+
+    try {
+      await player.stop();
+    } catch (e) {
+      devLog('[Playback] Android rearmSink stop error: $e');
+    }
+
+    await load(track);
+
+    if (pos > Duration.zero) {
+      try {
+        await player.seek(pos);
+      } catch (e) {
+        devLog('[Playback] Android rearmSink seek error: $e');
+      }
+    }
+
+    if (shouldPlay) {
+      await _playInternal(player);
+    }
   }
 
   @override
@@ -799,7 +847,6 @@ class AndroidAudioEngine implements AudioEngine {
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
     _crossfadeArmed = false;
-    _stopDiagTimer(); // TEMP-DIAG
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
