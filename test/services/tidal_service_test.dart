@@ -616,6 +616,84 @@ void main() {
     );
   });
 
+  group('stream (DASH cache extension)', () {
+    test('late rearm hits the cached <hash>.mp4 via the resolved ext, '
+        'without re-downloading', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'tidal_dash_ext_test',
+      );
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final cache = NetworkCacheService(rootDirectory: tempDir);
+
+      const mpdXml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4" codecs="flac">
+      <Representation id="rep1" audioSamplingRate="96000">
+        <SegmentTemplate initialization="https://cdn.tidal.com/init.mp4" media="https://cdn.tidal.com/seg_\$Number\$.mp4" startNumber="1">
+          <SegmentTimeline><S d="1000" r="1" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+      final manifest = base64Encode(utf8.encode(mpdXml));
+
+      // Tracks every HTTP request so the test can prove the second
+      // stream() call never touches the network.
+      final requests = <String>[];
+      final client = MockClient((request) async {
+        requests.add('${request.method} ${request.url.path}');
+        if (request.url.path.contains('/playbackinfopostpaywall')) {
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/dash+xml',
+              'audioQuality': 'HI_RES_LOSSLESS',
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/init.mp4')) {
+          return http.Response.bytes([1, 2, 3], 200);
+        }
+        if (request.url.path.endsWith('/seg_1.mp4')) {
+          return http.Response.bytes([4, 5], 200);
+        }
+        if (request.url.path.endsWith('/seg_2.mp4')) {
+          return http.Response.bytes([6, 7], 200);
+        }
+        return http.Response('not found', 404);
+      });
+
+      final service = TidalService.create(client: client, networkCache: cache);
+
+      // First pass: hi-res song whose fileType is 'flac' (as synced by the
+      // catalog). Downloads the DASH track and stashes it as <hash>.mp4.
+      final firstPath = await service.stream(
+        _server(token: _validToken()),
+        'hires_track_ext',
+        extension: 'flac',
+      );
+      expect(firstPath, endsWith('.mp4'));
+      expect(File(firstPath).existsSync(), isTrue);
+      expect(requests, isNotEmpty);
+      requests.clear();
+
+      // Second pass: the late-rearm lookup. It passes extension: 'flac'
+      // again (song.fileType), but must resolve against the DASH ext 'mp4'
+      // recorded in _resolvedStreams and return the cached file instantly.
+      final secondPath = await service.stream(
+        _server(token: _validToken()),
+        'hires_track_ext',
+        extension: 'flac',
+      );
+      expect(secondPath, firstPath);
+      expect(secondPath, endsWith('.mp4'));
+      expect(requests, isEmpty);
+    });
+  });
+
   group('ping', () {
     test('returns false when no token is stored', () async {
       final service = TidalService.create(

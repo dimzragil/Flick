@@ -669,6 +669,7 @@ class AndroidAudioEngine implements AudioEngine {
     if (pos > Duration.zero) {
       try {
         await player.seek(pos);
+        await _verifyRearmSeek(player, pos);
       } catch (e) {
         devLog('[Playback] Android rearmSink seek error: $e');
       }
@@ -676,6 +677,51 @@ class AndroidAudioEngine implements AudioEngine {
 
     if (shouldPlay) {
       await _playInternal(player);
+    }
+  }
+
+  /// Guards the rearm seek against just_audio silently discarding it.
+  ///
+  /// Just_audio answers [just_audio.AudioPlayer.seek] with success even when
+  /// the player is still loading, so a discarded seek never reaches the
+  /// `catch` above and playback would restart from 0 with no trace.
+  /// Verifies the position actually landed near the target, retries the seek
+  /// once on mismatch, and logs loudly (devLog + stack) if the position
+  /// still doesn't stick.
+  Future<void> _verifyRearmSeek(
+    just_audio.AudioPlayer player,
+    Duration target,
+  ) async {
+    // Tolerance is deliberately loose: right after load() the player may
+    // legitimately report 0 briefly, and just_audio's position cache can lag
+    // the seek by a moment. A position more than a few seconds off the target
+    // means the seek was discarded.
+    const tolerance = Duration(seconds: 3);
+
+    bool stuck() => (player.position - target).abs() <= tolerance;
+    if (stuck()) {
+      return;
+    }
+
+    devLog(
+      '[Playback] Android rearmSink seek discarded: '
+      'target=${target.inSeconds}s position=${player.position.inSeconds}s, '
+      'retrying once',
+    );
+    try {
+      await player.seek(target);
+    } catch (e) {
+      devLog('[Playback] Android rearmSink seek error: $e');
+      return;
+    }
+
+    if (!stuck()) {
+      devLog(
+        '[Playback] Android rearmSink seek FAILED to stick: '
+        'target=${target.inSeconds}s position=${player.position.inSeconds}s — '
+        'playback will restart from 0',
+      );
+      debugPrintStack(stackTrace: StackTrace.current);
     }
   }
 

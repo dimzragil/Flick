@@ -915,10 +915,14 @@ class TidalService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
+    // The cache lookup must use the extension of the *resolved* stream, not
+    // the song's file type: the DASH pump downloads hi-res tracks as
+    // `<hash>.mp4` while `song.fileType` stays `'flac'`. Without this, a late
+    // rearm misses the cached mp4 and re-downloads the whole track (~25s).
     final cached = await _cache.getPath(
       server.id,
       remoteId,
-      extension: extension,
+      extension: _resolvedStreams[remoteId]?.ext ?? extension,
     );
     if (cached != null) return cached;
 
