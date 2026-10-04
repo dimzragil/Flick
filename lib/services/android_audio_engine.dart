@@ -570,7 +570,6 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> pause() async {
-    _sinkNeedsRearmOnPlay = true;
     final player = await _ensurePlayer();
     await player.pause();
     if (_crossfadeArmed) {
@@ -584,6 +583,13 @@ class AndroidAudioEngine implements AudioEngine {
         } catch (_) {}
       }
     }
+  }
+
+  /// Marks that the hardware audio sink needs to be rearmed on the next
+  /// call to [play] (e.g. after screen unlock, app resume, or route change
+  /// while paused).
+  void markSinkNeedsRearm() {
+    _sinkNeedsRearmOnPlay = true;
   }
 
   @override

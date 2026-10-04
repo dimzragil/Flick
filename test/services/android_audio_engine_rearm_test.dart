@@ -185,13 +185,32 @@ void main() {
       expect(fakePlayer.playing, isTrue);
     });
 
-    test('pause() followed by play() triggers sink rearm', () async {
+    test('standard pause() followed by play() does fast resume without rearm', () async {
       await engine.load(playlist[0]);
       await engine.play();
       await engine.seek(const Duration(seconds: 30));
 
       await engine.pause();
       expect(fakePlayer.callLog, contains('pause'));
+
+      fakePlayer.callLog.clear();
+
+      // Standard unpause should resume immediately without expensive rearm
+      await engine.play();
+
+      expect(fakePlayer.callLog, isNot(contains('stop')));
+      expect(fakePlayer.callLog, isNot(contains('setAudioSource')));
+      expect(fakePlayer.callLog, contains('play'));
+      expect(fakePlayer.playing, isTrue);
+    });
+
+    test('markSinkNeedsRearm() followed by play() triggers sink rearm', () async {
+      await engine.load(playlist[0]);
+      await engine.play();
+      await engine.seek(const Duration(seconds: 30));
+
+      await engine.pause();
+      engine.markSinkNeedsRearm();
 
       fakePlayer.callLog.clear();
 

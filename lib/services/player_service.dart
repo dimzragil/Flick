@@ -365,6 +365,28 @@ bool shouldTrackReplayFromPlaybackState({
   return previousPosition == null || previousPosition != currentPosition;
 }
 
+@visibleForTesting
+bool shouldExecuteTogglePlayPause({
+  required bool isPlaying,
+  required bool targetShouldPlay,
+}) {
+  return isPlaying != targetShouldPlay;
+}
+
+@visibleForTesting
+bool shouldThrottleSpeakerSinkRearm({
+  required bool isQueued,
+  required DateTime? lastRearmTime,
+  required DateTime now,
+  Duration cooldown = const Duration(seconds: 2),
+}) {
+  if (isQueued) return true;
+  if (lastRearmTime != null && now.difference(lastRearmTime) < cooldown) {
+    return true;
+  }
+  return false;
+}
+
 /// Singleton service to manage global audio playback state.
 ///
 /// Uses just_audio for playback with gapless playback support.
@@ -417,6 +439,9 @@ class PlayerService {
   late final AudioEngineManager _playbackManager;
   RustAudioEngine? _rustEngine;
   AndroidAudioEngine? _androidAudioEngine;
+  DateTime? _lastSpeakerSinkRearmTime;
+  bool _speakerSinkRearmQueued = false;
+  static const Duration _speakerSinkRearmCooldown = Duration(seconds: 2);
   StreamSubscription<PlaybackState>? _playbackStateSubscription;
   PlaybackState? _lastPlaybackState;
   Timer? _playbackDiagnosticsDebounceTimer;
@@ -480,6 +505,7 @@ class PlayerService {
   Future<void>? _audioInitInFlight;
   Future<void>? _appLaunchPreparationInFlight;
   Future<void> _playRequestQueue = Future<void>.value();
+  int _queueOpCounter = 0;
 
   /// Guards speaker-path playback-error recovery. While the one-shot retry
   /// of the failed track is in flight, a second error means the retry itself
@@ -685,7 +711,6 @@ class PlayerService {
       final isSpeaker = info.isInternalRoute ||
           (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
       if (isSpeaker &&
-          isPlayingNotifier.value &&
           currentEngineType == AudioEngineType.normalAndroid) {
         unawaited(_rearmSpeakerSinkIfNeeded(reason: 'audio route changed'));
       }
@@ -1119,7 +1144,6 @@ class PlayerService {
     final isSpeaker = info.isInternalRoute ||
         (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
     if (isSpeaker &&
-        isPlayingNotifier.value &&
         currentEngineType == AudioEngineType.normalAndroid) {
       unawaited(_rearmSpeakerSinkIfNeeded(reason: 'app resumed'));
     }
@@ -1155,7 +1179,7 @@ class PlayerService {
           );
           if (!recovered) rethrow;
         }
-      });
+      }, label: 'foregroundBitPerfectRestore');
     } catch (e) {
       _debugLog('[Engine] Foreground bit-perfect restore failed: $e');
     }
@@ -1163,23 +1187,52 @@ class PlayerService {
 
   Future<void> _rearmSpeakerSinkIfNeeded({required String reason}) async {
     if (!Platform.isAndroid) return;
-    if (!isPlayingNotifier.value) return;
     if (currentEngineType != AudioEngineType.normalAndroid) return;
     final engine = _androidAudioEngine;
     if (engine == null) return;
 
+    if (!isPlayingNotifier.value) {
+      _debugLog(
+        '[Playback] Speaker sink rearm deferred (paused, marked for next play): reason=$reason',
+      );
+      engine.markSinkNeedsRearm();
+      return;
+    }
+
+    final now = DateTime.now();
+    if (shouldThrottleSpeakerSinkRearm(
+      isQueued: _speakerSinkRearmQueued,
+      lastRearmTime: _lastSpeakerSinkRearmTime,
+      now: now,
+      cooldown: _speakerSinkRearmCooldown,
+    )) {
+      final last = _lastSpeakerSinkRearmTime;
+      _debugLog(
+        '[Playback] Coalescing/throttling speaker sink rearm: reason=$reason, '
+        'queued=$_speakerSinkRearmQueued, '
+        'sinceLast=${last != null ? now.difference(last).inMilliseconds : -1}ms',
+      );
+      return;
+    }
+
+    _speakerSinkRearmQueued = true;
+    _lastSpeakerSinkRearmTime = now;
     _debugLog('[Playback] Rearming speaker sink: reason=$reason');
+
     await _enqueuePlaybackRequest(() async {
-      if (!isPlayingNotifier.value ||
-          currentEngineType != AudioEngineType.normalAndroid) {
-        return;
-      }
       try {
+        if (!isPlayingNotifier.value ||
+            currentEngineType != AudioEngineType.normalAndroid) {
+          return;
+        }
         await engine.rearmSink();
       } catch (e, stack) {
         _debugLog('[Playback] Rearm speaker sink failed: $e\n$stack');
+      } finally {
+        _speakerSinkRearmQueued = false;
+        _lastSpeakerSinkRearmTime = DateTime.now();
       }
-    });
+    }, label: 'rearmSpeakerSink');
   }
 
   bool get _isGaplessActive =>
@@ -1687,7 +1740,7 @@ class PlayerService {
           initialPosition: positionNotifier.value,
         );
       }
-    });
+    }, label: 'retryExperimentalUsb');
     return _sessionManager.selectedMode == AudioEngineType.usbDacExperimental;
   }
 
@@ -3378,6 +3431,7 @@ class PlayerService {
   Future<void> _onSongFinished({String? endedPath}) {
     return _enqueuePlaybackRequest(
       () => _onSongFinishedInternal(endedPath: endedPath),
+      label: 'onSongFinished',
     );
   }
 
@@ -3400,10 +3454,14 @@ class PlayerService {
       _debugLog('[Playback] error recovery failed; advancing to next track');
       return _enqueuePlaybackRequest(
         () => _nextInternal(targetAlreadySelected: false),
+        label: 'playbackErrorAdvance',
       );
     }
     _playbackErrorRecoveryInFlight = true;
-    return _enqueuePlaybackRequest(_retryFailedTrackOnce);
+    return _enqueuePlaybackRequest(
+      _retryFailedTrackOnce,
+      label: 'playbackErrorRetry',
+    );
   }
 
   /// Retries the failed track exactly once with a FRESH stream resolve:
@@ -4671,27 +4729,43 @@ class PlayerService {
 
     return _enqueuePlaybackRequest(
       () => _playInternal(song, playlist: playlist, generation: gen),
+      label: 'play',
     );
   }
 
-  Future<void> _enqueuePlaybackRequest(Future<void> Function() action) {
-    _debugLog('[PlayerService] _enqueuePlaybackRequest called');
+  Future<void> _enqueuePlaybackRequest(
+    Future<void> Function() action, {
+    String? label,
+  }) {
+    final opId = ++_queueOpCounter;
+    final opLabel = label ?? 'unlabeled';
+    final enqueueTime = DateTime.now();
+    _debugLog('[Queue] [#$opId $opLabel] enqueued');
     final operation = _playRequestQueue
         .then<void>((_) async {
+          final startExecTime = DateTime.now();
+          final waitMs = startExecTime.difference(enqueueTime).inMilliseconds;
           _debugLog(
-            '[PlayerService] _enqueuePlaybackRequest: previous operation complete, executing action',
+            '[Queue] [#$opId $opLabel] start executing (waited ${waitMs}ms in queue)',
           );
+          final sw = Stopwatch()..start();
           try {
             await action();
           } catch (e, stack) {
+            sw.stop();
             _debugLog(
-              '[PlayerService] _enqueuePlaybackRequest action error: $e\n$stack',
+              '[Queue] [#$opId $opLabel] action error after ${sw.elapsedMilliseconds}ms (wait: ${waitMs}ms): $e\n$stack',
             );
             rethrow;
           }
+          sw.stop();
+          final execMs = sw.elapsedMilliseconds;
+          _debugLog(
+            '[Queue] [#$opId $opLabel] finished in ${execMs}ms (queue wait: ${waitMs}ms, total: ${waitMs + execMs}ms)',
+          );
         })
         .catchError((e) {
-          _debugLog('[PlayerService] _enqueuePlaybackRequest queue error: $e');
+          _debugLog('[Queue] [#$opId $opLabel] queue error: $e');
         });
     _playRequestQueue = operation;
     return operation;
@@ -5070,7 +5144,7 @@ class PlayerService {
     // loss; otherwise the next notification's end event restarts playback.
     // The interruption handler calls _pauseInternal directly, not here.
     _wasPlayingBeforeAudioInterruption = false;
-    await _enqueuePlaybackRequest(_pauseInternal);
+    await _enqueuePlaybackRequest(_pauseInternal, label: 'pause');
   }
 
   Future<void> _pauseInternal() async {
@@ -5108,7 +5182,7 @@ class PlayerService {
   }
 
   Future<void> resume() {
-    return _enqueuePlaybackRequest(_resumeInternal);
+    return _enqueuePlaybackRequest(_resumeInternal, label: 'resume');
   }
 
   Future<void> _resumeInternal() async {
@@ -5406,19 +5480,29 @@ class PlayerService {
   }
 
   Future<void> togglePlayPause() {
+    final shouldPlay = !isPlayingNotifier.value;
     _debugLog(
-      '[PlayerService] togglePlayPause called, isPlaying=${isPlayingNotifier.value}',
+      '[PlayerService] togglePlayPause called, isPlaying=${!shouldPlay}, intent to play=$shouldPlay',
     );
     return _enqueuePlaybackRequest(() async {
       _debugLog(
-        '[PlayerService] togglePlayPause executing, isPlaying=${isPlayingNotifier.value}',
+        '[PlayerService] togglePlayPause executing, intent shouldPlay=$shouldPlay, current isPlaying=${isPlayingNotifier.value}',
       );
+      if (!shouldExecuteTogglePlayPause(
+        isPlaying: isPlayingNotifier.value,
+        targetShouldPlay: shouldPlay,
+      )) {
+        _debugLog(
+          '[PlayerService] togglePlayPause: already in desired state (isPlaying=$shouldPlay), skipping execution',
+        );
+        return;
+      }
       try {
-        if (isPlayingNotifier.value) {
+        if (shouldPlay) {
+          await _resumeInternal();
+        } else {
           _wasPlayingBeforeAudioInterruption = false;
           await _pauseInternal();
-        } else {
-          await _resumeInternal();
         }
       } catch (e, stack) {
         final recovered = await _handleDirectUsbStartupRefusal(
@@ -5431,7 +5515,7 @@ class PlayerService {
         }
         _debugLog('[PlayerService] togglePlayPause error: $e\n$stack');
       }
-    });
+    }, label: 'togglePlayPause');
   }
 
   Future<void> seek(Duration position) async {
@@ -5494,6 +5578,7 @@ class PlayerService {
         generation: gen,
         targetAlreadySelected: targetAlreadySelected,
       ),
+      label: 'next',
     );
   }
 
@@ -5605,6 +5690,7 @@ class PlayerService {
         generation: gen,
         targetAlreadySelected: targetAlreadySelected,
       ),
+      label: 'previous',
     );
   }
 
@@ -6141,7 +6227,10 @@ class PlayerService {
   }
 
   Future<void> playFromQueueIndex(int index) {
-    return _enqueuePlaybackRequest(() => _playFromQueueIndexInternal(index));
+    return _enqueuePlaybackRequest(
+      () => _playFromQueueIndexInternal(index),
+      label: 'playFromQueueIndex',
+    );
   }
 
   Future<void> _playFromQueueIndexInternal(int index) async {
@@ -6255,7 +6344,10 @@ class PlayerService {
   }
 
   Future<void> playFromUpNextIndex(int index) {
-    return _enqueuePlaybackRequest(() => _playFromUpNextIndexInternal(index));
+    return _enqueuePlaybackRequest(
+      () => _playFromUpNextIndexInternal(index),
+      label: 'playFromUpNextIndex',
+    );
   }
 
   Future<void> _playFromUpNextIndexInternal(int index) async {
