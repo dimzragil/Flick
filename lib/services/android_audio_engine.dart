@@ -172,6 +172,11 @@ class AndroidAudioEngine implements AudioEngine {
   List<String> _playlistSignature = const <String>[];
   bool _awaitingInitialSeek = false;
   bool _loadedSingleTrackOnly = false;
+  // player sequence index -> playlist index (kept in sync by the
+  // background fill so _resolveTrack maps player indices back to songs).
+  List<int> _childPlaylistIndices = const [];
+  bool _isBackgroundFilling = false;
+  int _fillGeneration = 0;
 
   // Crossfade state. [_player] is always the currently-audible/active player;
   // [_secondary] is the idle slot reused as the incoming player on each fade.
@@ -380,11 +385,61 @@ class AndroidAudioEngine implements AudioEngine {
       return _loadedTrack;
     }
     if (index == null) return _loadedTrack;
+    // During a background playlist fill, the player's sequence may hold only
+    // the tapped track (index 0) plus whichever children have been inserted
+    // so far; map the sequence index back to the playlist index.
+    if (_childPlaylistIndices.isNotEmpty) {
+      if (index < 0 || index >= _childPlaylistIndices.length) {
+        return _loadedTrack;
+      }
+      final mapped = _childPlaylistIndices[index];
+      final playlist = _playlistProvider();
+      if (mapped < 0 || mapped >= playlist.length) {
+        return _loadedTrack;
+      }
+      return playlist[mapped];
+    }
     final playlist = _playlistProvider();
     if (index < 0 || index >= playlist.length) {
       return _loadedTrack;
     }
     return playlist[index];
+  }
+
+  Future<void> _fillPlaylistBackground(
+    just_audio.ConcatenatingAudioSource concat,
+    List<Song> playlist,
+    int tappedIndex,
+    int gen,
+  ) async {
+    try {
+      for (var j = 0; j < playlist.length; j++) {
+        if (j == tappedIndex) continue;
+        if (gen != _fillGeneration) return;
+        just_audio.AudioSource src;
+        try {
+          src = await _sourceBuilder(
+            playlist[j],
+          ).timeout(const Duration(seconds: 20));
+        } catch (_) {
+          // Index-preserving placeholder; the engine error path skips it if
+          // reached.
+          src = just_audio.AudioSource.uri(Uri.parse(''));
+        }
+        if (gen != _fillGeneration) return;
+        try {
+          await concat.insert(j, src);
+        } catch (_) {
+          // concat replaced by a newer load — abort quietly.
+          return;
+        }
+        _childPlaylistIndices.insert(j, j);
+      }
+    } finally {
+      if (gen == _fillGeneration) {
+        _isBackgroundFilling = false;
+      }
+    }
   }
 
   void _emit(PlaybackState next) {
@@ -409,7 +464,8 @@ class AndroidAudioEngine implements AudioEngine {
         .toList(growable: false);
     final canReusePlaylist =
         _playlistSignature.isNotEmpty &&
-        listEquals(_playlistSignature, nextSignature);
+        listEquals(_playlistSignature, nextSignature) &&
+        !_isBackgroundFilling;
 
     _loadedTrack = track;
     await _configurePlayer(player);
@@ -472,26 +528,28 @@ class AndroidAudioEngine implements AudioEngine {
       _loadedSingleTrackOnly = true;
       _playlistSignature = const <String>[];
     } else {
-      devLog('[Playback] Android load(${track.id}) rebuilding playlist');
+      // Two-phase load: phase 1 resolves ONLY the tapped track so playback
+      // can start immediately (a hung track resolve no longer blocks the
+      // tap); phase 2 fills the rest of the playlist in the background.
+      devLog('[Playback] Android load(${track.id}) fast-starting tapped track');
       _awaitingInitialSeek = true;
+      late final just_audio.ConcatenatingAudioSource concat;
       try {
-        final source = await _sourcesBuilder();
-        // ignore: deprecated_member_use
-        if (source is just_audio.ConcatenatingAudioSource &&
-            source.children.isEmpty) {
-          throw StateError('No audio sources available for playback');
-        }
-        await player.setAudioSource(
-          source,
-          initialIndex: index,
-          preload: true,
-        );
-        await player.seek(Duration.zero, index: index);
+        final currentSource = await _sourceBuilder(
+          track,
+        ).timeout(const Duration(seconds: 30));
+        concat = just_audio.ConcatenatingAudioSource(children: [currentSource]);
+        await player.setAudioSource(concat, preload: true);
+        await player.seek(Duration.zero);
       } finally {
         _awaitingInitialSeek = false;
       }
+      _childPlaylistIndices = <int>[index];
       _loadedSingleTrackOnly = false;
       _playlistSignature = nextSignature;
+      final gen = ++_fillGeneration;
+      _isBackgroundFilling = true;
+      unawaited(_fillPlaylistBackground(concat, playlist, index, gen));
     }
 
     _emit(
@@ -751,6 +809,10 @@ class AndroidAudioEngine implements AudioEngine {
     _player = null;
     _playlistSignature = const <String>[];
     _loadedSingleTrackOnly = false;
+    // Cancel any in-flight background playlist fill so it can't touch a
+    // dead engine.
+    _fillGeneration++;
+    _isBackgroundFilling = false;
     try {
       await secondary?.dispose();
     } catch (_) {}
