@@ -7,6 +7,7 @@ import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/motion_art/animated_artwork_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/sources/network_source_service.dart';
 import 'package:flick/features/player/widgets/player_navigation.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
@@ -19,6 +20,15 @@ import 'package:flick/features/player/widgets/add_to_playlist_sheet.dart';
 import 'package:flick/features/player/widgets/speed_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/pitch_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/sleep_timer_bottom_sheet.dart';
+
+/// TIDAL songs are streams, not local files, so local-file actions
+/// (Set Album Art, Edit Metadata) are meaningless for them.
+/// Same detection as PlayerNavigation._isTidalSong.
+bool _isTidalSong(Song song) {
+  return song.sourceType == NetworkProtocol.tidal ||
+      (song.filePath != null && song.filePath!.startsWith('tidal://')) ||
+      song.id.startsWith('tidal_');
+}
 
 class SongActionsSheet extends ConsumerWidget {
   final BuildContext parentContext;
@@ -214,6 +224,7 @@ class SongActionsSheet extends ConsumerWidget {
                               AddToPlaylistSheet.show(context, activeSong);
                             },
                           ),
+                          if (!_isTidalSong(activeSong))
                           _buildSongActionTile(
                             context: sheetContext,
                             icon: LucideIcons.image,
@@ -261,7 +272,8 @@ class SongActionsSheet extends ConsumerWidget {
                           ),
                           if (activeSong.filePath != null &&
                               activeSong.startOffsetMs == null &&
-                              !activeSong.isExternal)
+                              !activeSong.isExternal &&
+                              !_isTidalSong(activeSong))
                             _buildSongActionTile(
                               context: sheetContext,
                               icon: LucideIcons.pencil,

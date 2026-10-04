@@ -7,6 +7,7 @@ import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/features/artists/screens/artist_detail_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_artist_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_album_screen.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/sources/network_source_service.dart';
@@ -149,10 +150,106 @@ class PlayerNavigation {
     }
 
     final route = MaterialPageRoute<void>(
-      builder: (_) => TidalArtistScreen(
-        artistId: artistId,
-        initialArtistData: artistJson,
-      ),
+      builder: (_) =>
+          TidalArtistScreen(artistId: artistId, initialArtistData: artistJson),
+    );
+
+    if (_isFullPlayerContext(context)) {
+      await _popFullPlayerAndPushNested(context, route);
+      return;
+    }
+
+    await Navigator.of(context).push(route);
+  }
+
+  /// Opens the TIDAL album page for a TIDAL song.
+  ///
+  /// Mirrors [_openTidalArtistFromSong]: [Song] does not carry the TIDAL
+  /// album id, so the album is resolved by name through the catalog search.
+  /// Unlike the artist version, the hit is disambiguated by artist name —
+  /// album titles like "Greatest Hits" collide far more often than artist
+  /// names — falling back to the first ALBUMS hit when nothing matches.
+  Future<void> _openTidalAlbumFromSong(
+    BuildContext context,
+    Song song,
+    String albumName,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    void fail(String message) {
+      if (context.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
+
+    final serverId = song.remoteServerId;
+    final server = serverId != null
+        ? await Database.networkServers.get(serverId)
+        : null;
+    if (server == null) {
+      fail('TIDAL is not connected');
+      return;
+    }
+
+    final service = networkSourceServiceFor(NetworkProtocol.tidal);
+    if (service is! TidalService) {
+      fail('Could not load album');
+      return;
+    }
+
+    List<Map<String, dynamic>> items = const [];
+    try {
+      final res = await service.searchCatalog(
+        server,
+        albumName,
+        types: 'ALBUMS',
+        limit: 5,
+      );
+      items =
+          (res['albums']?['items'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .toList() ??
+          const [];
+    } catch (_) {
+      items = const [];
+    }
+    if (!context.mounted) return;
+
+    final artistName = song.artist.trim().toLowerCase();
+    Map<String, dynamic>? albumJson = items.firstOrNull;
+    if (artistName.isNotEmpty) {
+      bool matchesArtist(Map<String, dynamic> item) {
+        final artists =
+            (item['artists'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>() ??
+            const [];
+        if (artists.any(
+          (a) => (a['name'] as String?)?.trim().toLowerCase() == artistName,
+        )) {
+          return true;
+        }
+        // Album objects carry the main artist as a singular `artist` map.
+        final mainArtist = item['artist'] as Map<String, dynamic>?;
+        return (mainArtist?['name'] as String?)?.trim().toLowerCase() ==
+            artistName;
+      }
+
+      for (final item in items) {
+        if (matchesArtist(item)) {
+          albumJson = item;
+          break;
+        }
+      }
+    }
+
+    final albumId = albumJson?['id']?.toString();
+    if (albumId == null || albumId.isEmpty) {
+      fail('Could not find album on TIDAL');
+      return;
+    }
+
+    final route = MaterialPageRoute<void>(
+      builder: (_) =>
+          TidalAlbumScreen(albumId: albumId, initialAlbumData: albumJson),
     );
 
     if (_isFullPlayerContext(context)) {
@@ -164,6 +261,19 @@ class PlayerNavigation {
   }
 
   Future<void> openAlbumFromSong(BuildContext context, Song song) async {
+    final albumName = song.album?.trim() ?? '';
+    if (albumName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Album is not available for this song')),
+      );
+      return;
+    }
+
+    if (_isTidalSong(song)) {
+      await _openTidalAlbumFromSong(context, song, albumName);
+      return;
+    }
+
     final albumGroup = await songRepository.getAlbumGroupForSong(song);
     if (!context.mounted) return;
 
