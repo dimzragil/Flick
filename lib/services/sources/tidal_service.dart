@@ -94,6 +94,14 @@ class TidalService implements NetworkSourceService {
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, void Function()> _activeDownloads = {};
 
+  /// Bumped every time a track's stream finishes resolving.
+  ///
+  /// The resolve path itself is untouched — this is a read-only signal so
+  /// UI showing per-track stream details (codec/resolution badge) can
+  /// re-read [getResolvedStream] and display the *actual* stream instead
+  /// of the catalog tag. Pure in-memory counter; zero playback latency.
+  final ValueNotifier<int> streamResolutionVersion = ValueNotifier(0);
+
   /// Catalog-known max quality tier per TIDAL track id (e.g. 'LOSSLESS').
   ///
   /// Populated from catalog tags in [makeEphemeralSong] (static, so this is
@@ -110,6 +118,15 @@ class TidalService implements NetworkSourceService {
   /// Retrieve cached stream resolution (sampleRate, bitDepth, quality, codec) for a track.
   TidalStreamResolution? getResolvedStream(String trackId) =>
       _resolvedStreams[trackId];
+
+  /// Uppercase display label for a track's resolved codec ("FLAC", "AAC",
+  /// ...), or null when the track hasn't resolved (yet) or the codec is
+  /// unknown. Pure in-memory lookup.
+  String? resolvedCodecLabel(String? trackId) {
+    final codec = trackId == null ? null : _resolvedStreams[trackId]?.codec;
+    if (codec == null || codec.isEmpty) return null;
+    return codec.toUpperCase();
+  }
 
   /// Cancel in-flight download for a specific track.
   void cancelActiveDownload(String remoteId) {
@@ -1126,6 +1143,7 @@ class TidalService implements NetworkSourceService {
               bitrate: effectiveBandwidth,
             );
             _resolvedStreams[trackId] = res;
+            streamResolutionVersion.value++;
             return res;
           }
           continue;
@@ -1169,6 +1187,7 @@ class TidalService implements NetworkSourceService {
                 : btsBitrate,
           );
           _resolvedStreams[trackId] = res;
+          streamResolutionVersion.value++;
           return res;
         }
       } catch (e) {

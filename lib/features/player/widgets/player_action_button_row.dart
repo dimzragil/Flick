@@ -19,6 +19,7 @@ import 'package:flick/features/player/widgets/rating_button.dart';
 import 'package:flick/features/player/widgets/sleep_timer_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/volume_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/share/share_bottom_sheet.dart';
+import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:flick/features/settings/screens/equalizer_screen.dart';
 import 'package:flick/features/settings/screens/casting_settings_screen.dart';
 
@@ -123,11 +124,52 @@ class _PlayerActionButtonRowState extends ConsumerState<PlayerActionButtonRow> {
           immersiveActions: immersiveActions,
           lyricsMode: lyricsMode,
         ),
-        Flexible(
+        _buildStreamBadge(context, song),
+        _buildSideButtons(
+          topAction: rightTopAction,
+          bottomAction: rightAction,
+          context: context,
+          song: song,
+          actionPadding: actionPadding,
+          actionRadius: actionRadius,
+          actionIconSize: actionIconSize,
+          inactiveBg: inactiveBg,
+          inactiveBorder: inactiveBorder,
+          albumColor: albumColor,
+          accentBlend: accentBlend,
+          hasAlbumTint: hasAlbumTint,
+          immersiveActions: immersiveActions,
+          lyricsMode: lyricsMode,
+        ),
+      ],
+    );
+  }
+
+  /// Codec/resolution badge driven by the *actually resolved* stream.
+  ///
+  /// [Song.fileType]/[Song.resolution] for TIDAL songs come from catalog
+  /// tags and go stale when the tier cascade downgrades (or when the
+  /// quality was unknown and defaulted to FLAC). The resolved stream is
+  /// read from [TidalService.getResolvedStream] — a pure in-memory lookup,
+  /// so this adds zero playback latency; while unresolved we fall back to
+  /// the catalog values exactly as before.
+  Widget _buildStreamBadge(BuildContext context, Song song) {
+    final tidal = ref.read(tidalServiceProvider);
+    return ValueListenableBuilder<int>(
+      valueListenable: tidal.streamResolutionVersion,
+      builder: (context, _, __) {
+        final resolved = song.remoteId != null
+            ? tidal.getResolvedStream(song.remoteId!)
+            : null;
+        final typeLabel =
+            tidal.resolvedCodecLabel(song.remoteId) ??
+            song.fileType.toUpperCase();
+        final resolutionLabel = resolved?.resolutionString ?? song.resolution;
+        return Flexible(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildPlayerBadge(context, song.fileType.toUpperCase()),
+              _buildPlayerBadge(context, typeLabel),
               if (song.isDsd && song.dsdRateLabel.isNotEmpty) ...[
                 SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
                 Flexible(
@@ -142,11 +184,11 @@ class _PlayerActionButtonRowState extends ConsumerState<PlayerActionButtonRow> {
                     ),
                   ),
                 ),
-              ] else if (song.resolution != null) ...[
+              ] else if (resolutionLabel != null) ...[
                 SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
                 Flexible(
                   child: Text(
-                    song.resolution!,
+                    resolutionLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -175,24 +217,8 @@ class _PlayerActionButtonRowState extends ConsumerState<PlayerActionButtonRow> {
               ),
             ],
           ),
-        ),
-        _buildSideButtons(
-          topAction: rightTopAction,
-          bottomAction: rightAction,
-          context: context,
-          song: song,
-          actionPadding: actionPadding,
-          actionRadius: actionRadius,
-          actionIconSize: actionIconSize,
-          inactiveBg: inactiveBg,
-          inactiveBorder: inactiveBorder,
-          albumColor: albumColor,
-          accentBlend: accentBlend,
-          hasAlbumTint: hasAlbumTint,
-          immersiveActions: immersiveActions,
-          lyricsMode: lyricsMode,
-        ),
-      ],
+        );
+      },
     );
   }
 

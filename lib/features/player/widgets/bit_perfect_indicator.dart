@@ -9,8 +9,10 @@ import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/features/player/widgets/audio_visualizer.dart';
+import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Compact bit-perfect indicator capsule for the player file-info row.
@@ -542,31 +544,56 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
   }
 
   Widget _buildInfoRows(BuildContext context) {
+    final tidal = ref.read(tidalServiceProvider);
+    return ValueListenableBuilder<int>(
+      valueListenable: tidal.streamResolutionVersion,
+      builder: (context, _, __) {
+        // Prefer the actually-resolved stream over catalog tags (same
+        // staleness issue as the player badge); null until resolved.
+        final song = widget.song;
+        final resolved = song.remoteId != null
+            ? tidal.getResolvedStream(song.remoteId!)
+            : null;
+        return _buildInfoRowsContent(context, resolved);
+      },
+    );
+  }
+
+  Widget _buildInfoRowsContent(
+    BuildContext context,
+    TidalStreamResolution? resolved,
+  ) {
     final rows = <Widget>[];
     final d = widget.diagnostics;
+    final codecLabel = resolved?.codec;
+    final formatValue = widget.song.isDsd
+        ? '${widget.song.fileType.toUpperCase()} (${widget.song.dsdRateLabel})'
+        : (codecLabel != null && codecLabel.isNotEmpty
+              ? codecLabel.toUpperCase()
+              : widget.song.fileType.toUpperCase());
 
     rows.add(
       _buildRow(
         context,
         label: 'Format',
-        value: widget.song.isDsd
-            ? '${widget.song.fileType.toUpperCase()} (${widget.song.dsdRateLabel})'
-            : widget.song.fileType.toUpperCase(),
+        value: formatValue,
       ),
     );
 
-    if (widget.song.resolution != null && !widget.song.isDsd) {
+    final resolutionValue = resolved?.resolutionString ?? widget.song.resolution;
+    if (resolutionValue != null && !widget.song.isDsd) {
       rows.add(
-        _buildRow(context, label: 'Resolution', value: widget.song.resolution!),
+        _buildRow(context, label: 'Resolution', value: resolutionValue),
       );
     }
 
-    if (widget.song.sampleRate != null) {
+    final sourceRate = resolved?.sampleRate ?? widget.song.sampleRate;
+    if (sourceRate != null) {
       rows.add(
         _buildRow(
           context,
           label: 'Source rate',
-          value: _formatHz(widget.song.sampleRate!),
+          value: _formatHz(sourceRate),
         ),
       );
     }
@@ -592,7 +619,7 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
           matches = true;
         }
       } else {
-        final sourceRate = widget.song.sampleRate;
+        final sourceRate = resolved?.sampleRate ?? widget.song.sampleRate;
         matches = sourceRate != null && sourceRate == outRate;
       }
       rows.add(
