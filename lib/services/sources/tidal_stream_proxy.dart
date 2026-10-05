@@ -17,18 +17,67 @@ import 'dash_manifest_parser.dart';
 /// Remaining media segments are fetched by a background worker pool and stitched
 /// sequentially to the cache file on disk, preserving bit-perfect FLAC audio
 /// quality with near-zero latency.
+/// Lightweight descriptor for a finalized track whose complete audio file is on disk.
+/// Holds minimal metadata (no segment lists or network clients) so loopback Range
+/// requests can continue to be served to ExoPlayer / Rust without keeping heavy sessions alive.
+class CompletedStream {
+  CompletedStream({
+    required this.trackId,
+    required this.targetPath,
+    required this.contentType,
+  });
+
+  final String trackId;
+  final String targetPath;
+  final String contentType;
+  String get extension => targetPath.split('.').last;
+}
+
 class TidalStreamProxy {
   TidalStreamProxy._();
 
   static final TidalStreamProxy instance = TidalStreamProxy._();
 
+  static const int _maxCompletedStreams = 4;
   HttpServer? _server;
   final Map<String, TidalStreamSession> _sessions = {};
   final Map<String, TidalBtsStreamSession> _btsSessions = {};
+  final Map<String, CompletedStream> _completedFiles = {};
   final Random _rand = Random.secure();
 
   /// Port of the active loopback server, or null if not yet bound.
   int? get port => _server?.port;
+
+  int get activeSessionCount => _sessions.length;
+  int get activeBtsSessionCount => _btsSessions.length;
+  int get completedStreamCount => _completedFiles.length;
+  bool hasActiveSession(String token) => _sessions.containsKey(token);
+  bool hasActiveBtsSession(String token) => _btsSessions.containsKey(token);
+  bool hasCompletedStream(String token) => _completedFiles.containsKey(token);
+
+  void _onSessionFinalized(TidalStreamSession session) {
+    _sessions.remove(session.streamToken);
+    _completedFiles[session.streamToken] = CompletedStream(
+      trackId: session.trackId,
+      targetPath: session.targetPath,
+      contentType: 'audio/mp4',
+    );
+    if (_completedFiles.length > _maxCompletedStreams) {
+      _completedFiles.remove(_completedFiles.keys.first);
+    }
+  }
+
+  void _onBtsSessionFinalized(TidalBtsStreamSession session) {
+    _btsSessions.remove(session.streamToken);
+    _completedFiles[session.streamToken] = CompletedStream(
+      trackId: session.trackId,
+      targetPath: session.targetPath,
+      contentType: session.contentType,
+    );
+    if (_completedFiles.length > _maxCompletedStreams) {
+      _completedFiles.remove(_completedFiles.keys.first);
+    }
+  }
 
   /// Local URL for an in-progress or finished BTS session; never exposes the CDN URL.
   String? activeBtsStreamUrl(String trackId) {
@@ -36,8 +85,17 @@ class TidalStreamProxy {
         .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
         .firstOrNull;
     final serverPort = _server?.port;
-    if (session == null || serverPort == null) return null;
-    return 'http://127.0.0.1:$serverPort/tidal-bts/${session.streamToken}.${session.extension}';
+    if (serverPort == null) return null;
+    if (session != null) {
+      return 'http://127.0.0.1:$serverPort/tidal-bts/${session.streamToken}.${session.extension}';
+    }
+    final completed = _completedFiles.entries
+        .where((e) => e.value.trackId == trackId)
+        .firstOrNull;
+    if (completed != null && File(completed.value.targetPath).existsSync()) {
+      return 'http://127.0.0.1:$serverPort/tidal-bts/${completed.key}.${completed.value.extension}';
+    }
+    return null;
   }
 
   /// Ensure the loopback server is running and return its port.
@@ -75,6 +133,14 @@ class TidalStreamProxy {
       return 'http://127.0.0.1:$serverPort/tidal/${existingSession.streamToken}.mp4';
     }
 
+    final existingCompleted = _completedFiles.entries
+        .where((e) => e.value.trackId == trackId)
+        .firstOrNull;
+    if (existingCompleted != null &&
+        File(existingCompleted.value.targetPath).existsSync()) {
+      return 'http://127.0.0.1:$serverPort/tidal/${existingCompleted.key}.mp4';
+    }
+
     // Cancel any previous dead/stale session for the same track
     final deadSession = _sessions.values
         .where((s) => s.trackId == trackId)
@@ -92,6 +158,7 @@ class TidalStreamProxy {
       targetPath: targetPath,
       client: client ?? http.Client(),
       onFinalized: onFinalized,
+      onSessionFinalized: _onSessionFinalized,
       initialRetryDelay: initialRetryDelay ?? const Duration(milliseconds: 500),
     );
 
@@ -123,6 +190,13 @@ class TidalStreamProxy {
     if (existing != null) {
       return 'http://127.0.0.1:$serverPort/tidal-bts/${existing.streamToken}.${existing.extension}';
     }
+    final existingCompleted = _completedFiles.entries
+        .where((e) => e.value.trackId == trackId)
+        .firstOrNull;
+    if (existingCompleted != null &&
+        File(existingCompleted.value.targetPath).existsSync()) {
+      return 'http://127.0.0.1:$serverPort/tidal-bts/${existingCompleted.key}.${existingCompleted.value.extension}';
+    }
     cancelTrack(trackId);
     final token = _generateToken();
     final session = TidalBtsStreamSession(
@@ -133,6 +207,7 @@ class TidalStreamProxy {
       client: client ?? http.Client(),
       contentType: contentType,
       onFinalized: onFinalized,
+      onSessionFinalized: _onBtsSessionFinalized,
     );
     _btsSessions[token] = session;
     try {
@@ -155,6 +230,7 @@ class TidalStreamProxy {
     }
     _sessions.clear();
     _btsSessions.clear();
+    _completedFiles.clear();
   }
 
   /// Cancel a session for a specific track.
@@ -174,6 +250,7 @@ class TidalStreamProxy {
       session.cancel();
       return true;
     });
+    _completedFiles.removeWhere((_, completed) => completed.trackId == trackId);
   }
 
   /// Stop the server and clean up all sessions.
@@ -196,12 +273,17 @@ class TidalStreamProxy {
         final filename = segments[1];
         final token = filename.substring(0, filename.lastIndexOf('.'));
         final btsSession = _btsSessions[token];
-        if (btsSession == null) {
-          req.response.statusCode = HttpStatus.notFound;
-          await req.response.close();
+        if (btsSession != null) {
+          await btsSession.handleRequest(req);
           return;
         }
-        await btsSession.handleRequest(req);
+        final completed = _completedFiles[token];
+        if (completed != null) {
+          await _serveCompletedFile(req, completed);
+          return;
+        }
+        req.response.statusCode = HttpStatus.notFound;
+        await req.response.close();
         return;
       }
       if (segments.length != 2 || segments[0] != 'tidal') {
@@ -213,14 +295,18 @@ class TidalStreamProxy {
       final filename = segments[1];
       final token = filename.replaceAll('.mp4', '');
       final session = _sessions[token];
-
-      if (session == null) {
-        req.response.statusCode = HttpStatus.notFound;
-        await req.response.close();
+      if (session != null) {
+        await session.handleRequest(req);
+        return;
+      }
+      final completed = _completedFiles[token];
+      if (completed != null) {
+        await _serveCompletedFile(req, completed);
         return;
       }
 
-      await session.handleRequest(req);
+      req.response.statusCode = HttpStatus.notFound;
+      await req.response.close();
     } catch (e, st) {
       devLog('[TidalStreamProxy] Error handling request: $e\n$st');
       try {
@@ -228,6 +314,90 @@ class TidalStreamProxy {
         await req.response.close();
       } catch (_) {}
     }
+  }
+
+  Future<void> _serveCompletedFile(
+    HttpRequest req,
+    CompletedStream completed,
+  ) async {
+    final file = File(completed.targetPath);
+    if (!await file.exists()) {
+      req.response.statusCode = HttpStatus.notFound;
+      await req.response.close();
+      return;
+    }
+    final fileLength = await file.length();
+    final match = RegExp(
+      r'bytes=(\d+)-(\d*)',
+    ).firstMatch(req.headers.value(HttpHeaders.rangeHeader) ?? '');
+    final start = int.tryParse(match?.group(1) ?? '') ?? 0;
+    final requestedEnd =
+        int.tryParse(match?.group(2) ?? '') ?? (start + 1024 * 1024 - 1);
+
+    const maxBlockSize = 1024 * 1024;
+    var end = requestedEnd;
+    if (end - start >= maxBlockSize) {
+      end = start + maxBlockSize - 1;
+    }
+
+    if (start >= fileLength) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes */$fileLength',
+      );
+      await req.response.close();
+      return;
+    }
+
+    final isBts = req.uri.pathSegments.isNotEmpty &&
+        req.uri.pathSegments[0] == 'tidal-bts';
+    final actualEnd = (isBts && start == 0)
+        ? min(end, min(fileLength - 1, 256 * 1024 - 1))
+        : min(end, fileLength - 1);
+    final lengthToRead = actualEnd - start + 1;
+
+    if (lengthToRead <= 0) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes */$fileLength',
+      );
+      await req.response.close();
+      return;
+    }
+
+    final raf = await file.open(mode: FileMode.read);
+    final List<int> chunk;
+    try {
+      await raf.setPosition(start);
+      chunk = await raf.read(lengthToRead);
+    } finally {
+      await raf.close();
+    }
+
+    if (chunk.isEmpty) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes */$fileLength',
+      );
+      await req.response.close();
+      return;
+    }
+
+    final effectiveEnd = start + chunk.length - 1;
+    req.response.statusCode = HttpStatus.partialContent;
+    req.response.headers
+      ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+      ..set(HttpHeaders.contentTypeHeader, completed.contentType)
+      ..set(HttpHeaders.contentLengthHeader, '${chunk.length}')
+      ..set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$effectiveEnd/$fileLength',
+      );
+    req.response.add(chunk);
+    await req.response.close();
   }
 }
 
@@ -240,6 +410,7 @@ class TidalStreamSession {
     required this.targetPath,
     required this.client,
     this.onFinalized,
+    this.onSessionFinalized,
     this.initialRetryDelay = const Duration(milliseconds: 500),
   });
 
@@ -249,6 +420,7 @@ class TidalStreamSession {
   final String targetPath;
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
+  final void Function(TidalStreamSession session)? onSessionFinalized;
   final Duration initialRetryDelay;
 
   int _nextSegmentIndex = 1;
@@ -392,6 +564,9 @@ class TidalStreamSession {
           );
           _pumpFailed = true;
           _notifyWaiters();
+          try {
+            client.close();
+          } catch (_) {}
           break;
         }
         if (_isCancelled) break;
@@ -416,6 +591,9 @@ class TidalStreamSession {
       devLog('[TidalStreamProxy] Stream pump error: $e');
       _pumpFailed = true;
       _notifyWaiters();
+      try {
+        client.close();
+      } catch (_) {}
     } finally {
       _pumpRunning = false;
     }
@@ -460,6 +638,9 @@ class TidalStreamSession {
         _isFinished = true;
         _isFinalizing = false;
         if (!_finalizingFile.isCompleted) _finalizingFile.complete();
+        try {
+          client.close();
+        } catch (_) {}
         if (onFinalized != null) {
           unawaited(
             Future.microtask(() async {
@@ -471,6 +652,7 @@ class TidalStreamSession {
             }),
           );
         }
+        onSessionFinalized?.call(this);
       }
     } catch (e) {
       devLog('[TidalStreamSession] Finalize error: $e');
@@ -642,6 +824,9 @@ class TidalStreamSession {
         _partFile!.deleteSync();
       } catch (_) {}
     }
+    try {
+      client.close();
+    } catch (_) {}
   }
 }
 
@@ -662,10 +847,12 @@ class TidalBtsStreamSession {
     required this.client,
     required this.contentType,
     this.onFinalized,
+    this.onSessionFinalized,
   });
   final String streamToken, trackId, sourceUrl, targetPath, contentType;
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
+  final void Function(TidalBtsStreamSession session)? onSessionFinalized;
   String get extension => targetPath.split('.').last;
   bool _cancelled = false, _finished = false;
   bool _failed = false;
@@ -729,6 +916,9 @@ class TidalBtsStreamSession {
     if (response.statusCode != 200) {
       _failed = true;
       _notifyWaiters();
+      try {
+        client.close();
+      } catch (_) {}
       throw HttpException('BTS CDN returned HTTP ${response.statusCode}');
     }
     _total = response.contentLength;
@@ -831,9 +1021,13 @@ class TidalBtsStreamSession {
         _finished = true;
         _isFinalizing = false;
         if (!_finalizingFile.isCompleted) _finalizingFile.complete();
+        try {
+          client.close();
+        } catch (_) {}
         if (onFinalized != null) unawaited(onFinalized!(File(targetPath)));
         if (!_ready.isCompleted) _ready.complete();
         _notifyWaiters();
+        onSessionFinalized?.call(this);
       } else {
         // Cancelled before the prebuffer completed: fail _ready so start()
         // unblocks immediately instead of hanging out the 20s timeout.
@@ -845,6 +1039,9 @@ class TidalBtsStreamSession {
       _failed = true;
       _finished = true;
       _isFinalizing = false;
+      try {
+        client.close();
+      } catch (_) {}
       if (!_finalizingFile.isCompleted) _finalizingFile.complete();
       if (!_ready.isCompleted) _ready.completeError(e);
       devLog('[TidalStreamProxy] BTS download failed: $e');
@@ -982,6 +1179,9 @@ class TidalBtsStreamSession {
     _writer = null;
     try {
       File('$targetPath.part').deleteSync();
+    } catch (_) {}
+    try {
+      client.close();
     } catch (_) {}
     _notifyWaiters();
   }

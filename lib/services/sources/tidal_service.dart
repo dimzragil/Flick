@@ -861,7 +861,6 @@ class TidalService implements NetworkSourceService {
         trackId: remoteId,
         dashInfo: resolved.dashInfo!,
         targetPath: targetPath,
-        client: _client,
         onFinalized: (file) => _cache.evictIfOverCap(protect: file),
       );
       return (
@@ -896,7 +895,6 @@ class TidalService implements NetworkSourceService {
         'mp3' => 'audio/mpeg',
         _ => 'audio/flac',
       },
-      client: _client,
       onFinalized: (file) => _cache.evictIfOverCap(protect: file),
     );
     return (

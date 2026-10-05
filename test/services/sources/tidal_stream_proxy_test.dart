@@ -242,5 +242,144 @@ void main() {
         expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
       },
     );
+
+    test('finalized session is evicted from active map, closes client, and serves ranges', () async {
+      final targetPath = '${tempDir.path}/finalize_eviction.mp4';
+      final initBytes = List<int>.generate(100, (i) => i);
+      final seg0Bytes = List<int>.generate(200, (i) => 100 + i);
+
+      final innerClient = MockClient((request) async {
+        if (request.url.path.contains('init')) {
+          return http.Response.bytes(initBytes, 200);
+        }
+        if (request.url.path.contains('seg0')) {
+          return http.Response.bytes(seg0Bytes, 200);
+        }
+        return http.Response('Not Found', 404);
+      });
+      final trackingClient = _ClosingMockClient(innerClient);
+
+      const dashInfo = DashTrackInfo(
+        codec: 'flac',
+        sampleRate: 96000,
+        bitDepth: 24,
+        initializationUrl: 'https://cdn.tidal.com/init.mp4',
+        segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
+      );
+
+      final finalizedCompleter = Completer<void>();
+      final streamUrl = await TidalStreamProxy.instance.prepareStream(
+        trackId: 'track_finalize',
+        dashInfo: dashInfo,
+        targetPath: targetPath,
+        client: trackingClient,
+        onFinalized: (_) async {
+          if (!finalizedCompleter.isCompleted) finalizedCompleter.complete();
+        },
+      );
+
+      await finalizedCompleter.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // 1. Heavy session must be evicted from active map
+      expect(TidalStreamProxy.instance.activeSessionCount, 0);
+
+      // 2. Client must be closed on finalize
+      expect(trackingClient.closeCallCount, greaterThanOrEqualTo(1));
+
+      // 3. Completed stream must still serve HTTP range requests without 404
+      final httpClient = HttpClient();
+      final req = await httpClient.getUrl(Uri.parse(streamUrl));
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=50-99');
+      final resp = await req.close();
+
+      expect(resp.statusCode, HttpStatus.partialContent);
+      final body = await resp.expand((b) => b).toList();
+      expect(body, initBytes.sublist(50, 100));
+      httpClient.close();
+    });
+
+    test('client is closed when session is cancelled', () async {
+      final targetPath = '${tempDir.path}/cancel_client.mp4';
+      final innerClient = MockClient((request) async {
+        return http.Response.bytes([1, 2, 3], 200);
+      });
+      final trackingClient = _ClosingMockClient(innerClient);
+
+      final dashInfo = DashTrackInfo(
+        codec: 'flac',
+        sampleRate: 96000,
+        bitDepth: 24,
+        initializationUrl: 'https://cdn.tidal.com/init.mp4',
+        segmentUrls: List.generate(10, (i) => 'https://cdn.tidal.com/seg$i.mp4'),
+      );
+
+      await TidalStreamProxy.instance.prepareStream(
+        trackId: 'track_to_cancel',
+        dashInfo: dashInfo,
+        targetPath: targetPath,
+        client: trackingClient,
+      );
+
+      // Pump paused at buffer limit (seg 3 > seg 0 + 2), download not finished
+      expect(trackingClient.closeCallCount, 0);
+      expect(TidalStreamProxy.instance.activeSessionCount, 1);
+
+      TidalStreamProxy.instance.cancelTrack('track_to_cancel');
+      expect(trackingClient.closeCallCount, greaterThanOrEqualTo(1));
+      expect(TidalStreamProxy.instance.activeSessionCount, 0);
+    });
+
+    test('completed streams are pruned to LRU cap', () async {
+      const maxCap = 4;
+      for (var i = 0; i < 6; i++) {
+        final targetPath = '${tempDir.path}/lru_track_$i.mp4';
+        final initBytes = List<int>.generate(20, (x) => x);
+        final innerClient = MockClient((request) async {
+          return http.Response.bytes(initBytes, 200);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [],
+        );
+
+        final finalizedCompleter = Completer<void>();
+        await TidalStreamProxy.instance.prepareStream(
+          trackId: 'lru_track_$i',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: innerClient,
+          onFinalized: (_) async {
+            if (!finalizedCompleter.isCompleted) finalizedCompleter.complete();
+          },
+        );
+
+        await finalizedCompleter.future.timeout(const Duration(seconds: 5));
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(TidalStreamProxy.instance.completedStreamCount, lessThanOrEqualTo(maxCap));
+    });
   });
+}
+
+class _ClosingMockClient extends http.BaseClient {
+  _ClosingMockClient(this._inner);
+  final http.Client _inner;
+  int closeCallCount = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return _inner.send(request);
+  }
+
+  @override
+  void close() {
+    closeCallCount++;
+    _inner.close();
+  }
 }
