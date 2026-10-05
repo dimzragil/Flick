@@ -106,7 +106,16 @@ class TidalService implements NetworkSourceService {
       _persistToken;
   final Future<bool> Function(Uri) _urlOpener;
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
-  final Map<String, void Function()> _activeDownloads = {};
+  final Map<String, Set<void Function()>> _activeDownloads = {};
+  final Map<String, Future<String>> _downloadInFlight = {};
+
+  @visibleForTesting
+  Map<String, Set<void Function()>> get activeDownloadsForTesting =>
+      _activeDownloads;
+
+  @visibleForTesting
+  Map<String, Future<String>> get downloadInFlightForTesting =>
+      _downloadInFlight;
 
   /// Bumped every time a track's stream finishes resolving.
   ///
@@ -161,15 +170,21 @@ class TidalService implements NetworkSourceService {
 
   /// Cancel in-flight download for a specific track.
   void cancelActiveDownload(String remoteId) {
-    _activeDownloads[remoteId]?.call();
-    _activeDownloads.remove(remoteId);
+    final callbacks = _activeDownloads.remove(remoteId);
+    if (callbacks != null) {
+      for (final cancel in callbacks) {
+        cancel();
+      }
+    }
     TidalStreamProxy.instance.cancelTrack(remoteId);
   }
 
   /// Cancel all in-flight downloads (e.g. when changing songs immediately).
   void cancelAllDownloads() {
-    for (final cancel in _activeDownloads.values.toList()) {
-      cancel();
+    for (final callbacks in _activeDownloads.values.toList()) {
+      for (final cancel in callbacks) {
+        cancel();
+      }
     }
     _activeDownloads.clear();
     TidalStreamProxy.instance.cancelAllSessions();
@@ -1062,6 +1077,34 @@ class TidalService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
+    final flightKey = '${server.id}_$remoteId';
+    final existingFlight = _downloadInFlight[flightKey];
+    if (existingFlight != null) {
+      return existingFlight;
+    }
+
+    final future = _doStream(
+      server,
+      remoteId,
+      extension: extension,
+      onProgress: onProgress,
+    );
+    _downloadInFlight[flightKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_downloadInFlight[flightKey], future)) {
+        _downloadInFlight.remove(flightKey);
+      }
+    }
+  }
+
+  Future<String> _doStream(
+    NetworkServerEntity server,
+    String remoteId, {
+    String? extension,
+    void Function(double progress)? onProgress,
+  }) async {
     // The cache lookup must use the extension of the *resolved* stream, not
     // the song's file type: the DASH pump downloads hi-res tracks as
     // `<hash>.mp4` while `song.fileType` stays `'flac'`. Without this, a late
@@ -1087,29 +1130,51 @@ class TidalService implements NetworkSourceService {
       );
     }
 
-    final request = http.Request('GET', Uri.parse(resolved.url));
-    final response = await _client
-        .send(request)
-        .timeout(const Duration(minutes: 5));
-    if (response.statusCode != 200) {
-      throw TidalException('HTTP ${response.statusCode} for stream $remoteId');
+    var isCancelled = false;
+    void cancelFn() {
+      isCancelled = true;
     }
-    final total = response.contentLength;
-    final builder = BytesBuilder();
-    var received = 0;
-    await for (final chunk in response.stream) {
-      builder.add(chunk);
-      received += chunk.length;
-      if (onProgress != null && total != null && total > 0) {
-        onProgress(received / total);
+    (_activeDownloads[remoteId] ??= {}).add(cancelFn);
+
+    try {
+      final request = http.Request('GET', Uri.parse(resolved.url));
+      final response = await _client
+          .send(request)
+          .timeout(const Duration(minutes: 5));
+      if (response.statusCode != 200) {
+        throw TidalException('HTTP ${response.statusCode} for stream $remoteId');
+      }
+      final total = response.contentLength;
+      final builder = BytesBuilder();
+      var received = 0;
+      await for (final chunk in response.stream) {
+        if (isCancelled) {
+          throw TidalException('Playback download cancelled');
+        }
+        builder.add(chunk);
+        received += chunk.length;
+        if (onProgress != null && total != null && total > 0) {
+          onProgress(received / total);
+        }
+      }
+      if (isCancelled) {
+        throw TidalException('Playback download cancelled');
+      }
+      return await _cache.stash(
+        server.id,
+        remoteId,
+        builder.takeBytes(),
+        extension: resolved.ext ?? extension,
+      );
+    } finally {
+      final set = _activeDownloads[remoteId];
+      if (set != null) {
+        set.remove(cancelFn);
+        if (set.isEmpty) {
+          _activeDownloads.remove(remoteId);
+        }
       }
     }
-    return _cache.stash(
-      server.id,
-      remoteId,
-      builder.takeBytes(),
-      extension: resolved.ext ?? extension,
-    );
   }
 
   Future<String> _downloadAndAssembleDash(
@@ -1127,9 +1192,10 @@ class TidalService implements NetworkSourceService {
     final sink = partFile.openWrite();
 
     var isCancelled = false;
-    _activeDownloads[remoteId] = () {
+    void cancelFn() {
       isCancelled = true;
-    };
+    }
+    (_activeDownloads[remoteId] ??= {}).add(cancelFn);
 
     try {
       // 1. Download initialization segment
@@ -1228,7 +1294,13 @@ class TidalService implements NetworkSourceService {
       }
       rethrow;
     } finally {
-      _activeDownloads.remove(remoteId);
+      final set = _activeDownloads[remoteId];
+      if (set != null) {
+        set.remove(cancelFn);
+        if (set.isEmpty) {
+          _activeDownloads.remove(remoteId);
+        }
+      }
     }
   }
 
