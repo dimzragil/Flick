@@ -364,6 +364,41 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(TidalStreamProxy.instance.completedStreamCount, lessThanOrEqualTo(maxCap));
     });
+
+    test('init failure does not cause unhandled async error from seg0Future', () async {
+      final targetPath = '${tempDir.path}/seg0_error.mp4';
+      final client = MockClient((request) async {
+        if (request.url.path.contains('init')) {
+          throw http.ClientException('Init failed');
+        }
+        if (request.url.path.contains('seg0')) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          throw http.ClientException('Seg0 failed');
+        }
+        return http.Response('Not Found', 404);
+      });
+
+      const dashInfo = DashTrackInfo(
+        codec: 'flac',
+        sampleRate: 44100,
+        bitDepth: 16,
+        initializationUrl: 'https://cdn.tidal.com/init.mp4',
+        segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
+      );
+
+      await expectLater(
+        TidalStreamProxy.instance.prepareStream(
+          trackId: 'seg0_err_track',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        ),
+        throwsA(isA<http.ClientException>()),
+      );
+
+      // Wait long enough for seg0's delayed future to complete with error
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
   });
 }
 

@@ -470,6 +470,9 @@ class TidalStreamSession {
               .get(Uri.parse(dashInfo.segmentUrls[0]))
               .timeout(const Duration(seconds: 15))
         : null;
+    // Attach error listener immediately to prevent orphaned unhandled async errors
+    // if initFuture fails or throws before seg0Future is awaited.
+    seg0Future?.ignore();
 
     final initResp = await initFuture;
     if (initResp.statusCode != 200) {
