@@ -172,6 +172,8 @@ class AndroidAudioEngine implements AudioEngine {
   List<int> _childPlaylistIndices = const [];
   bool _isBackgroundFilling = false;
   int _fillGeneration = 0;
+  bool _disposed = false;
+  bool get isDisposed => _disposed;
 
   // Crossfade state. [_player] is always the currently-audible/active player;
   // [_secondary] is the idle slot reused as the incoming player on each fade.
@@ -410,10 +412,14 @@ class AndroidAudioEngine implements AudioEngine {
   }
 
   void _emit(PlaybackState next) {
+    if (_disposed || _controller.isClosed) return;
     if (next == _state) return;
     _state = next;
     _controller.add(next);
   }
+
+  @visibleForTesting
+  void emitForTesting(PlaybackState next) => _emit(next);
 
   /// Optional [initialPosition] is passed straight through to
   /// `setAudioSource(initialPosition:)` so ExoPlayer starts AT the position
@@ -869,6 +875,8 @@ class AndroidAudioEngine implements AudioEngine {
 
   @override
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
     _crossfadeArmed = false;
