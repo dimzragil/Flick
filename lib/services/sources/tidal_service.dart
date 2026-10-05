@@ -982,8 +982,10 @@ class TidalService implements NetworkSourceService {
       return (
         url: activeBtsUrl,
         headers: <String, String>{
-          'x-flick-sample-rate': activeResolution.sampleRate.toString(),
-          'x-flick-bit-depth': activeResolution.bitDepth.toString(),
+          if (activeResolution.isSampleRateExplicit)
+            'x-flick-sample-rate': activeResolution.sampleRate.toString(),
+          if (activeResolution.isBitDepthExplicit)
+            'x-flick-bit-depth': activeResolution.bitDepth.toString(),
         },
       );
     }
@@ -1008,8 +1010,10 @@ class TidalService implements NetworkSourceService {
       return (
         url: streamUrl,
         headers: <String, String>{
-          'x-flick-sample-rate': resolved.sampleRate.toString(),
-          'x-flick-bit-depth': resolved.bitDepth.toString(),
+          if (resolved.isSampleRateExplicit)
+            'x-flick-sample-rate': resolved.sampleRate.toString(),
+          if (resolved.isBitDepthExplicit)
+            'x-flick-bit-depth': resolved.bitDepth.toString(),
         },
       );
     }
@@ -1043,8 +1047,10 @@ class TidalService implements NetworkSourceService {
     return (
       url: streamUrl,
       headers: <String, String>{
-        'x-flick-sample-rate': resolved.sampleRate.toString(),
-        'x-flick-bit-depth': resolved.bitDepth.toString(),
+        if (resolved.isSampleRateExplicit)
+          'x-flick-sample-rate': resolved.sampleRate.toString(),
+        if (resolved.isBitDepthExplicit)
+          'x-flick-bit-depth': resolved.bitDepth.toString(),
       },
     );
   }
@@ -1276,13 +1282,22 @@ class TidalService implements NetworkSourceService {
             final effectiveBandwidth = dashInfo.bandwidth != null
                 ? (dashInfo.bandwidth! / 1000).round()
                 : null;
+            final explicitSampleRate = dashInfo.sampleRate ?? rawSampleRate;
+            final explicitBitDepth = dashInfo.bitDepth ?? rawBitDepth;
+            if (explicitSampleRate == null) {
+              devLog(
+                '[Tidal] DASH track $trackId omitted explicit sample rate; omitting x-flick-sample-rate header to let audio decoder probe authoritative rate',
+              );
+            }
             final res = TidalStreamResolution(
               url: '',
               ext: 'mp4',
               isDash: true,
               dashInfo: dashInfo,
-              sampleRate: dashInfo.sampleRate ?? rawSampleRate ?? 96000,
-              bitDepth: dashInfo.bitDepth ?? rawBitDepth ?? 24,
+              sampleRate: explicitSampleRate ?? 96000,
+              bitDepth: explicitBitDepth ?? 24,
+              isSampleRateExplicit: explicitSampleRate != null,
+              isBitDepthExplicit: explicitBitDepth != null,
               audioQuality: rawQuality,
               codec: rawCodec ?? dashInfo.codec ?? 'flac',
               bitrate: effectiveBandwidth,
@@ -1318,13 +1333,23 @@ class TidalService implements NetworkSourceService {
               (decoded['bitRate'] as num?)?.toInt() ??
               (info['bitRate'] as num?)?.toInt();
 
+          final explicitSampleRate = rawSampleRate ?? btsSampleRate;
+          final explicitBitDepth = rawBitDepth ?? btsBitDepth;
+          if (explicitSampleRate == null) {
+            devLog(
+              '[Tidal] BTS track $trackId omitted explicit sample rate; omitting x-flick-sample-rate header to let audio decoder probe authoritative rate',
+            );
+          }
+
           final res = TidalStreamResolution(
             url: urls.first as String,
             ext: _extFromMime(decoded['mimeType'] as String?),
             isDash: false,
             dashInfo: null,
-            sampleRate: rawSampleRate ?? btsSampleRate ?? 44100,
-            bitDepth: rawBitDepth ?? btsBitDepth ?? 16,
+            sampleRate: explicitSampleRate ?? 44100,
+            bitDepth: explicitBitDepth ?? 16,
+            isSampleRateExplicit: explicitSampleRate != null,
+            isBitDepthExplicit: explicitBitDepth != null,
             audioQuality: rawQuality,
             codec: rawCodec ?? (decoded['codec'] as String?),
             bitrate: btsBitrate != null && btsBitrate > 10000
@@ -2936,6 +2961,8 @@ class TidalStreamResolution {
   final DashTrackInfo? dashInfo;
   final int sampleRate;
   final int bitDepth;
+  final bool isSampleRateExplicit;
+  final bool isBitDepthExplicit;
   final String audioQuality;
   final String? codec;
 
@@ -2959,6 +2986,8 @@ class TidalStreamResolution {
     this.dashInfo,
     required this.sampleRate,
     required this.bitDepth,
+    this.isSampleRateExplicit = true,
+    this.isBitDepthExplicit = true,
     required this.audioQuality,
     this.codec,
     this.bitrate,

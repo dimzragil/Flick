@@ -137,6 +137,17 @@ pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeRe
         .map_err(|e| DecoderError::UnsupportedFormat(format!("HTTP probe failed: {}", e)))?;
 
     let mut result = build_probe_result(probed, PathBuf::from(url_label(url)))?;
+    apply_header_sample_rate(&mut result.source_info, &headers);
+    result.source_info.http_origin = Some((url.to_string(), headers));
+    Ok(result)
+}
+
+/// Apply sample rate from HTTP headers (e.g. `x-flick-sample-rate`) only when the probed rate
+/// is missing or implausible. Plausible probed rates from symphonia are authoritative and win.
+fn apply_header_sample_rate(
+    source_info: &mut SourceInfo,
+    headers: &HashMap<String, String>,
+) {
     let header_sample_rate = headers.iter().find_map(|(k, v)| {
         if k.eq_ignore_ascii_case("x-flick-sample-rate") {
             v.parse::<u32>().ok()
@@ -146,21 +157,28 @@ pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeRe
     });
     if let Some(rate) = header_sample_rate {
         if plausible_sample_rate(rate) {
-            dev_eprintln!(
-                "[DECODER] Overriding HTTP stream sample rate from {} to {} Hz based on x-flick-sample-rate header",
-                result.source_info.original_sample_rate,
-                rate
-            );
-            result.source_info.original_sample_rate = rate;
-            result.source_info.output_sample_rate = rate;
-            if result.source_info.duration_secs > 0.0 {
-                result.source_info.total_samples =
-                    (result.source_info.duration_secs * rate as f64 * result.source_info.channels as f64) as u64;
+            let probed_rate = source_info.original_sample_rate;
+            if !plausible_sample_rate(probed_rate) {
+                dev_eprintln!(
+                    "[DECODER] Overriding implausible HTTP stream sample rate ({}) with {} Hz based on x-flick-sample-rate header",
+                    probed_rate,
+                    rate
+                );
+                source_info.original_sample_rate = rate;
+                source_info.output_sample_rate = rate;
+                if source_info.duration_secs > 0.0 {
+                    source_info.total_samples =
+                        (source_info.duration_secs * rate as f64 * source_info.channels as f64) as u64;
+                }
+            } else if probed_rate != rate {
+                dev_eprintln!(
+                    "[DECODER] HTTP stream probed sample rate is {} Hz; ignoring differing x-flick-sample-rate header ({} Hz) to let probe win",
+                    probed_rate,
+                    rate
+                );
             }
         }
     }
-    result.source_info.http_origin = Some((url.to_string(), headers));
-    Ok(result)
 }
 
 /// Build a [`ProbeResult`] from a probed format reader: locate the audio track,
@@ -900,5 +918,36 @@ mod tests {
         }
         // DSD-over-PCM byte rates stay plausible.
         assert!(plausible_sample_rate(2_822_400));
+    }
+
+    #[test]
+    fn header_sample_rate_does_not_override_plausible_probed_rate() {
+        use super::{apply_header_sample_rate, SourceInfo};
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+
+        let mut info = SourceInfo {
+            path: PathBuf::from("http://127.0.0.1/stream.flac"),
+            original_sample_rate: 48_000,
+            output_sample_rate: 48_000,
+            channels: 2,
+            total_samples: 480_000,
+            duration_secs: 5.0,
+            http_origin: None,
+        };
+
+        // If probed rate is already plausible (48kHz), an erroneous header (e.g. 44.1kHz default) must NOT override it
+        let mut headers = HashMap::new();
+        headers.insert("x-flick-sample-rate".to_string(), "44100".to_string());
+        apply_header_sample_rate(&mut info, &headers);
+        assert_eq!(info.original_sample_rate, 48_000);
+        assert_eq!(info.output_sample_rate, 48_000);
+
+        // But if probed rate was implausible (e.g. 0), the header can supply the rate
+        info.original_sample_rate = 0;
+        info.output_sample_rate = 0;
+        apply_header_sample_rate(&mut info, &headers);
+        assert_eq!(info.original_sample_rate, 44_100);
+        assert_eq!(info.output_sample_rate, 44_100);
     }
 }

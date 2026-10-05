@@ -462,8 +462,9 @@ void main() {
         expect(desc, isNotNull);
         expect(desc!.url, startsWith('http://127.0.0.1:'));
         expect(desc.url, contains('/tidal-bts/'));
-        expect(desc.headers['x-flick-sample-rate'], '44100');
-        expect(desc.headers['x-flick-bit-depth'], '16');
+        // Sample rate and bit depth omitted from manifest -> headers must be omitted to let probe win
+        expect(desc.headers['x-flick-sample-rate'], isNull);
+        expect(desc.headers['x-flick-bit-depth'], isNull);
         final secondDescriptor = await service.streamDescriptor(
           _server(token: _validToken()),
           '1234567',
@@ -475,6 +476,52 @@ void main() {
           isTrue,
         );
         await Future<void>.delayed(const Duration(milliseconds: 50));
+      },
+    );
+
+    test(
+      'includes x-flick-sample-rate and x-flick-bit-depth headers when explicitly provided',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp('tidal_bts_explicit_test');
+        addTearDown(() => tempDir.delete(recursive: true));
+        final manifest = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'mimeType': 'audio/flac',
+              'codecs': 'flac',
+              'encryptionType': 'NONE',
+              'urls': ['https://cdn.tidal.com/track/flac/xyz'],
+              'sampleRate': 96000,
+              'bitDepth': 24,
+            }),
+          ),
+        );
+        final client = MockClient((request) async {
+          if (request.url.host == 'cdn.tidal.com') {
+            return http.Response.bytes([1, 2, 3], 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/vnd.tidal.bts',
+              'assetPresentation': 'FULL',
+            }),
+            200,
+          );
+        });
+        final service = TidalService.create(
+          client: client,
+          networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
+
+        final desc = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '7654321',
+        );
+
+        expect(desc, isNotNull);
+        expect(desc!.headers['x-flick-sample-rate'], '96000');
+        expect(desc.headers['x-flick-bit-depth'], '24');
       },
     );
 
