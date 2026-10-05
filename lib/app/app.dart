@@ -44,6 +44,7 @@ import 'package:flick/widgets/common/offline_notice.dart';
 import 'package:flick/widgets/uac2/usb_bit_perfect_prompt.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/library_scanner_service.dart';
+import 'package:flick/services/library_scan_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/milestone_service.dart';
@@ -349,6 +350,11 @@ class _MainShellState extends ConsumerState<MainShell>
 
   Future<void> _refreshLibraryDeletionsAsync() async {
     try {
+      // Local library is opt-in: skip the startup deletion refresh entirely
+      // while the toggle is off (fresh installs default to off).
+      if (!await LibraryScanPreferencesService().isLocalLibraryEnabled()) {
+        return;
+      }
       final scannerService = LibraryScannerService();
       await scannerService.refreshDeletions();
       if (mounted) {

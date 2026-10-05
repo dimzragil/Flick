@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/library_scanner_service.dart';
+import '../services/library_scan_preferences_service.dart';
 import '../data/repositories/folder_repository.dart';
 import '../data/entities/folder_entity.dart';
 
@@ -76,9 +77,10 @@ class LibraryScannerNotifier extends Notifier<ScanState> {
     return const ScanState();
   }
 
-  /// Scan a specific folder.
+  /// Scan a specific folder. No-op while the local library toggle is off.
   Future<void> scanFolder(String folderUri, String displayName) async {
     if (state.isScanning) return;
+    if (!await LibraryScanPreferencesService().isLocalLibraryEnabled()) return;
 
     final service = ref.read(libraryScannerServiceProvider);
 
@@ -105,9 +107,10 @@ class LibraryScannerNotifier extends Notifier<ScanState> {
     }
   }
 
-  /// Scan all registered folders.
+  /// Scan all registered folders. No-op while the local library toggle is off.
   Future<void> scanAllFolders() async {
     if (state.isScanning) return;
+    if (!await LibraryScanPreferencesService().isLocalLibraryEnabled()) return;
 
     final service = ref.read(libraryScannerServiceProvider);
 

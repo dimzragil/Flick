@@ -1,7 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flick/services/audio_preload_service.dart';
 import 'package:flick/services/library_scan_preferences_service.dart';
+import 'package:flick/services/scan_session_controller.dart';
+
+import 'auto_sync_provider.dart';
+import 'library_scanner_provider.dart';
 
 final libraryScanPreferencesServiceProvider =
     Provider<LibraryScanPreferencesService>((ref) {
@@ -99,6 +105,30 @@ class LibraryScanPreferencesNotifier extends Notifier<LibraryScanPreferences> {
       // A pass from an earlier scan may still be decoding. Turning the setting
       // off has to stop it (and its floating pill), not just prevent the next.
       preloadService.cancel();
+    }
+  }
+
+  /// Master switch for the on-device library. Toggling it at runtime also
+  /// (un)wires the background machinery:
+  /// - OFF: cancels any active scan session, stops the provider scanner, and
+  ///   unregisters the MediaStore observer + periodic metadata extraction.
+  /// - ON: re-registers the background machinery and kicks off a fresh scan.
+  Future<void> setLocalLibraryEnabled(bool value) async {
+    await _ensureLoaded();
+    if (state.localLibraryEnabled == value) return;
+    state = state.copyWith(localLibraryEnabled: value);
+    await ref
+        .read(libraryScanPreferencesServiceProvider)
+        .setLocalLibraryEnabled(value);
+    if (value) {
+      unawaited(ref.read(autoLibrarySyncServiceProvider).start());
+      unawaited(ref.read(libraryScannerProvider.notifier).scanAllFolders());
+    } else {
+      // Stops the in-flight scan session (the owning flow's cancel hook
+      // flips the scanner's cancel flag) and clears its UI state.
+      ScanSessionController.instance.stop();
+      ref.read(libraryScannerServiceProvider).cancelScan();
+      ref.read(autoLibrarySyncServiceProvider).stop();
     }
   }
 }

@@ -1923,6 +1923,20 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
           const SettingsSectionHeader('Library'),
           SettingsCard(
             children: [
+              ToggleSetting(
+                icon: LucideIcons.library,
+                title: 'Local Library',
+                subtitle:
+                    'Scan on-device music into Flick. Off keeps Flick '
+                    'TIDAL-only and disables all local scanning.',
+                value: libraryScanPreferences.localLibraryEnabled,
+                onChanged: (value) {
+                  ref
+                      .read(libraryScanPreferencesProvider.notifier)
+                      .setLocalLibraryEnabled(value);
+                },
+              ),
+              const SettingsDivider(),
               _buildLibraryInfo(),
               if (_showBatteryOptimizationNotice) ...[
                 const SettingsDivider(),

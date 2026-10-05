@@ -200,6 +200,12 @@ class LibraryScannerService {
            scanPreferencesService ?? LibraryScanPreferencesService(),
        _playlistService = playlistService ?? PlaylistService();
 
+  /// Local library is opt-in: every scan entry point no-ops while the toggle
+  /// is off, so a disabled library never touches MediaStore, the filesystem,
+  /// or the song database.
+  Future<bool> _isLocalLibraryEnabled() =>
+      _scanPreferencesService.isLocalLibraryEnabled();
+
   void cancelScan() {
     _isCancelled = true;
     // A detached preload pass outlives the scan stream; stop it too or it
@@ -293,6 +299,10 @@ class LibraryScannerService {
     String displayName, {
     ScanMode mode = ScanMode.quick,
   }) async* {
+    if (!await _isLocalLibraryEnabled()) {
+      devLog('Scan skipped for $displayName: local library disabled');
+      return;
+    }
     // Cancellation is sticky for the whole operation; only entry points may
     // clear it, so a Stop can't be wiped by a folder scan that starts late.
     _isCancelled = false;
@@ -2319,6 +2329,10 @@ class LibraryScannerService {
   }
 
   Stream<ScanProgress> scanAllFolders({ScanMode mode = ScanMode.quick}) async* {
+    if (!await _isLocalLibraryEnabled()) {
+      devLog('Scan skipped: local library disabled');
+      return;
+    }
     _isCancelled = false;
     final totalStopwatch = Stopwatch()..start();
     final folders = await _folderRepository.getAllFolders();
@@ -2451,6 +2465,10 @@ class LibraryScannerService {
   /// Efficiently check for externally deleted files across all folders.
   /// Only removes songs whose file paths no longer exist on disk.
   Future<void> refreshDeletions() async {
+    if (!await _isLocalLibraryEnabled()) {
+      devLog('Deletion refresh skipped: local library disabled');
+      return;
+    }
     final stopwatch = Stopwatch()..start();
     final folders = await _folderRepository.getAllFolders();
     if (folders.isEmpty) return;

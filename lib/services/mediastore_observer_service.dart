@@ -13,6 +13,10 @@ class MediaStoreObserverService {
   bool _isProcessing = false;
   bool _pendingRescan = false;
   DateTime? _pausedAt;
+  // Latched by stop() so an in-flight change can't re-arm a rescan after the
+  // local library was toggled off (or the service disposed); cleared by
+  // start().
+  bool _stopped = false;
 
   MediaStoreObserverService({
     MusicFolderService? musicFolderService,
@@ -24,6 +28,7 @@ class MediaStoreObserverService {
         _clock = clock ?? DateTime.now;
 
   void start() {
+    _stopped = false;
     try {
       _subscription = _musicFolderService.mediaStoreChanges.listen(
         _onChange,
@@ -37,6 +42,7 @@ class MediaStoreObserverService {
   }
 
   void stop() {
+    _stopped = true;
     _subscription?.cancel();
     _subscription = null;
     _debounce?.cancel();
@@ -44,6 +50,7 @@ class MediaStoreObserverService {
   }
 
   void _onChange(Map<String, dynamic> event) {
+    if (_stopped) return;
     _debounce?.cancel();
     if (_isProcessing) {
       _pendingRescan = true;
@@ -70,10 +77,12 @@ class MediaStoreObserverService {
       _pendingRescan = true;
       return;
     }
+    if (_stopped) return;
     _debounce = Timer(const Duration(seconds: 1), _processChange);
   }
 
   Future<void> _processChange() async {
+    if (_stopped) return;
     if (_isProcessing) {
       _pendingRescan = true;
       return;
@@ -88,10 +97,12 @@ class MediaStoreObserverService {
       devLog('MediaStoreObserver rescan failed: $e');
     } finally {
       _isProcessing = false;
-      if (_pendingRescan) {
+      if (_pendingRescan && !_stopped) {
         _pendingRescan = false;
         _debounce?.cancel();
         _debounce = Timer(const Duration(seconds: 3), _processChange);
+      } else {
+        _pendingRescan = false;
       }
     }
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'library_scan_preferences_service.dart';
 import 'music_folder_service.dart';
 import '../data/repositories/song_repository.dart';
 import '../data/entities/song_entity.dart';
@@ -8,6 +9,7 @@ import 'package:flick/core/utils/dev_log.dart';
 class BackgroundMetadataService {
   final MusicFolderService _musicFolderService;
   final SongRepository _songRepository;
+  final LibraryScanPreferencesService _scanPreferencesService;
 
   bool _isRunning = false;
   Timer? _timer;
@@ -15,8 +17,11 @@ class BackgroundMetadataService {
   BackgroundMetadataService({
     MusicFolderService? musicFolderService,
     SongRepository? songRepository,
+    LibraryScanPreferencesService? scanPreferencesService,
   }) : _musicFolderService = musicFolderService ?? MusicFolderService(),
-       _songRepository = songRepository ?? SongRepository();
+       _songRepository = songRepository ?? SongRepository(),
+       _scanPreferencesService =
+           scanPreferencesService ?? LibraryScanPreferencesService();
 
   void startPeriodicExtraction({
     Duration interval = const Duration(minutes: 5),
@@ -37,6 +42,9 @@ class BackgroundMetadataService {
 
   Future<int> extractPendingMetadata() async {
     if (_isRunning) return 0;
+    // Local library is opt-in: with the toggle off there is nothing to
+    // enrich and no DB query should run.
+    if (!await _scanPreferencesService.isLocalLibraryEnabled()) return 0;
     _isRunning = true;
 
     try {

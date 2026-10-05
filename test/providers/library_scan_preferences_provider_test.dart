@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flick/providers/library_scan_preferences_provider.dart';
 import 'package:flick/services/audio_preload_service.dart';
@@ -16,6 +17,15 @@ class _FakePreferencesService implements LibraryScanPreferencesService {
   Future<LibraryScanPreferences> getPreferences() {
     final completer = loadCompleter;
     return completer == null ? Future.value(loaded) : completer.future;
+  }
+
+  @override
+  Future<bool> isLocalLibraryEnabled() =>
+      Future.value(loaded.localLibraryEnabled);
+
+  @override
+  Future<void> setLocalLibraryEnabled(bool value) async {
+    writes.add(('localLibraryEnabled', value));
   }
 
   @override
@@ -150,5 +160,23 @@ void main() {
         .setPreloadAudioData(true);
 
     expect(preloadService.isAutoSuppressed, isFalse);
+  });
+
+  test('toggling local library on persists the choice', () async {
+    // The runtime side effects consult the real (mocked) SharedPreferences,
+    // which stays disabled here, so every side effect no-ops and the test
+    // only observes the notifier state + the persistence write.
+    SharedPreferences.setMockInitialValues({});
+    service.loaded = const LibraryScanPreferences();
+
+    container.read(libraryScanPreferencesProvider);
+    await pumpEventQueue();
+
+    await container
+        .read(libraryScanPreferencesProvider.notifier)
+        .setLocalLibraryEnabled(true);
+
+    expect(read().localLibraryEnabled, isTrue);
+    expect(service.writes, contains(('localLibraryEnabled', true)));
   });
 }

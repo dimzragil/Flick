@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auto_library_sync_service.dart';
@@ -24,7 +25,9 @@ final autoLibrarySyncServiceProvider = Provider<AutoLibrarySyncService>((ref) {
     backgroundMetadataService: backgroundMetadataService,
   );
 
-  service.start();
+  // Local library is opt-in: start() no-ops while the toggle is off, so no
+  // MediaStore observer or periodic metadata work runs on a fresh install.
+  unawaited(service.start());
 
   ref.onDispose(() {
     service.stop();

@@ -82,6 +82,7 @@ dev_dependencies:
   isar_community_generator: ^3.3.2
   json_serializable: 6.11.2
   riverpod_generator: 4.0.0+1
+  shared_preferences_platform_interface: ^2.4.2
   riverpod_lint: ^3.0.3
 
 flutter_launcher_icons:

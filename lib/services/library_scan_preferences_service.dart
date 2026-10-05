@@ -4,6 +4,7 @@ const int kIgnoredTrackMinSizeBytes = 500 * 1024;
 const int kIgnoredTrackMinDurationMs = 60 * 1000;
 
 class LibraryScanPreferences {
+  final bool localLibraryEnabled;
   final bool filterNonMusicFilesAndFolders;
   final bool ignoreTracksSmallerThan500Kb;
   final bool ignoreTracksShorterThan60Seconds;
@@ -12,6 +13,9 @@ class LibraryScanPreferences {
   final bool preloadAudioData;
 
   const LibraryScanPreferences({
+    // Owner's personal-fork choice: local files stay out of the library
+    // unless explicitly enabled (TIDAL covers everything).
+    this.localLibraryEnabled = false,
     this.filterNonMusicFilesAndFolders = true,
     this.ignoreTracksSmallerThan500Kb = false,
     this.ignoreTracksShorterThan60Seconds = false,
@@ -21,6 +25,7 @@ class LibraryScanPreferences {
   });
 
   LibraryScanPreferences copyWith({
+    bool? localLibraryEnabled,
     bool? filterNonMusicFilesAndFolders,
     bool? ignoreTracksSmallerThan500Kb,
     bool? ignoreTracksShorterThan60Seconds,
@@ -29,6 +34,7 @@ class LibraryScanPreferences {
     bool? preloadAudioData,
   }) {
     return LibraryScanPreferences(
+      localLibraryEnabled: localLibraryEnabled ?? this.localLibraryEnabled,
       filterNonMusicFilesAndFolders:
           filterNonMusicFilesAndFolders ?? this.filterNonMusicFilesAndFolders,
       ignoreTracksSmallerThan500Kb:
@@ -45,6 +51,7 @@ class LibraryScanPreferences {
 }
 
 class LibraryScanPreferencesService {
+  static const _localLibraryEnabledKey = 'library_scan_local_library_enabled';
   static const _filterNonMusicKey = 'library_scan_filter_non_music';
   static const _ignoreSmallTracksKey = 'library_scan_ignore_small_tracks';
   static const _ignoreShortTracksKey = 'library_scan_ignore_short_tracks';
@@ -55,6 +62,7 @@ class LibraryScanPreferencesService {
   Future<LibraryScanPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     return LibraryScanPreferences(
+      localLibraryEnabled: prefs.getBool(_localLibraryEnabledKey) ?? false,
       filterNonMusicFilesAndFolders: prefs.getBool(_filterNonMusicKey) ?? true,
       ignoreTracksSmallerThan500Kb:
           prefs.getBool(_ignoreSmallTracksKey) ?? false,
@@ -64,6 +72,18 @@ class LibraryScanPreferencesService {
       useDeepScan: prefs.getBool(_useDeepScanKey) ?? false,
       preloadAudioData: prefs.getBool(_preloadAudioDataKey) ?? false,
     );
+  }
+
+  /// Whether the local (on-device) music library is enabled. Defaults to
+  /// false: with the toggle off, every local-library code path no-ops.
+  Future<bool> isLocalLibraryEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_localLibraryEnabledKey) ?? false;
+  }
+
+  Future<void> setLocalLibraryEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_localLibraryEnabledKey, value);
   }
 
   Future<void> setFilterNonMusicFilesAndFolders(bool value) async {
