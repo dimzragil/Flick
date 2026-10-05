@@ -28,6 +28,7 @@ import 'package:flick/services/scan_session_controller.dart';
 import 'package:flick/services/library_scan_preferences_service.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/music_folder_service.dart';
+import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/vinyl_record.dart';
@@ -310,8 +311,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
     await PlaybackCachePreferencesService().setMaxCacheBytes(bytes);
     if (!mounted) return;
     setState(() => _cacheCapBytes = bytes);
-    // Shrinking the cap evicts immediately; staging prunes on next stage.
+    // Shrinking the cap evicts both caches immediately; staging prunes on
+    // next stage.
     await AlacConverterService.enforceCacheCap(bytes);
+    await NetworkCacheService().evictIfOverCap();
     await _refreshWavCacheSize();
     if (mounted) {
       _showToast(

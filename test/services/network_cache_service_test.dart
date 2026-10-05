@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:flick/services/network_cache_service.dart';
+import 'package:flick/services/playback_cache_preferences_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late Directory root;
@@ -16,9 +18,11 @@ void main() {
       sizeCapBytes: 100,
       rootDirectory: Directory('${root.path}/network_cache'),
     );
+    PlaybackCachePreferencesService.invalidateCache();
   });
 
   tearDown(() async {
+    PlaybackCachePreferencesService.invalidateCache();
     if (await root.exists()) await root.delete(recursive: true);
   });
 
@@ -36,11 +40,26 @@ void main() {
   });
 
   test('cap is enforced and oldest entry is evicted first', () async {
-    final p1 = await service.stash(1, 'old', List.filled(40, 0), extension: 'flac');
+    final p1 = await service.stash(
+      1,
+      'old',
+      List.filled(40, 0),
+      extension: 'flac',
+    );
     await File(p1).setLastModified(base);
-    final p2 = await service.stash(1, 'mid', List.filled(40, 0), extension: 'flac');
+    final p2 = await service.stash(
+      1,
+      'mid',
+      List.filled(40, 0),
+      extension: 'flac',
+    );
     await File(p2).setLastModified(base.add(const Duration(seconds: 1)));
-    final p3 = await service.stash(1, 'new', List.filled(40, 0), extension: 'flac');
+    final p3 = await service.stash(
+      1,
+      'new',
+      List.filled(40, 0),
+      extension: 'flac',
+    );
     await File(p3).setLastModified(base.add(const Duration(seconds: 2)));
 
     await service.stash(1, 'trigger', [1], extension: 'flac');
@@ -51,9 +70,19 @@ void main() {
   });
 
   test('recently accessed entries survive eviction', () async {
-    final p1 = await service.stash(1, 'old', List.filled(40, 0), extension: 'flac');
+    final p1 = await service.stash(
+      1,
+      'old',
+      List.filled(40, 0),
+      extension: 'flac',
+    );
     await File(p1).setLastModified(base);
-    final p2 = await service.stash(1, 'fresh', List.filled(40, 0), extension: 'flac');
+    final p2 = await service.stash(
+      1,
+      'fresh',
+      List.filled(40, 0),
+      extension: 'flac',
+    );
     await File(p2).setLastModified(base.add(const Duration(seconds: 1)));
 
     expect(await service.getPath(1, 'old', extension: 'flac'), isNotNull);
@@ -74,5 +103,48 @@ void main() {
     );
     expect(await File(path).exists(), isTrue);
     expect(await service.getPath(1, 'huge', extension: 'flac'), path);
+  });
+
+  test(
+    'eviction follows the Playback Cache Limit when no explicit cap',
+    () async {
+      SharedPreferences.setMockInitialValues({'playback_cache_max_bytes': 100});
+      PlaybackCachePreferencesService.invalidateCache();
+      final prefService = NetworkCacheService(
+        rootDirectory: Directory('${root.path}/network_cache'),
+      );
+
+      final p1 = await prefService.stash(
+        1,
+        'old',
+        List.filled(40, 0),
+        extension: 'flac',
+      );
+      await File(p1).setLastModified(base);
+      await prefService.stash(1, 'mid', List.filled(40, 0), extension: 'flac');
+      await prefService.stash(1, 'new', List.filled(40, 0), extension: 'flac');
+      await prefService.stash(1, 'trigger', [1], extension: 'flac');
+
+      expect(await prefService.getPath(1, 'old', extension: 'flac'), isNull);
+      expect(await prefService.getPath(1, 'mid', extension: 'flac'), isNotNull);
+      expect(await prefService.getPath(1, 'new', extension: 'flac'), isNotNull);
+    },
+  );
+
+  test('unlimited Playback Cache Limit disables eviction', () async {
+    SharedPreferences.setMockInitialValues({
+      'playback_cache_max_bytes': kPlaybackCacheUnlimited,
+    });
+    PlaybackCachePreferencesService.invalidateCache();
+    final prefService = NetworkCacheService(
+      rootDirectory: Directory('${root.path}/network_cache'),
+    );
+
+    await prefService.stash(1, 'a', List.filled(40, 0), extension: 'flac');
+    await prefService.stash(1, 'b', List.filled(40, 0), extension: 'flac');
+    await prefService.evictIfOverCap();
+
+    expect(await prefService.getPath(1, 'a', extension: 'flac'), isNotNull);
+    expect(await prefService.getPath(1, 'b', extension: 'flac'), isNotNull);
   });
 }

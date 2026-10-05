@@ -5,23 +5,27 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'playback_cache_preferences_service.dart';
+
 /// Bounded LRU download cache for network-sourced songs.
 ///
 /// Layout: `<appCache>/network_cache/<serverId>/<md5(serverId:remoteId)>.<ext>`.
 /// LRU by file mtime; eviction runs after each [stash] once the total exceeds
-/// [sizeCapBytes].
+/// the effective cap. When [sizeCapBytes] is null (the default) the effective
+/// cap is the user's live "Playback Cache Limit" preference
+/// ([PlaybackCachePreferencesService]); an explicit value overrides it.
+/// A cap <= 0 (see [kPlaybackCacheUnlimited]) disables eviction.
 class NetworkCacheService {
-  NetworkCacheService({
-    this.sizeCapBytes = defaultSizeCapBytes,
-    Directory? rootDirectory,
-  }) : _rootDirectory = rootDirectory;
+  NetworkCacheService({this.sizeCapBytes, Directory? rootDirectory})
+    : _rootDirectory = rootDirectory;
 
-  /// Default cap: 2 GiB.
+  /// Fallback cap: 2 GiB. Only used when the user preference is unreadable.
   static const defaultSizeCapBytes = 2 * 1024 * 1024 * 1024;
 
   static const _dirName = 'network_cache';
 
-  final int sizeCapBytes;
+  /// Explicit byte cap, or null to follow the user's Playback Cache Limit.
+  final int? sizeCapBytes;
 
   /// Test seam; when null, resolves the platform app cache directory.
   final Directory? _rootDirectory;
@@ -44,7 +48,9 @@ class NetworkCacheService {
     String remoteId, {
     String? extension,
   }) async {
-    final serverDir = Directory(p.join((await _root()).path, '$remoteServerId'));
+    final serverDir = Directory(
+      p.join((await _root()).path, '$remoteServerId'),
+    );
     if (!await serverDir.exists()) return null;
 
     final hash = _hash(remoteServerId, remoteId);
@@ -71,10 +77,15 @@ class NetworkCacheService {
     List<int> bytes, {
     String? extension,
   }) async {
-    final serverDir = Directory(p.join((await _root()).path, '$remoteServerId'));
+    final serverDir = Directory(
+      p.join((await _root()).path, '$remoteServerId'),
+    );
     await serverDir.create(recursive: true);
     final file = File(
-      p.join(serverDir.path, '${_hash(remoteServerId, remoteId)}.${extension ?? 'bin'}'),
+      p.join(
+        serverDir.path,
+        '${_hash(remoteServerId, remoteId)}.${extension ?? 'bin'}',
+      ),
     );
     await file.writeAsBytes(bytes, flush: true);
     await evictIfOverCap(protect: file);
@@ -89,10 +100,14 @@ class NetworkCacheService {
     String remoteId, {
     String? extension,
   }) async {
-    final serverDir = Directory(p.join((await _root()).path, '$remoteServerId'));
+    final serverDir = Directory(
+      p.join((await _root()).path, '$remoteServerId'),
+    );
     await serverDir.create(recursive: true);
-    return p.join(serverDir.path,
-        '${_hash(remoteServerId, remoteId)}.${extension ?? 'bin'}');
+    return p.join(
+      serverDir.path,
+      '${_hash(remoteServerId, remoteId)}.${extension ?? 'bin'}',
+    );
   }
 
   Future<String?> _findByHash(Directory serverDir, String hash) async {
@@ -107,6 +122,8 @@ class NetworkCacheService {
   // if a server with a huge cache ever shows up on profile.
   Future<void> evictIfOverCap({File? protect}) async {
     try {
+      final cap = await _effectiveCap();
+      if (cap <= 0) return; // unlimited: no eviction
       final root = await _root();
       if (!await root.exists()) return;
       final files = <File>[];
@@ -119,17 +136,31 @@ class NetworkCacheService {
           total += await entry.length();
         }
       }
-      if (total <= sizeCapBytes) return;
+      if (total <= cap) return;
 
-      files.sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
+      files.sort(
+        (a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()),
+      );
       for (final file in files) {
-        if (total <= sizeCapBytes) break;
+        if (total <= cap) break;
         if (file.path == protect?.path) continue;
         final length = await file.length();
         await file.delete();
         total -= length;
       }
     } catch (_) {}
+  }
+
+  /// Resolves the eviction cap: an explicit constructor [sizeCapBytes] wins,
+  /// otherwise the user's live Playback Cache Limit preference is used.
+  Future<int> _effectiveCap() async {
+    final override = sizeCapBytes;
+    if (override != null) return override;
+    try {
+      return await PlaybackCachePreferencesService().getMaxCacheBytes();
+    } catch (_) {
+      return defaultSizeCapBytes;
+    }
   }
 
   /// Delete orphaned `.part` files left behind by interrupted streams.
