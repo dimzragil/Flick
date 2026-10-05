@@ -90,9 +90,6 @@ class PlayerState {
     if (duration.inMilliseconds == 0) return 0.0;
     return (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
   }
-
-  /// Whether there is a song loaded.
-  bool get hasSong => currentSong != null;
 }
 
 /// Provider for the PlayerService singleton.

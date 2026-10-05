@@ -122,12 +122,6 @@ class RustAudioService {
   /// Check if the engine is initialized.
   bool get isInitialized => _initialized;
 
-  /// Whether the user explicitly requested the native high-res engine path.
-  bool get isHighResModeEnabled => _highResModeEnabled;
-
-  /// The engine currently selected by the Rust-side manager.
-  String get activeEngine => rust_audio.audioGetActiveEngine();
-
   /// Enable or disable high-res mode.
   Future<void> setHighResMode(bool enabled) async {
     _highResModeEnabled = enabled;

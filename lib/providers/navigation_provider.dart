@@ -6,8 +6,6 @@ import '../services/color_extraction_service.dart';
 import '../core/theme/app_colors.dart';
 import 'player_provider.dart';
 
-/// Navigation destinations in the app.
-enum NavDestination { menu, songs, settings }
 
 /// Notifier for navigation index state.
 class NavigationIndexNotifier extends Notifier<int> {

@@ -26,8 +26,6 @@ class VisualizerService {
   bool _attached = false;
   int _lastSessionId = -1;
 
-  /// Whether we have a live native visualizer feeding data.
-  bool get hasRealData => barHeightsNotifier.value != null;
 
   /// Attach the native visualizer to an Android audio session.
   Future<bool> attach(int sessionId) async {

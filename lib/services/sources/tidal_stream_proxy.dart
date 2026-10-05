@@ -443,11 +443,9 @@ class TidalStreamSession {
   final Completer<void> _readyCompleter = Completer<void>();
   final List<({int requiredBytes, Completer<void> completer})> _waiters = [];
 
-  bool get isFinished => _isFinished;
   bool get isCancelled => _isCancelled;
   bool get hasFailed => _pumpFailed;
   bool get isHealthy => !_isCancelled && !_pumpFailed;
-  int get bytesWritten => _bytesWritten;
 
   /// Start the session: downloads init + segment 0 and unblocks playback (~300ms).
   Future<void> start() async {
@@ -860,7 +858,6 @@ class TidalBtsStreamSession {
   bool _cancelled = false, _finished = false;
   bool _failed = false;
   bool get isCancelled => _cancelled;
-  bool get isFinished => _finished;
   bool get hasFailed => _failed;
   bool get isHealthy => !_cancelled && !_failed;
   int _written = 0;

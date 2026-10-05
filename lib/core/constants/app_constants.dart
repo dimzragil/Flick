@@ -53,13 +53,10 @@ class AppConstants {
 
   // Glassmorphism settings
   static const double glassBlurSigma = 15.0;
-  static const double glassBlurSigmaLight = 10.0;
   static const double glassBlurSigmaStrong = 20.0;
 
   // Navigation bar
   static const double navBarHeight = 80.0;
-  static const double navBarIconSize = 28.0;
-  static const double navBarBottomPadding = 20.0;
 
   // Song card
   static const double songCardArtSize = 64.0;
@@ -75,20 +72,10 @@ class AppConstants {
 
   // Font sizes
   static const double fontSizeXs = 10.0;
-  static const double fontSizeSm = 12.0;
   static const double fontSizeMd = 14.0;
-  static const double fontSizeLg = 16.0;
-  static const double fontSizeXl = 20.0;
-  static const double fontSizeXxl = 24.0;
-  static const double fontSizeDisplay = 32.0;
 
   // Card dimensions
-  static const double cardWidthSm = 100.0;
   static const double cardWidthMd = 120.0;
-  static const double cardWidthLg = 160.0;
-  static const double cardHeightSm = 120.0;
-  static const double cardHeightMd = 160.0;
-  static const double cardHeightLg = 200.0;
 
   // Container sizes
   static const double containerSizeSm = 40.0;

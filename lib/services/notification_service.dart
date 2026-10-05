@@ -12,7 +12,6 @@ class NotificationService {
   static const _channel = MethodChannel('com.mossapps.flick/player');
 
   bool _isNotificationVisible = false;
-  bool get isNotificationVisible => _isNotificationVisible;
 
   /// Initialize the notification service and set up method call handler
   /// for receiving commands from the notification buttons.

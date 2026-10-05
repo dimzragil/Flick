@@ -88,11 +88,3 @@ class AudioPlaybackService {
   /// Get audio player instance
   AudioPlayer get player => _player;
 }
-
-/// Factory for creating audio playback service
-class AudioPlaybackServiceFactory {
-  static AudioPlaybackService create() {
-    final player = AudioPlayer();
-    return AudioPlaybackService(player);
-  }
-}
