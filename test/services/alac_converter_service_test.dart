@@ -236,4 +236,12 @@ void main() {
     final manifest = await readManifest();
     expect(manifest, isEmpty);
   });
+
+  test('StreamingAlacConverter.open throws FileSystemException when file does not exist', () async {
+    final converter = StreamingAlacConverter();
+    expect(
+      () => converter.open('${root.path}/non_existent.m4a'),
+      throwsA(isA<FileSystemException>()),
+    );
+  });
 }

@@ -408,9 +408,11 @@ class StreamingAlacConverter {
   /// Open a file for streaming conversion
   Future<void> open(String filePath) async {
     final file = File(filePath);
-    final fileBytes = await file.readAsBytes();
+    if (!await file.exists()) {
+      throw FileSystemException('File not found', filePath);
+    }
 
-    _sessionId = alac_api.alacCreateSession(fileBytes: fileBytes);
+    _sessionId = alac_api.alacCreateSessionFromPath(path: filePath);
     _metadata = alac_api.alacGetMetadata(sessionId: _sessionId!);
   }
 
