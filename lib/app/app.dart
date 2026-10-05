@@ -142,7 +142,6 @@ class _MainShellState extends ConsumerState<MainShell>
     _previousSong = ref.read(currentSongProvider);
     _playerService = ref.read(playerServiceProvider);
     ref.read(equalizerProvider);
-    ref.read(updateCheckProvider.notifier);
     final initialConfig = ref.read(navBarConfigProvider);
     final defaultPage =
         initialConfig.orderedButtons.contains(NavBarButton.tidal)
@@ -313,7 +312,6 @@ class _MainShellState extends ConsumerState<MainShell>
       }
       _maybeOpenExternalPlayer(ref.read(currentSongProvider));
       _refreshLibraryDeletions();
-      ref.read(updateCheckProvider.notifier).refreshIfOnline();
       ref.read(autoLibrarySyncServiceProvider);
 
       final tutorialState = ref.read(tutorialProvider);
@@ -584,7 +582,6 @@ class _MainShellState extends ConsumerState<MainShell>
     if (state == AppLifecycleState.resumed) {
       _startIdleTimer();
       unawaited(ref.read(playerServiceProvider).onAppResumed());
-      ref.read(updateCheckProvider.notifier).refreshIfOnline();
       ref.read(autoLibrarySyncServiceProvider).notifyResumed();
     }
   }

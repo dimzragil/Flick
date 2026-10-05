@@ -62,16 +62,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
   List<RecentlyPlayedEntry> _recentEntries = const [];
   Map<ListeningRecapPeriod, ListeningRecap> _recaps = const {};
   bool _isHistoryLoading = true;
-  bool _showUpdateNotice = true;
   bool _pendingEngineRestart = false;
   Color? _heroDominantColor;
   String? _heroColorArtPath;
   late final AnimationController _welcomeCardController;
   late final Animation<double> _welcomeCardFade;
   late final Animation<Offset> _welcomeCardSlide;
-  late final AnimationController _updateNoticeController;
-  late final Animation<double> _updateNoticeFade;
-  late final Animation<Offset> _updateNoticeSlide;
   bool _isRefreshing = false;
   late final AnimationController _refreshController;
 
@@ -94,22 +90,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
           ),
         );
     _welcomeCardController.forward();
-    _updateNoticeController = AnimationController(
-      duration: const Duration(milliseconds: 500),
-      vsync: this,
-    );
-    _updateNoticeFade = CurvedAnimation(
-      parent: _updateNoticeController,
-      curve: Curves.easeOutCubic,
-    );
-    _updateNoticeSlide =
-        Tween<Offset>(begin: const Offset(0, -0.15), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _updateNoticeController,
-            curve: Curves.easeOutCubic,
-          ),
-        );
-    _updateNoticeController.forward();
     _refreshController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -123,7 +103,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
   @override
   void dispose() {
     _welcomeCardController.dispose();
-    _updateNoticeController.dispose();
     _refreshController.dispose();
     _historySubscription?.cancel();
     super.dispose();
@@ -194,7 +173,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
     ref.invalidate(songsProvider);
     ref.invalidate(favoritesProvider);
     ref.invalidate(playlistsProvider);
-    await ref.read(updateCheckProvider.notifier).refreshIfOnline(force: true);
     await _loadHistoryData(showLoadingState: false);
     _refreshController.stop();
     _refreshController.animateBack(
@@ -203,39 +181,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
       curve: Curves.bounceOut,
     );
     _isRefreshing = false;
-  }
-
-  Future<void> _openPlayStoreListing() async {
-    final marketUri = Uri.parse(UpdateCheckNotifier.flickPlayStoreMarketUrl);
-    final webUri = Uri.parse(UpdateCheckNotifier.flickPlayStoreUrl);
-
-    try {
-      var launched = await launchUrl(
-        marketUri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        launched = await launchUrl(
-          webUri,
-          mode: LaunchMode.externalApplication,
-        );
-      }
-      if (!launched) {
-        launched = await launchUrl(webUri, mode: LaunchMode.platformDefault);
-      }
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open the Play Store.')),
-        );
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open the Play Store: $error')),
-      );
-    }
   }
 
   void _navigateTo(BuildContext context, Widget screen) {
@@ -635,7 +580,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
     final playlistsAsync = ref.watch(playlistsProvider);
     final currentSong = ref.watch(currentSongProvider);
     final appPreferences = ref.watch(appPreferencesProvider);
-    final updateState = ref.watch(updateCheckProvider);
     final enginePreferenceAsync = ref.watch(audioEnginePreferenceProvider);
 
     final allSongs = songsAsync.value?.songs ?? const <Song>[];
@@ -745,29 +689,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                                 AppConstants.spacingMd,
                               ),
                               child: const EngineRestartNotice(),
-                            ),
-                          ),
-                        ),
-                      if (updateState.updateAvailable && _showUpdateNotice)
-                        SliverToBoxAdapter(
-                          child: AnimatedSize(
-                            duration: AppConstants.animationNormal,
-                            curve: Curves.easeInOut,
-                            alignment: Alignment.topCenter,
-                            child: FadeTransition(
-                              opacity: _updateNoticeFade,
-                              child: SlideTransition(
-                                position: _updateNoticeSlide,
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    AppConstants.spacingLg,
-                                    0,
-                                    AppConstants.spacingLg,
-                                    AppConstants.spacingMd,
-                                  ),
-                                  child: _buildUpdateNotice(context),
-                                ),
-                              ),
                             ),
                           ),
                         ),
@@ -1202,104 +1123,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUpdateNotice(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingMd,
-        vertical: AppConstants.spacingSm,
-      ),
-      decoration: BoxDecoration(
-        // ponytail: fixed warm amber gradient to signal "update" without alarm.
-        // Independent of album art. Change hue here if branding shifts.
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF3A2A14), Color(0xFF1F160A)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              LucideIcons.badgeAlert,
-              color: Colors.white,
-              size: 16,
-            ),
-          ),
-          const SizedBox(width: AppConstants.spacingMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Update Available',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppConstants.spacingXxs),
-                Text(
-                  'A newer Flick build is on the Play Store.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppConstants.spacingSm),
-          FilledButton.icon(
-            onPressed: _openPlayStoreListing,
-            icon: const Icon(LucideIcons.externalLink, size: 14),
-            label: const Text('Update'),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF0F1720),
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMd,
-                vertical: AppConstants.spacingXs,
-              ),
-              textStyle: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(fontSize: 13),
-            ),
-          ),
-          IconButton(
-            onPressed: () {
-              setState(() => _showUpdateNotice = false);
-              ScaffoldMessenger.of(context)
-                ..removeCurrentSnackBar()
-                ..showSnackBar(
-                  SnackBar(
-                    content: const Text('Update notice hidden.'),
-                    behavior: SnackBarBehavior.floating,
-                    duration: const Duration(seconds: 4),
-                    action: SnackBarAction(
-                      label: 'Undo',
-                      onPressed: () => setState(() => _showUpdateNotice = true),
-                    ),
-                  ),
-                );
-            },
-            icon: const Icon(LucideIcons.x, size: 18, color: Colors.white70),
-            visualDensity: VisualDensity.compact,
           ),
         ],
       ),
