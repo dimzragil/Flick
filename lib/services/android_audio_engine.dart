@@ -399,6 +399,7 @@ class AndroidAudioEngine implements AudioEngine {
           // concat replaced by a newer load — abort quietly.
           return;
         }
+        if (gen != _fillGeneration) return;
         _childPlaylistIndices.insert(j, j);
       }
     } finally {
