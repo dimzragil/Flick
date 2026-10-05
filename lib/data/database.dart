@@ -138,23 +138,6 @@ class Database {
     _instance = null;
   }
 
-  /// Get the songs collection.
-  static IsarCollection<SongEntity> get songs => instance.songEntitys;
-
-  /// Get the folders collection.
-  static IsarCollection<FolderEntity> get folders => instance.folderEntitys;
-
-  /// Get the recently played collection.
-  static IsarCollection<RecentlyPlayedEntity> get recentlyPlayed =>
-      _instance!.recentlyPlayedEntitys;
-
-  /// Get the artists collection.
-  static IsarCollection<ArtistEntity> get artists => _instance!.artistEntitys;
-
-  /// Get the song audio cache collection.
-  static IsarCollection<SongAudioCacheEntity> get songAudioCache =>
-      _instance!.songAudioCacheEntitys;
-
   /// Get the network server collection.
   static IsarCollection<NetworkServerEntity> get networkServers =>
       _instance!.networkServerEntitys;

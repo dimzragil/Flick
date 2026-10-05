@@ -491,7 +491,6 @@ class PlayerService {
   final RustAudioService _rustAudioService = RustAudioService();
   final Uac2Service _uac2Service = Uac2Service.instance;
   final CastingService _castingService = CastingService.instance;
-  bool get isCasting => _castingService.isActive;
   final ColorExtractionService _colorExtractionService =
       ColorExtractionService();
   final AlbumColorModePreferenceService _albumColorModePreferenceService =
@@ -731,14 +730,12 @@ class PlayerService {
 
   // Playback Context
   PlaybackContext _playbackContext = PlaybackContext.unknown;
-  PlaybackContext get playbackContext => _playbackContext;
   final ValueNotifier<PlaybackContext> playbackContextNotifier = ValueNotifier(
     PlaybackContext.unknown,
   );
 
   // Advance List Order
   AdvanceListOrder _advanceListOrder = AdvanceListOrder.alphabetical;
-  AdvanceListOrder get advanceListOrder => _advanceListOrder;
 
   // Wrap-around queue: tapping a song mid-list queues preceding songs at the end.
   final ValueNotifier<bool> wrapAroundQueueNotifier = ValueNotifier(true);
@@ -1757,7 +1754,6 @@ class PlayerService {
   int? get androidAudioSessionId => _justAudioPlayer?.androidAudioSessionId;
   Stream<PlaybackState> get playbackStateStream =>
       _playbackManager.playbackState;
-  PlaybackState? get latestPlaybackState => _playbackManager.latestState;
   ValueNotifier<AudioEngineType> get selectedPlaybackModeNotifier =>
       _sessionManager.selectedModeNotifier;
   ValueNotifier<AudioEngineType?> get initializedPlaybackModeNotifier =>
@@ -5991,9 +5987,6 @@ class PlayerService {
     return null;
   }
 
-  bool get hasNext => peekNext != null;
-  bool get hasPrevious => peekPrevious != null;
-
   /// Rebuild the current playlist with updated settings
   Future<void> _rebuildPlaylist() async {
     if (_usingRustBackend) return;
@@ -6290,8 +6283,6 @@ class PlayerService {
   }
 
   // ==================== ReplayGain ====================
-
-  ReplayGainAppliedState get replayGainState => _replayGainState;
 
   /// Compute the effective ReplayGain (dB) for [song] from the persisted
   /// settings. 0.0 when the mode is off or tags are missing.
@@ -6698,8 +6689,6 @@ class PlayerService {
     _sleepTimerCountdown = null;
     sleepTimerRemainingNotifier.value = null;
   }
-
-  bool get isSleepTimerActive => sleepTimerRemainingNotifier.value != null;
 
   void _armAutoSyncGuard(Song song) {
     _autoSyncGuardSongId = song.id;
