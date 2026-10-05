@@ -6,28 +6,13 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Uac2ErrorCode`, `Uac2HotplugEvent`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Uac2AudioFormat`, `Uac2DeviceCapabilities`, `Uac2ErrorCode`, `Uac2HotplugEvent`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 bool uac2IsAvailable() => RustLib.instance.api.crateApiUac2ApiUac2IsAvailable();
 
 List<Uac2DeviceInfo> uac2ListDevices() =>
     RustLib.instance.api.crateApiUac2ApiUac2ListDevices();
-
-Future<Uac2DeviceCapabilities> uac2GetDeviceCapabilities({
-  required Uac2DeviceInfo device,
-}) => RustLib.instance.api.crateApiUac2ApiUac2GetDeviceCapabilities(
-  device: device,
-);
-
-Future<bool> uac2SelectDevice({required Uac2DeviceInfo device}) =>
-    RustLib.instance.api.crateApiUac2ApiUac2SelectDevice(device: device);
-
-Future<bool> uac2StartStreaming({required Uac2AudioFormat format}) =>
-    RustLib.instance.api.crateApiUac2ApiUac2StartStreaming(format: format);
-
-Future<bool> uac2StopStreaming() =>
-    RustLib.instance.api.crateApiUac2ApiUac2StopStreaming();
 
 Future<void> uac2Disconnect() =>
     RustLib.instance.api.crateApiUac2ApiUac2Disconnect();
@@ -71,37 +56,6 @@ Future<bool> uac2ActivateFallback() =>
 Future<void> uac2DeactivateFallback() =>
     RustLib.instance.api.crateApiUac2ApiUac2DeactivateFallback();
 
-bool uac2IsUsbSessionActive() =>
-    RustLib.instance.api.crateApiUac2ApiUac2IsUsbSessionActive();
-
-void uac2ForceReleaseUsbSession() =>
-    RustLib.instance.api.crateApiUac2ApiUac2ForceReleaseUsbSession();
-
-class Uac2AudioFormat {
-  final int sampleRate;
-  final int bitDepth;
-  final int channels;
-
-  const Uac2AudioFormat({
-    required this.sampleRate,
-    required this.bitDepth,
-    required this.channels,
-  });
-
-  @override
-  int get hashCode =>
-      sampleRate.hashCode ^ bitDepth.hashCode ^ channels.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Uac2AudioFormat &&
-          runtimeType == other.runtimeType &&
-          sampleRate == other.sampleRate &&
-          bitDepth == other.bitDepth &&
-          channels == other.channels;
-}
-
 class Uac2ConnectionState {
   final String state;
   final int reconnectAttempts;
@@ -127,37 +81,6 @@ class Uac2ConnectionState {
           state == other.state &&
           reconnectAttempts == other.reconnectAttempts &&
           autoReconnectEnabled == other.autoReconnectEnabled;
-}
-
-class Uac2DeviceCapabilities {
-  final Uint32List supportedSampleRates;
-  final Uint8List supportedBitDepths;
-  final Uint16List supportedChannels;
-  final String deviceType;
-
-  const Uac2DeviceCapabilities({
-    required this.supportedSampleRates,
-    required this.supportedBitDepths,
-    required this.supportedChannels,
-    required this.deviceType,
-  });
-
-  @override
-  int get hashCode =>
-      supportedSampleRates.hashCode ^
-      supportedBitDepths.hashCode ^
-      supportedChannels.hashCode ^
-      deviceType.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Uac2DeviceCapabilities &&
-          runtimeType == other.runtimeType &&
-          supportedSampleRates == other.supportedSampleRates &&
-          supportedBitDepths == other.supportedBitDepths &&
-          supportedChannels == other.supportedChannels &&
-          deviceType == other.deviceType;
 }
 
 class Uac2DeviceInfo {

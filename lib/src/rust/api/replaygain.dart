@@ -19,10 +19,6 @@ Future<void> writeReplaygainTags({
   fields: fields,
 );
 
-/// Read ReplayGain tags from a file (None when missing or unreadable).
-Future<ReplayGainTagFields?> readReplaygainTags({required String path}) =>
-    RustLib.instance.api.crateApiReplaygainReadReplaygainTags(path: path);
-
 class ReplayGainTagFields {
   /// Loudness gain for the track (dB).
   final double? trackGainDb;

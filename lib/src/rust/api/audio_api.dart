@@ -135,11 +135,6 @@ void audioSetAudioApi({required AudioApiPreference preference}) => RustLib
     .crateApiAudioApiAudioSetAudioApi(preference: preference);
 
 /// Read the currently-staged Android audio-API preference. Returns the string
-/// key ("auto" / "aaudio" / "opensles") so Dart can mirror UI selection without
-/// importing the generated enum mirror.
-String audioGetAudioApi() =>
-    RustLib.instance.api.crateApiAudioApiAudioGetAudioApi();
-
 /// Toggle experimental 432 Hz tuning. When enabled the engine leaves bit-perfect
 /// passthrough, runs the DSP path, and pins playback speed at 432/440.
 void audioSet432HzTuningEnabled({required bool enabled}) => RustLib.instance.api
@@ -148,14 +143,6 @@ void audioSet432HzTuningEnabled({required bool enabled}) => RustLib.instance.api
 /// Set the DSD output mode from Dart. 0 = PCM decimation, 1 = DoP, 2 = Native, 3 = Auto.
 void audioSetDsdOutputMode({required int mode}) =>
     RustLib.instance.api.crateApiAudioApiAudioSetDsdOutputMode(mode: mode);
-
-/// Toggle DSD bit-reverse override. When on, inverts the bit-order normalization
-/// so that MSB-first sources get reversed and LSB-first sources pass through.
-/// Use this to diagnose white-noise from wrong bit order.
-void audioSetDsdBitReverseOverride({required bool enabled}) => RustLib
-    .instance
-    .api
-    .crateApiAudioApiAudioSetDsdBitReverseOverride(enabled: enabled);
 
 /// Wire-packing variant for the DAP-internal native-DSD shim transport:
 /// 0 = Auto/BE-MSB, 1 = LE-MSB, 2 = BE-LSB, 3 = LE-LSB. Wrong = hiss.

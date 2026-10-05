@@ -79,95 +79,6 @@ pub fn uac2_list_devices() -> Result<Vec<Uac2DeviceInfo>, String> {
     }
 }
 
-pub fn uac2_get_device_capabilities(
-    device: Uac2DeviceInfo,
-) -> Result<Uac2DeviceCapabilities, String> {
-    #[cfg(feature = "uac2")]
-    {
-        let devices = uac2::enumerate_uac2_devices().map_err(|e| e.user_message())?;
-
-        let found = devices.into_iter().find(|d| {
-            d.identification.vendor_id == device.vendor_id
-                && d.identification.product_id == device.product_id
-                && d.identification.serial == device.serial
-        });
-
-        if let Some(dev) = found {
-            let caps = dev.capabilities();
-
-            let mut all_sample_rates = std::collections::HashSet::new();
-            let mut all_bit_depths = std::collections::HashSet::new();
-            let mut all_channels = std::collections::HashSet::new();
-
-            for format in &caps.supported_formats {
-                for rate in &format.sample_rates {
-                    all_sample_rates.insert(rate.hz());
-                }
-                all_bit_depths.insert(format.bit_depth.bits());
-                all_channels.insert(format.channels.count());
-            }
-
-            Ok(Uac2DeviceCapabilities {
-                supported_sample_rates: all_sample_rates.into_iter().collect(),
-                supported_bit_depths: all_bit_depths.into_iter().collect(),
-                supported_channels: all_channels.into_iter().collect(),
-                device_type: format!("{:?}", caps.device_type),
-            })
-        } else {
-            Err("Device not found".to_string())
-        }
-    }
-    #[cfg(not(feature = "uac2"))]
-    {
-        Err("UAC2 not available".to_string())
-    }
-}
-
-pub fn uac2_select_device(device: Uac2DeviceInfo) -> Result<bool, String> {
-    #[cfg(feature = "uac2")]
-    {
-        log::info!(
-            "Selecting UAC2 device: {} (VID: {:04x}, PID: {:04x})",
-            device.product_name,
-            device.vendor_id,
-            device.product_id
-        );
-        Ok(true)
-    }
-    #[cfg(not(feature = "uac2"))]
-    {
-        Err("UAC2 not available".to_string())
-    }
-}
-
-pub fn uac2_start_streaming(format: Uac2AudioFormat) -> Result<bool, String> {
-    #[cfg(feature = "uac2")]
-    {
-        log::info!(
-            "Starting UAC2 streaming: {}Hz, {}bit, {}ch",
-            format.sample_rate,
-            format.bit_depth,
-            format.channels
-        );
-        Ok(true)
-    }
-    #[cfg(not(feature = "uac2"))]
-    {
-        Err("UAC2 not available".to_string())
-    }
-}
-
-pub fn uac2_stop_streaming() -> Result<bool, String> {
-    #[cfg(feature = "uac2")]
-    {
-        log::info!("Stopping UAC2 streaming");
-        Ok(true)
-    }
-    #[cfg(not(feature = "uac2"))]
-    {
-        Err("UAC2 not available".to_string())
-    }
-}
 
 pub fn uac2_disconnect() -> Result<(), String> {
     #[cfg(feature = "uac2")]
@@ -367,25 +278,5 @@ pub fn uac2_deactivate_fallback() -> Result<(), String> {
     #[cfg(not(feature = "uac2"))]
     {
         Err("UAC2 not available".to_string())
-    }
-}
-
-#[flutter_rust_bridge::frb(sync)]
-pub fn uac2_is_usb_session_active() -> bool {
-    #[cfg(all(feature = "uac2", target_os = "android"))]
-    {
-        crate::uac2::is_usb_session_active()
-    }
-    #[cfg(not(all(feature = "uac2", target_os = "android")))]
-    {
-        false
-    }
-}
-
-#[flutter_rust_bridge::frb(sync)]
-pub fn uac2_force_release_usb_session() {
-    #[cfg(all(feature = "uac2", target_os = "android"))]
-    {
-        crate::uac2::force_release_usb_session();
     }
 }

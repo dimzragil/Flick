@@ -54,13 +54,6 @@ void alacSeek({required BigInt sessionId, required double timeSeconds}) =>
       timeSeconds: timeSeconds,
     );
 
-/// Seek to an exact PCM frame, returning the frame the session landed on.
-BigInt alacSeekFrame({required BigInt sessionId, required BigInt frame}) =>
-    RustLib.instance.api.crateApiAlacConverterApiAlacSeekFrame(
-      sessionId: sessionId,
-      frame: frame,
-    );
-
 /// Read exactly `frame_count` interleaved PCM frames starting at `start_frame`.
 ///
 /// Returns fewer bytes at end of stream.

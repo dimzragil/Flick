@@ -13,7 +13,6 @@ import 'api/logging.dart';
 import 'api/metadata_editor.dart';
 import 'api/replaygain.dart';
 import 'api/scanner.dart';
-import 'api/simple.dart';
 import 'api/smb_api.dart';
 import 'api/uac2_api.dart';
 import 'audio/crossfader.dart';
@@ -153,12 +152,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_8(dynamic raw);
 
   @protected
-  Uac2AudioFormat dco_decode_box_autoadd_uac_2_audio_format(dynamic raw);
-
-  @protected
-  Uac2DeviceInfo dco_decode_box_autoadd_uac_2_device_info(dynamic raw);
-
-  @protected
   BigInt dco_decode_box_autoadd_usize(dynamic raw);
 
   @protected
@@ -205,12 +198,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Float32List dco_decode_list_prim_f_32_strict(dynamic raw);
-
-  @protected
-  Uint16List dco_decode_list_prim_u_16_strict(dynamic raw);
-
-  @protected
-  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -267,11 +254,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_opt_box_autoadd_record_bool_f_32_list_eq_band_spec(dynamic raw);
 
   @protected
-  ReplayGainTagFields? dco_decode_opt_box_autoadd_replay_gain_tag_fields(
-    dynamic raw,
-  );
-
-  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
@@ -311,9 +293,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ScanOptions dco_decode_scan_options(dynamic raw);
 
   @protected
-  ScanResult dco_decode_scan_result(dynamic raw);
-
-  @protected
   SmbEntry dco_decode_smb_entry(dynamic raw);
 
   @protected
@@ -341,13 +320,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_u_8(dynamic raw);
 
   @protected
-  Uac2AudioFormat dco_decode_uac_2_audio_format(dynamic raw);
-
-  @protected
   Uac2ConnectionState dco_decode_uac_2_connection_state(dynamic raw);
-
-  @protected
-  Uac2DeviceCapabilities dco_decode_uac_2_device_capabilities(dynamic raw);
 
   @protected
   Uac2DeviceInfo dco_decode_uac_2_device_info(dynamic raw);
@@ -524,16 +497,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_8(SseDeserializer deserializer);
 
   @protected
-  Uac2AudioFormat sse_decode_box_autoadd_uac_2_audio_format(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  Uac2DeviceInfo sse_decode_box_autoadd_uac_2_device_info(
-    SseDeserializer deserializer,
-  );
-
-  @protected
   BigInt sse_decode_box_autoadd_usize(SseDeserializer deserializer);
 
   @protected
@@ -586,12 +549,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Float32List sse_decode_list_prim_f_32_strict(SseDeserializer deserializer);
-
-  @protected
-  Uint16List sse_decode_list_prim_u_16_strict(SseDeserializer deserializer);
-
-  @protected
-  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -662,11 +619,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  ReplayGainTagFields? sse_decode_opt_box_autoadd_replay_gain_tag_fields(
-    SseDeserializer deserializer,
-  );
-
-  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
@@ -712,9 +664,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ScanOptions sse_decode_scan_options(SseDeserializer deserializer);
 
   @protected
-  ScanResult sse_decode_scan_result(SseDeserializer deserializer);
-
-  @protected
   SmbEntry sse_decode_smb_entry(SseDeserializer deserializer);
 
   @protected
@@ -742,15 +691,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_u_8(SseDeserializer deserializer);
 
   @protected
-  Uac2AudioFormat sse_decode_uac_2_audio_format(SseDeserializer deserializer);
-
-  @protected
   Uac2ConnectionState sse_decode_uac_2_connection_state(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  Uac2DeviceCapabilities sse_decode_uac_2_device_capabilities(
     SseDeserializer deserializer,
   );
 
@@ -962,18 +903,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_8(int self, SseSerializer serializer);
 
   @protected
-  void sse_encode_box_autoadd_uac_2_audio_format(
-    Uac2AudioFormat self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_box_autoadd_uac_2_device_info(
-    Uac2DeviceInfo self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_box_autoadd_usize(BigInt self, SseSerializer serializer);
 
   @protected
@@ -1036,18 +965,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prim_f_32_strict(
     Float32List self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_prim_u_16_strict(
-    Uint16List self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_prim_u_32_strict(
-    Uint32List self,
     SseSerializer serializer,
   );
 
@@ -1133,12 +1050,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_opt_box_autoadd_replay_gain_tag_fields(
-    ReplayGainTagFields? self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
@@ -1193,9 +1104,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_scan_options(ScanOptions self, SseSerializer serializer);
 
   @protected
-  void sse_encode_scan_result(ScanResult self, SseSerializer serializer);
-
-  @protected
   void sse_encode_smb_entry(SmbEntry self, SseSerializer serializer);
 
   @protected
@@ -1226,20 +1134,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_u_8(int self, SseSerializer serializer);
 
   @protected
-  void sse_encode_uac_2_audio_format(
-    Uac2AudioFormat self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_uac_2_connection_state(
     Uac2ConnectionState self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_uac_2_device_capabilities(
-    Uac2DeviceCapabilities self,
     SseSerializer serializer,
   );
 

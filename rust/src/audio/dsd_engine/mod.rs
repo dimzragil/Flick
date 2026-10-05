@@ -18,8 +18,3 @@ static DSD_DUMPS_ENABLED: AtomicBool = AtomicBool::new(false);
 pub fn dsd_dumps_enabled() -> bool {
     DSD_DUMPS_ENABLED.load(Ordering::Relaxed)
 }
-
-#[allow(dead_code)]
-pub fn set_dsd_dumps_enabled(enabled: bool) {
-    DSD_DUMPS_ENABLED.store(enabled, Ordering::Relaxed);
-}

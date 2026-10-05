@@ -7,18 +7,8 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `ape_cover_item`, `classify_scan_work`, `collect_file_entries`, `collect_playlist_file_entries`, `collect_scan_file_entries_with_progress`, `collect_scan_file_entries`, `directory_is_nomedia_blocked`, `extract_dff_artwork`, `extract_dff_metadata`, `extract_dsf_artwork`, `extract_dsf_metadata`, `extract_lofty_artwork`, `extract_lofty_metadata`, `extract_text_metadata_only`, `extract_wavpack_metadata`, `find_dff_id3_tag`, `id3_replaygains`, `is_in_nomedia_subtree`, `is_supported_audio_path`, `is_supported_playlist_path`, `lofty_replaygains`, `parse_rg_db`, `parse_rg_peak`, `wavpack_dsd_properties`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `FileScanEntry`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `FileScanEntry`, `ScanResult`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
-
-Future<ScanResult> scanRootDir({
-  required String rootPath,
-  required Map<String, PlatformInt64> knownFiles,
-  required ScanOptions scanOptions,
-}) => RustLib.instance.api.crateApiScannerScanRootDir(
-  rootPath: rootPath,
-  knownFiles: knownFiles,
-  scanOptions: scanOptions,
-);
 
 Stream<ScanChunk> scanMusicLibrary({
   required String rootPath,
@@ -224,29 +214,4 @@ class ScanOptions {
           filterNonMusicFilesAndFolders ==
               other.filterNonMusicFilesAndFolders &&
           forceFullRescan == other.forceFullRescan;
-}
-
-class ScanResult {
-  final List<AudioFileMetadata> newOrModified;
-  final List<String> deletedPaths;
-  final int totalFiles;
-
-  const ScanResult({
-    required this.newOrModified,
-    required this.deletedPaths,
-    required this.totalFiles,
-  });
-
-  @override
-  int get hashCode =>
-      newOrModified.hashCode ^ deletedPaths.hashCode ^ totalFiles.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ScanResult &&
-          runtimeType == other.runtimeType &&
-          newOrModified == other.newOrModified &&
-          deletedPaths == other.deletedPaths &&
-          totalFiles == other.totalFiles;
 }

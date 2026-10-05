@@ -7,17 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, Ordering};
 
 static DSD_BIT_REVERSE_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
-pub fn set_dsd_bit_reverse_override(enabled: bool) {
-    DSD_BIT_REVERSE_OVERRIDE.store(enabled, Ordering::Relaxed);
-    log::info!(
-        "[DSD-FORMATTER] Bit-reverse override: {}",
-        if enabled { "FORCED ON" } else { "auto (off)" }
-    );
-}
-
-pub fn dsd_bit_reverse_override() -> bool {
-    DSD_BIT_REVERSE_OVERRIDE.load(Ordering::Relaxed)
-}
 
 // Native-DSD wire byte order for the USB direct transport (DSD_U32 packing).
 // -1 = auto (defer to device quirk), 0 = force little-endian, 1 = force big-endian.

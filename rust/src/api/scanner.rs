@@ -105,30 +105,6 @@ fn is_supported_audio_path(path: &Path) -> bool {
     )
 }
 
-pub fn scan_root_dir(
-    root_path: String,
-    known_files: HashMap<String, i64>,
-    scan_options: ScanOptions,
-) -> ScanResult {
-    let files_on_disk = collect_scan_file_entries(&root_path, &scan_options);
-    let total_files = files_on_disk.len() as u32;
-    let (to_process, deleted_paths, _) = classify_scan_work(
-        files_on_disk,
-        &known_files,
-        scan_options.force_full_rescan,
-    );
-
-    let new_or_modified = to_process
-        .par_iter()
-        .filter_map(extract_text_metadata_only)
-        .collect();
-
-    ScanResult {
-        new_or_modified,
-        deleted_paths,
-        total_files,
-    }
-}
 
 pub async fn scan_music_library(
     root_path: String,

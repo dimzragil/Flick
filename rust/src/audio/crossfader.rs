@@ -377,38 +377,6 @@ impl Crossfader {
 }
 
 /// SIMD-optimized mixing for larger buffers.
-///
-/// This function processes samples in chunks for better cache utilization
-/// and potential auto-vectorization.
-#[inline]
-pub fn mix_buffers_with_gains(
-    source_a: &[f32],
-    gain_a: f32,
-    source_b: &[f32],
-    gain_b: f32,
-    output: &mut [f32],
-) {
-    let len = source_a.len().min(source_b.len()).min(output.len());
-
-    // Process in chunks of 8 for potential SIMD optimization
-    let chunks = len / 8;
-    let remainder = len % 8;
-
-    for i in 0..chunks {
-        let base = i * 8;
-        for j in 0..8 {
-            let idx = base + j;
-            output[idx] = source_a[idx] * gain_a + source_b[idx] * gain_b;
-        }
-    }
-
-    // Handle remaining samples
-    let base = chunks * 8;
-    for j in 0..remainder {
-        let idx = base + j;
-        output[idx] = source_a[idx] * gain_a + source_b[idx] * gain_b;
-    }
-}
 
 #[cfg(test)]
 mod tests {

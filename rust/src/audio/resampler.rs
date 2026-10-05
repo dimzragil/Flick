@@ -267,14 +267,6 @@ impl AudioResampler {
     }
 }
 
-/// Helper to create a resampler that converts to the default output rate.
-pub fn create_resampler_to_default(
-    input_rate: u32,
-    channels: usize,
-    chunk_size: usize,
-) -> Result<AudioResampler, String> {
-    AudioResampler::new(input_rate, DEFAULT_OUTPUT_SAMPLE_RATE, channels, chunk_size)
-}
 
 #[cfg(test)]
 mod tests {

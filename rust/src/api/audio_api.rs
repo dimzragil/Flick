@@ -897,12 +897,6 @@ pub fn audio_set_audio_api(preference: AudioApiPreference) {
 }
 
 /// Read the currently-staged Android audio-API preference. Returns the string
-/// key ("auto" / "aaudio" / "opensles") so Dart can mirror UI selection without
-/// importing the generated enum mirror.
-#[flutter_rust_bridge::frb(sync)]
-pub fn audio_get_audio_api() -> String {
-    ENGINE_MANAGER.get_audio_api_preference().as_str().to_string()
-}
 
 /// Toggle experimental 432 Hz tuning. When enabled the engine leaves bit-perfect
 /// passthrough, runs the DSP path, and pins playback speed at 432/440.
@@ -917,13 +911,6 @@ pub fn audio_set_dsd_output_mode(mode: u8) {
     DSD_OUTPUT_MODE.store(mode.min(3), Ordering::Relaxed);
 }
 
-/// Toggle DSD bit-reverse override. When on, inverts the bit-order normalization
-/// so that MSB-first sources get reversed and LSB-first sources pass through.
-/// Use this to diagnose white-noise from wrong bit order.
-#[flutter_rust_bridge::frb(sync)]
-pub fn audio_set_dsd_bit_reverse_override(enabled: bool) {
-    crate::audio::dsd_engine::output::set_dsd_bit_reverse_override(enabled);
-}
 
 /// Wire-packing variant for the DAP-internal native-DSD shim transport:
 /// 0 = Auto/BE-MSB, 1 = LE-MSB, 2 = BE-LSB, 3 = LE-LSB. Wrong = hiss.
