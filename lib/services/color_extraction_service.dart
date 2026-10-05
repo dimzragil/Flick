@@ -16,7 +16,29 @@ class ColorExtractionService {
   factory ColorExtractionService() => _instance;
 
   // Cache extracted colors to avoid recomputation
+  static const int _colorCacheMaxEntries = 64;
   final Map<String, Color> _colorCache = {};
+
+  @visibleForTesting
+  static const int maxCacheEntries = _colorCacheMaxEntries;
+
+  @visibleForTesting
+  int get cacheSize => _colorCache.length;
+
+  @visibleForTesting
+  void clearCacheForTesting() => _colorCache.clear();
+
+  @visibleForTesting
+  void cacheColorForTesting(String imagePath, Color color) {
+    _cacheColor(imagePath, color);
+  }
+
+  void _cacheColor(String imagePath, Color color) {
+    if (_colorCache.length >= _colorCacheMaxEntries) {
+      _colorCache.remove(_colorCache.keys.first);
+    }
+    _colorCache[imagePath] = color;
+  }
 
   /// Extracts the dominant/average color from an image file or remote URL.
   ///
@@ -69,7 +91,7 @@ class ColorExtractionService {
       final color = _calculateAverageColor(byteData, image.width, image.height);
 
       // Cache the result
-      _colorCache[imagePath] = color;
+      _cacheColor(imagePath, color);
 
       return color;
     } catch (e) {

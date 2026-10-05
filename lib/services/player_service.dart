@@ -421,6 +421,36 @@ bool shouldSkipSpeakerSinkRearmForTrivialBackground({
   return now.difference(backgroundedAt) < threshold;
 }
 
+@visibleForTesting
+void updateFifoBoundedMap<K, V>({
+  required Map<K, V> map,
+  required K key,
+  required V value,
+  required int maxEntries,
+  void Function(K evictedKey, V evictedValue)? onEvicted,
+}) {
+  if (!map.containsKey(key) && map.length >= maxEntries) {
+    final evictedKey = map.keys.first;
+    final evictedValue = map.remove(evictedKey);
+    if (evictedValue != null && onEvicted != null) {
+      onEvicted(evictedKey, evictedValue);
+    }
+  }
+  map[key] = value;
+}
+
+@visibleForTesting
+void updateFifoBoundedSet<T>({
+  required Set<T> set,
+  required T item,
+  required int maxEntries,
+}) {
+  if (!set.contains(item) && set.length >= maxEntries) {
+    set.remove(set.first);
+  }
+  set.add(item);
+}
+
 /// Singleton service to manage global audio playback state.
 ///
 /// Uses just_audio for playback with gapless playback support.
@@ -502,9 +532,66 @@ class PlayerService {
   static const MethodChannel _storageChannel = MethodChannel(
     'com.mossapps.flick/storage',
   );
+  static const int _playbackPathCacheMaxEntries = 64;
   final Map<String, String> _stagedPlaybackPathCache = {};
   final Map<String, String> _convertedPlaybackPathCache = {};
   final Set<String> _unsupportedWavConversionSources = <String>{};
+
+  void _cacheStagedPlaybackPath(String uri, String stagedPath) {
+    updateFifoBoundedMap(
+      map: _stagedPlaybackPathCache,
+      key: uri,
+      value: stagedPath,
+      maxEntries: _playbackPathCacheMaxEntries,
+      onEvicted: (_, evictedPath) =>
+          unawaited(_deleteTemporaryPlaybackFile(evictedPath)),
+    );
+  }
+
+  void _cacheConvertedPlaybackPath(String sourceKey, String convertedPath) {
+    updateFifoBoundedMap(
+      map: _convertedPlaybackPathCache,
+      key: sourceKey,
+      value: convertedPath,
+      maxEntries: _playbackPathCacheMaxEntries,
+    );
+  }
+
+  void _markUnsupportedWavConversion(String sourceKey) {
+    updateFifoBoundedSet(
+      set: _unsupportedWavConversionSources,
+      item: sourceKey,
+      maxEntries: _playbackPathCacheMaxEntries,
+    );
+  }
+
+  @visibleForTesting
+  static const int playbackPathCacheMaxEntries = _playbackPathCacheMaxEntries;
+
+  @visibleForTesting
+  int get stagedPlaybackPathCacheSize => _stagedPlaybackPathCache.length;
+
+  @visibleForTesting
+  int get convertedPlaybackPathCacheSize => _convertedPlaybackPathCache.length;
+
+  @visibleForTesting
+  int get unsupportedWavConversionSourcesSize =>
+      _unsupportedWavConversionSources.length;
+
+  @visibleForTesting
+  void cacheStagedPlaybackPathForTesting(String uri, String stagedPath) =>
+      _cacheStagedPlaybackPath(uri, stagedPath);
+
+  @visibleForTesting
+  void cacheConvertedPlaybackPathForTesting(
+    String sourceKey,
+    String convertedPath,
+  ) => _cacheConvertedPlaybackPath(sourceKey, convertedPath);
+
+  @visibleForTesting
+  void markUnsupportedWavConversionForTesting(String sourceKey) =>
+      _markUnsupportedWavConversion(sourceKey);
+
   final ValueNotifier<bool> usingRustBackendNotifier = ValueNotifier(false);
   final ValueNotifier<AudioOutputDiagnostics?> audioOutputDiagnosticsNotifier =
       ValueNotifier(null);
@@ -3928,7 +4015,7 @@ class PlayerService {
             'maxStagingBytes': maxStagingBytes,
           });
       if (stagedPath != null && stagedPath.isNotEmpty) {
-        _stagedPlaybackPathCache[uri] = stagedPath;
+        _cacheStagedPlaybackPath(uri, stagedPath);
         return stagedPath;
       }
     } catch (e) {
@@ -4007,7 +4094,7 @@ class PlayerService {
     // conversion. Avoids re-reading/re-converting every launch.
     final persisted = await AlacConverterService.tryGetCachedWav(localPath);
     if (persisted != null) {
-      _convertedPlaybackPathCache[sourceKey] = persisted;
+      _cacheConvertedPlaybackPath(sourceKey, persisted);
       _debugLog('[WAV-conv] using persisted cache: $persisted');
       return persisted;
     }
@@ -4021,7 +4108,7 @@ class PlayerService {
     );
     _debugLog('[WAV-conv] canConvert=$canConvert localPath=$localPath');
     if (!canConvert) {
-      _unsupportedWavConversionSources.add(sourceKey);
+      _markUnsupportedWavConversion(sourceKey);
       return null;
     }
 
@@ -4029,12 +4116,12 @@ class PlayerService {
       final convertedPath = await AlacConverterService.convertToWavFile(
         localPath,
       );
-      _convertedPlaybackPathCache[sourceKey] = convertedPath;
+      _cacheConvertedPlaybackPath(sourceKey, convertedPath);
       _unsupportedWavConversionSources.remove(sourceKey);
       _debugLog('[WAV-conv] success: $convertedPath');
       return convertedPath;
     } catch (e) {
-      _unsupportedWavConversionSources.add(sourceKey);
+      _markUnsupportedWavConversion(sourceKey);
       _debugLog('Failed to convert playback path to WAV: $e');
       return null;
     }
