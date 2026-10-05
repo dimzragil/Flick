@@ -3,13 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'lastfm_provider.dart';
-import 'listenbrainz_provider.dart';
 import '../models/playback_context.dart';
 import '../models/shuffle_mode.dart';
 import '../models/song.dart';
 import '../services/player_service.dart';
-import 'package:flick/core/utils/dev_log.dart';
 
 // Re-export LoopMode from player_service
 export '../services/player_service.dart' show LoopMode;
@@ -101,15 +98,6 @@ final playerServiceProvider = Provider<PlayerService>((ref) {
 /// Notifier that bridges PlayerService ValueNotifiers to Riverpod state.
 class PlayerNotifier extends Notifier<PlayerState> {
   late PlayerService _service;
-  Song? _lastTrackedSong;
-  int _lastTrackedPositionSeconds = 0;
-  int _lastTrackedDurationSeconds = 0;
-
-  /// Accumulated actual listen time for the current track (ignores seeks).
-  int _accumulatedListenSeconds = 0;
-
-  /// Expose accumulated listen seconds for lifecycle hooks (e.g. app pause).
-  int get accumulatedListenSeconds => _accumulatedListenSeconds;
 
   @override
   PlayerState build() {
@@ -138,35 +126,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // Listen to ValueNotifiers and update state (except position/bufferedPosition)
     void syncState() {
       final latestSong = _service.currentSongNotifier.value;
-      final latestDurationSeconds = _service.durationNotifier.value.inSeconds;
-
-      if (_lastTrackedSong != null && latestSong?.id != _lastTrackedSong!.id) {
-        _handleTrackEnded(
-          endedSong: _lastTrackedSong!,
-          listenedSeconds: _accumulatedListenSeconds,
-          trackDurationSeconds: _lastTrackedDurationSeconds,
-        );
-      }
-
-      if (latestSong != null && latestSong.id != _lastTrackedSong?.id) {
-        _handleTrackStarted(latestSong);
-        _accumulatedListenSeconds = 0;
-        _lastTrackedPositionSeconds = _service.positionNotifier.value.inSeconds;
-      }
-
-      final isSameTrack =
-          latestSong != null && latestSong.id == _lastTrackedSong?.id;
-
-      // Latch duration to highest value for the same track. During gapless
-      // transitions the player may briefly reset duration to 0 before the
-      // song notifier fires, which would wipe the stored value.
-      if (!isSameTrack) {
-        _lastTrackedDurationSeconds = latestDurationSeconds;
-      } else if (latestDurationSeconds > _lastTrackedDurationSeconds) {
-        _lastTrackedDurationSeconds = latestDurationSeconds;
-      }
-
-      _lastTrackedSong = latestSong;
 
       state = state.copyWith(
         currentSong: latestSong,
@@ -189,40 +148,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     void syncPosition() {
       final latestPosition = _service.positionNotifier.value;
-      final latestPositionSeconds = latestPosition.inSeconds;
-      final latestSong = _service.currentSongNotifier.value;
-      final latestDurationSeconds = _service.durationNotifier.value.inSeconds;
-
-      final isSameTrack =
-          latestSong != null && latestSong.id == _lastTrackedSong?.id;
-
-      if (isSameTrack) {
-        // Accumulate actual listen time: only count small position deltas
-        // (≤ 3s) as real playback. Larger jumps indicate seeks.
-        final delta = latestPositionSeconds - _lastTrackedPositionSeconds;
-        if (delta > 0 && delta <= 3) {
-          _accumulatedListenSeconds += delta;
-        }
-
-        final positionAdvanced =
-            latestPositionSeconds > _lastTrackedPositionSeconds;
-        if (positionAdvanced && !latestSong.isExternal) {
-          unawaited(
-            ref
-                .read(lastFmScrobbleProvider.notifier)
-                .onPlaybackProgress(
-                  artist: latestSong.artist,
-                  track: latestSong.title,
-                  album: latestSong.album,
-                  albumArtist: null,
-                  listenedSeconds: _accumulatedListenSeconds,
-                  trackDurationSeconds: latestDurationSeconds,
-                ),
-          );
-        }
-      }
-
-      _lastTrackedPositionSeconds = latestPositionSeconds;
 
       final now = DateTime.now();
       if (now.difference(lastPositionSync) > positionThrottle) {
@@ -267,72 +192,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
     });
 
     return initial;
-  }
-
-  void _handleTrackStarted(Song song) {
-    if (song.isExternal) {
-      return;
-    }
-    unawaited(
-      ref
-          .read(lastFmScrobbleProvider.notifier)
-          .onTrackStarted(
-            artist: song.artist,
-            track: song.title,
-            album: song.album,
-            albumArtist: null,
-            durationSeconds: song.duration.inSeconds,
-          )
-          .catchError((e) => devLog('[LastFm] onTrackStarted error: $e')),
-    );
-    unawaited(
-      ref
-          .read(listenBrainzScrobbleProvider.notifier)
-          .onTrackStarted(
-            artist: song.artist,
-            track: song.title,
-            album: song.album,
-            albumArtist: null,
-            durationSeconds: song.duration.inSeconds,
-          )
-          .catchError((e) => devLog('[ListenBrainz] onTrackStarted error: $e')),
-    );
-  }
-
-  void _handleTrackEnded({
-    required Song endedSong,
-    required int listenedSeconds,
-    required int trackDurationSeconds,
-  }) {
-    if (endedSong.isExternal) {
-      return;
-    }
-    unawaited(
-      ref
-          .read(lastFmScrobbleProvider.notifier)
-          .onTrackEnded(
-            artist: endedSong.artist,
-            track: endedSong.title,
-            album: endedSong.album,
-            albumArtist: null,
-            listenedSeconds: listenedSeconds,
-            trackDurationSeconds: trackDurationSeconds,
-          )
-          .catchError((e) => devLog('[LastFm] onTrackEnded error: $e')),
-    );
-    unawaited(
-      ref
-          .read(listenBrainzScrobbleProvider.notifier)
-          .onTrackEnded(
-            artist: endedSong.artist,
-            track: endedSong.title,
-            album: endedSong.album,
-            albumArtist: null,
-            listenedSeconds: listenedSeconds,
-            trackDurationSeconds: trackDurationSeconds,
-          )
-          .catchError((e) => devLog('[ListenBrainz] onTrackEnded error: $e')),
-    );
   }
 
   /// Play a song, optionally with a playlist context.

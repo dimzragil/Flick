@@ -580,46 +580,11 @@ class _MainShellState extends ConsumerState<MainShell>
       unawaited(WidgetSyncService.instance.pushPaused());
       unawaited(ref.read(playerServiceProvider).onAppPaused());
       unawaited(AppLog.instance.flushToDisk());
-
-      // Attempt to scrobble the current track before the app suspends.
-      // Only fire if playback is not active — audio apps often keep playing
-      // in the background, so treat this as a true "end" only when paused.
-      final playerState = ref.read(playerProvider);
-      final song = playerState.currentSong;
-      if (song != null && !song.isExternal && !playerState.isPlaying) {
-        final notifier = ref.read(playerProvider.notifier);
-        ref
-            .read(lastFmScrobbleProvider.notifier)
-            .onTrackEnded(
-              artist: song.artist,
-              track: song.title,
-              album: song.album,
-              albumArtist: null,
-              listenedSeconds: notifier.accumulatedListenSeconds,
-              trackDurationSeconds: playerState.duration.inSeconds,
-            );
-        ref
-            .read(listenBrainzScrobbleProvider.notifier)
-            .onTrackEnded(
-              artist: song.artist,
-              track: song.title,
-              album: song.album,
-              albumArtist: null,
-              listenedSeconds: notifier.accumulatedListenSeconds,
-              trackDurationSeconds: playerState.duration.inSeconds,
-            );
-      }
     }
     if (state == AppLifecycleState.resumed) {
       _startIdleTimer();
       unawaited(ref.read(playerServiceProvider).onAppResumed());
       ref.read(updateCheckProvider.notifier).refreshIfOnline();
-      ref.read(lastFmScrobbleQueueProvider).flush().catchError((e) {
-        devLog('[LastFm] queue flush on resume failed: $e');
-      });
-      ref.read(listenbrainzScrobbleQueueProvider).flush().catchError((e) {
-        devLog('[ListenBrainz] queue flush on resume failed: $e');
-      });
       ref.read(autoLibrarySyncServiceProvider).notifyResumed();
     }
   }

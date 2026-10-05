@@ -369,10 +369,6 @@ const List<ManualSection> kManualSections = [
         body: 'Show or hide home screen sections and tabs.',
       ),
       ManualEntry(
-        title: 'Integrations',
-        body: 'Last.fm and ListenBrainz scrobbling setup.',
-      ),
-      ManualEntry(
         title: 'Widgets',
         body: 'Customize the home screen widget appearance.',
       ),

@@ -11,7 +11,6 @@ import 'package:flick/features/settings/screens/library_settings_screen.dart';
 import 'package:flick/features/settings/screens/playback_display_settings_screen.dart';
 import 'package:flick/features/settings/screens/queue_settings_screen.dart';
 import 'package:flick/features/settings/screens/ui_customization_settings_screen.dart';
-import 'package:flick/features/settings/screens/integrations_settings_screen.dart';
 import 'package:flick/features/settings/screens/lyrics_settings_screen.dart';
 import 'package:flick/features/settings/screens/network_sources_screen.dart';
 import 'package:flick/features/settings/screens/player_layout_settings_screen.dart';
@@ -200,18 +199,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onTap: () => _navigate(
                             context,
                             const UiCustomizationSettingsScreen(),
-                          ),
-                        ),
-                        const SettingsDivider(),
-                        _CategoryTile(
-                          icon: LucideIcons.plug,
-                          iconBg: const Color(0xFF6F2D4A),
-                          iconFg: const Color(0xFFFF8BB8),
-                          title: 'Integrations',
-                          subtitle: 'Last.fm & ListenBrainz scrobbling',
-                          onTap: () => _navigate(
-                            context,
-                            const IntegrationsSettingsScreen(),
                           ),
                         ),
                         const SettingsDivider(),

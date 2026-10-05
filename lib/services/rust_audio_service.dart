@@ -638,7 +638,7 @@ class RustAudioService {
 
   /// Throttle polling when the app is backgrounded to save CPU/battery.
   /// Foreground: 50ms progress + 50ms events (smooth UI).
-  /// Background: 1500ms progress + 500ms events (notification & scrobble only).
+  /// Background: 1500ms progress + 500ms events (notification only).
   void setAppInBackground(bool inBackground) {
     if (_appInBackground == inBackground) return;
     _appInBackground = inBackground;
