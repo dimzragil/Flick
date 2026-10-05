@@ -153,7 +153,10 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Forget the refresh token in secure storage for a removed/signed-out server.
-  Future<void> forgetToken(int serverId) => _tokens.delete(serverId);
+  Future<void> forgetToken(int serverId) {
+    _refreshTokenCache.remove(serverId);
+    return _tokens.delete(serverId).timeout(_secureStorageTimeout);
+  }
 
   /// Retrieve cached stream resolution (sampleRate, bitDepth, quality, codec) for a track.
   TidalStreamResolution? getResolvedStream(String trackId) =>
@@ -350,8 +353,42 @@ class TidalService implements NetworkSourceService {
 
   final Map<int, Future<_TidalCreds>> _refreshInFlight = {};
 
+  /// Bound for secure-storage (platform channel) reads/writes in the token
+  /// path. The platform channel has no built-in timeout; without this bound a
+  /// wedged keystore call would hang the caller forever — and, via
+  /// [_refreshInFlight], every TIDAL API call for the rest of the session
+  /// (infinite loading spinners that never resolve and never error).
+  static const Duration _secureStorageTimeout = Duration(seconds: 15);
+
+  /// In-memory copy of secure-storage refresh tokens, keyed by server id.
+  /// Populated on first read/write so the hot API path doesn't pay a
+  /// platform-channel round trip per call — shrinking the window where a
+  /// wedged keystore can stall requests.
+  final Map<int, String> _refreshTokenCache = {};
+
+  /// Read the refresh token, preferring the in-memory copy. Throws
+  /// [TimeoutException] if the keystore doesn't answer in time — callers
+  /// must NOT swallow that as "no session".
+  Future<String?> _readRefreshToken(int serverId) async {
+    final cached = _refreshTokenCache[serverId];
+    if (cached != null) return cached;
+    final value = await _tokens.read(serverId).timeout(_secureStorageTimeout);
+    if (value != null && value.isNotEmpty) {
+      _refreshTokenCache[serverId] = value;
+    }
+    return value;
+  }
+
+  /// Persist the refresh token to secure storage and the in-memory copy.
+  /// Throws [TimeoutException] if the keystore doesn't answer in time.
+  Future<void> _writeRefreshToken(int serverId, String token) async {
+    await _tokens.write(serverId, token).timeout(_secureStorageTimeout);
+    _refreshTokenCache[serverId] = token;
+  }
+
   @visibleForTesting
-  Map<int, Future<TidalCreds>> get refreshInFlightForTesting => _refreshInFlight;
+  Map<int, Future<TidalCreds>> get refreshInFlightForTesting =>
+      _refreshInFlight;
 
   @visibleForTesting
   Future<TidalCreds> ensureValidTokenForTesting(NetworkServerEntity server) =>
@@ -380,7 +417,11 @@ class TidalService implements NetworkSourceService {
       } else {
         String? secureRefresh;
         try {
-          secureRefresh = await _tokens.read(server.id);
+          secureRefresh = await _readRefreshToken(server.id);
+        } on TimeoutException {
+          // Don't mask a wedged keystore as "no session" — surface it so the
+          // caller fails fast instead of hanging or misreporting.
+          rethrow;
         } catch (e) {
           devLog('Tidal secure storage read failed: $e');
         }
@@ -420,7 +461,9 @@ class TidalService implements NetworkSourceService {
     var refresh = old.refreshToken;
     if ((refresh == null || refresh.isEmpty) && server.id > 0) {
       try {
-        refresh = await _tokens.read(server.id);
+        refresh = await _readRefreshToken(server.id);
+      } on TimeoutException {
+        rethrow;
       } catch (e) {
         devLog('Tidal secure storage read failed: $e');
       }
@@ -474,7 +517,12 @@ class TidalService implements NetworkSourceService {
         creds.refreshToken!.isNotEmpty &&
         server.id > 0) {
       try {
-        await _tokens.write(server.id, creds.refreshToken!);
+        await _writeRefreshToken(server.id, creds.refreshToken!);
+      } on TimeoutException {
+        // The fresh token pair may not be persisted; failing fast is safer
+        // than proceeding with a session that can't survive the next refresh.
+        devLog('Tidal token secure persist timed out');
+        rethrow;
       } catch (e) {
         devLog('Tidal token secure persist failed: $e');
       }
@@ -507,18 +555,29 @@ class TidalService implements NetworkSourceService {
     if (server.id > 0) {
       String? existingSecure;
       try {
-        existingSecure = await store.read(server.id);
+        existingSecure = await store
+            .read(server.id)
+            .timeout(_secureStorageTimeout);
       } catch (_) {}
 
-      if (existingSecure == null &&
+      // Only strip the DB token once secure storage is CONFIRMED to hold it —
+      // otherwise a failed/timed-out write would lose the refresh token
+      // entirely and force a re-login.
+      if ((existingSecure == null || existingSecure.isEmpty) &&
           legacyRefresh != null &&
           legacyRefresh.isNotEmpty) {
         try {
-          await store.write(server.id, legacyRefresh);
+          await store
+              .write(server.id, legacyRefresh)
+              .timeout(_secureStorageTimeout);
+          existingSecure = legacyRefresh;
         } catch (_) {}
       }
 
-      if (legacyRefresh != null && legacyRefresh.isNotEmpty) {
+      if (legacyRefresh != null &&
+          legacyRefresh.isNotEmpty &&
+          existingSecure != null &&
+          existingSecure.isNotEmpty) {
         await _stripRefreshTokenFromDatabase(server, creds);
       }
     }

@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/services/sources/tidal_service.dart';
+import 'package:flick/services/sources/tidal_token_store.dart';
 
 NetworkServerEntity _server({
   int id = 42,
@@ -28,6 +29,58 @@ NetworkServerEntity _server({
     ..protocol = 'tidal'
     ..baseUrl = TidalService.tidalBaseUrl
     ..token = tokenJson;
+}
+
+/// Server with an expired access token and NO refresh_token in the DB JSON
+/// (post-migration shape) — forces the refresh path to read secure storage.
+NetworkServerEntity _serverStripped({int id = 43}) {
+  final tokenJson = jsonEncode({
+    'access_token': 'expired_access_token',
+    'user_id': 'user_123',
+    'country_code': 'US',
+    'expires_at_ms': DateTime.now().millisecondsSinceEpoch - 10000,
+  });
+
+  return NetworkServerEntity()
+    ..id = id
+    ..label = 'Tidal Test'
+    ..protocol = 'tidal'
+    ..baseUrl = TidalService.tidalBaseUrl
+    ..token = tokenJson;
+}
+
+/// Simulates a wedged platform keystore: read() never completes.
+class _HangingTokenStore extends TidalTokenStore {
+  @override
+  Future<String?> read(int serverId) => Completer<String?>().future;
+}
+
+/// In-memory fake token store.
+class _FakeTokenStore extends TidalTokenStore {
+  _FakeTokenStore([Map<int, String>? initial]) : _tokens = initial ?? {};
+
+  final Map<int, String> _tokens;
+
+  @override
+  Future<String?> read(int serverId) async => _tokens[serverId];
+
+  @override
+  Future<void> write(int serverId, String refreshToken) async {
+    _tokens[serverId] = refreshToken;
+  }
+
+  @override
+  Future<void> delete(int serverId) async {
+    _tokens.remove(serverId);
+  }
+}
+
+/// Token store whose writes always fail.
+class _FailingWriteTokenStore extends _FakeTokenStore {
+  @override
+  Future<void> write(int serverId, String refreshToken) async {
+    throw StateError('keystore unavailable');
+  }
 }
 
 void main() {
@@ -211,6 +264,85 @@ void main() {
       final creds2 = await call2;
       expect(creds2.accessToken, 'token_server_2');
       expect(tidal.refreshInFlightForTesting.containsKey(2), isFalse);
+    });
+
+    test('wedged secure storage read fails fast with TimeoutException and does not poison the in-flight map', () async {
+      final client = MockClient(
+        (request) async => http.Response('Not Found', 404),
+      );
+      final tidal = TidalService.create(
+        client: client,
+        tokenStore: _HangingTokenStore(),
+      );
+      final server = _serverStripped();
+
+      // Must throw TimeoutException (~15s), NOT hang forever.
+      final stopwatch = Stopwatch()..start();
+      await expectLater(
+        tidal.ensureValidTokenForTesting(server),
+        throwsA(isA<TimeoutException>()),
+      );
+      stopwatch.stop();
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 25)));
+
+      // In-flight map must be clean — no poisoning.
+      expect(tidal.refreshInFlightForTesting.containsKey(server.id), isFalse);
+
+      // Retry with a working store recovers (proves the map wasn't wedged).
+      final workingStore = _FakeTokenStore({server.id: 'good_refresh_token'});
+      final retryClient = MockClient((request) async {
+        if (request.url.path.contains('/oauth2/token')) {
+          return http.Response(
+            jsonEncode({
+              'access_token': 'recovered_access_token',
+              'refresh_token': 'recovered_refresh_token',
+              'expires_in': 3600,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not Found', 404);
+      });
+      final retryTidal = TidalService.create(
+        client: retryClient,
+        tokenStore: workingStore,
+      );
+      final creds = await retryTidal.ensureValidTokenForTesting(server);
+      expect(creds.accessToken, 'recovered_access_token');
+      expect(creds.refreshToken, 'recovered_refresh_token');
+    });
+
+    test('migration keeps the DB refresh token when secure storage write fails', () async {
+      final client = MockClient(
+        (request) async => http.Response('Not Found', 404),
+      );
+      final tidal = TidalService.create(client: client);
+      final server = _server(refreshToken: 'legacy_refresh_token');
+
+      await tidal.migrateServerToken(
+        server,
+        tokenStore: _FailingWriteTokenStore(),
+      );
+
+      // The DB token must NOT be stripped — the secure copy isn't confirmed.
+      final tokenJson = jsonDecode(server.token!) as Map<String, dynamic>;
+      expect(tokenJson['refresh_token'], 'legacy_refresh_token');
+    });
+
+    test('migration strips the DB refresh token after a confirmed secure write', () async {
+      final client = MockClient(
+        (request) async => http.Response('Not Found', 404),
+      );
+      final tidal = TidalService.create(client: client);
+      final server = _server(refreshToken: 'legacy_refresh_token');
+      final store = _FakeTokenStore();
+
+      await tidal.migrateServerToken(server, tokenStore: store);
+
+      final tokenJson = jsonDecode(server.token!) as Map<String, dynamic>;
+      expect(tokenJson['refresh_token'], isNull);
+      expect(await store.read(server.id), 'legacy_refresh_token');
     });
   });
 }
