@@ -442,6 +442,8 @@ class PlayerService {
   }
 
   just_audio.AudioPlayer? _justAudioPlayer;
+  Future<just_audio.AudioPlayer>? _androidPlayerCreationInFlight;
+
   // Cached crossfade curve index (0..3) for synchronous reads inside the
   // just_audio engine's config provider; refreshed from prefs on load/change.
   int _crossfadeCurveIndex = 0;
@@ -2056,12 +2058,44 @@ class PlayerService {
     }
   }
 
-  Future<just_audio.AudioPlayer> _ensureAndroidPlayer() async {
-    final existing = _justAudioPlayer;
+  @visibleForTesting
+  static Future<just_audio.AudioPlayer> singleFlightEnsurePlayer({
+    required just_audio.AudioPlayer? Function() getExisting,
+    required Future<just_audio.AudioPlayer>? Function() getInFlight,
+    required void Function(Future<just_audio.AudioPlayer>? future) setInFlight,
+    required Future<just_audio.AudioPlayer> Function() doEnsure,
+  }) async {
+    final existing = getExisting();
     if (existing != null) {
       return existing;
     }
 
+    final inFlight = getInFlight();
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = doEnsure();
+    setInFlight(future);
+    try {
+      return await future;
+    } finally {
+      if (identical(getInFlight(), future)) {
+        setInFlight(null);
+      }
+    }
+  }
+
+  Future<just_audio.AudioPlayer> _ensureAndroidPlayer() {
+    return singleFlightEnsurePlayer(
+      getExisting: () => _justAudioPlayer,
+      getInFlight: () => _androidPlayerCreationInFlight,
+      setInFlight: (future) => _androidPlayerCreationInFlight = future,
+      doEnsure: _doEnsureAndroidPlayer,
+    );
+  }
+
+  Future<just_audio.AudioPlayer> _doEnsureAndroidPlayer() async {
     await _configureAndroidAudioSession();
     final player = just_audio.AudioPlayer();
     _justAudioPlayer = player;
@@ -4435,6 +4469,7 @@ class PlayerService {
 
   Future<void> _disposeAndroidEngine() async {
     _androidAudioEngine = null;
+    _androidPlayerCreationInFlight = null;
     final player = _justAudioPlayer;
     if (player == null) return;
 
@@ -6744,6 +6779,7 @@ class PlayerService {
       unawaited(player.dispose());
       _justAudioPlayer = null;
     }
+    _androidPlayerCreationInFlight = null;
     _playbackStateSubscription?.cancel();
     unawaited(_playbackManager.dispose());
     selectedPlaybackModeNotifier.removeListener(
