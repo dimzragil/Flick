@@ -302,7 +302,20 @@ class TidalService implements NetworkSourceService {
 
   // --- Token lifecycle (refresh + persist) -------------------------------
 
+  final Map<int, Future<_TidalCreds>> _refreshInFlight = {};
+
+  @visibleForTesting
+  Map<int, Future<TidalCreds>> get refreshInFlightForTesting => _refreshInFlight;
+
+  @visibleForTesting
+  Future<TidalCreds> ensureValidTokenForTesting(NetworkServerEntity server) =>
+      _ensureValidToken(server);
+
   Future<_TidalCreds> _ensureValidToken(NetworkServerEntity server) async {
+    final inFlight = _refreshInFlight[server.id];
+    if (inFlight != null) {
+      return inFlight;
+    }
     final creds = _creds(server.token);
     if (creds == null) {
       throw TidalException('No Tidal sign-in. Tap "Sign in with Tidal".');
@@ -317,6 +330,26 @@ class TidalService implements NetworkSourceService {
   }
 
   Future<_TidalCreds> _refresh(
+    NetworkServerEntity server,
+    _TidalCreds old,
+  ) async {
+    final inFlight = _refreshInFlight[server.id];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _doRefresh(server, old);
+    _refreshInFlight[server.id] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_refreshInFlight[server.id], future)) {
+        _refreshInFlight.remove(server.id);
+      }
+    }
+  }
+
+  Future<_TidalCreds> _doRefresh(
     NetworkServerEntity server,
     _TidalCreds old,
   ) async {
@@ -355,6 +388,7 @@ class TidalService implements NetworkSourceService {
       'country_code': creds.countryCode,
       'expires_at_ms': creds.expiresAtMs,
     });
+    server.token = token;
     try {
       await Database.instance.writeTxn(() async {
         final stored = await Database.networkServers.get(server.id);
@@ -861,6 +895,7 @@ class TidalService implements NetworkSourceService {
         trackId: remoteId,
         dashInfo: resolved.dashInfo!,
         targetPath: targetPath,
+        client: _NonClosingClient(_client),
         onFinalized: (file) => _cache.evictIfOverCap(protect: file),
       );
       return (
@@ -895,6 +930,7 @@ class TidalService implements NetworkSourceService {
         'mp3' => 'audio/mpeg',
         _ => 'audio/flac',
       },
+      client: _NonClosingClient(_client),
       onFinalized: (file) => _cache.evictIfOverCap(protect: file),
     );
     return (
@@ -2742,8 +2778,10 @@ class TidalService implements NetworkSourceService {
   }
 }
 
-class _TidalCreds {
-  const _TidalCreds({
+typedef _TidalCreds = TidalCreds;
+
+class TidalCreds {
+  const TidalCreds({
     required this.accessToken,
     this.refreshToken,
     this.userId,
@@ -2817,5 +2855,20 @@ class TidalStreamResolution {
       parts.add('${kbps}kbps');
     }
     return parts.join(' / ');
+  }
+}
+
+class _NonClosingClient extends http.BaseClient {
+  _NonClosingClient(this._inner);
+  final http.Client _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _inner.send(request);
+
+  @override
+  void close() {
+    // No-op: the wrapped client is shared across TidalService and must not be
+    // closed when individual proxy streaming sessions finalize or cancel.
   }
 }
