@@ -33,7 +33,7 @@ class TidalStreamProxy {
   /// Local URL for an in-progress or finished BTS session; never exposes the CDN URL.
   String? activeBtsStreamUrl(String trackId) {
     final session = _btsSessions.values
-        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
         .firstOrNull;
     final serverPort = _server?.port;
     if (session == null || serverPort == null) return null;
@@ -63,12 +63,13 @@ class TidalStreamProxy {
     required String targetPath,
     http.Client? client,
     Future<void> Function(File targetFile)? onFinalized,
+    Duration? initialRetryDelay,
   }) async {
     final serverPort = await ensureServer();
 
-    // Reuse existing session for the same track if already active and not cancelled
+    // Reuse existing session for the same track if already active, not cancelled, and not failed
     final existingSession = _sessions.values
-        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
         .firstOrNull;
     if (existingSession != null) {
       return 'http://127.0.0.1:$serverPort/tidal/${existingSession.streamToken}.mp4';
@@ -91,6 +92,7 @@ class TidalStreamProxy {
       targetPath: targetPath,
       client: client ?? http.Client(),
       onFinalized: onFinalized,
+      initialRetryDelay: initialRetryDelay ?? const Duration(milliseconds: 500),
     );
 
     _sessions[token] = session;
@@ -116,7 +118,7 @@ class TidalStreamProxy {
   }) async {
     final serverPort = await ensureServer();
     final existing = _btsSessions.values
-        .where((s) => s.trackId == trackId && !s.isCancelled)
+        .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
         .firstOrNull;
     if (existing != null) {
       return 'http://127.0.0.1:$serverPort/tidal-bts/${existing.streamToken}.${existing.extension}';
@@ -238,6 +240,7 @@ class TidalStreamSession {
     required this.targetPath,
     required this.client,
     this.onFinalized,
+    this.initialRetryDelay = const Duration(milliseconds: 500),
   });
 
   final String streamToken;
@@ -246,10 +249,12 @@ class TidalStreamSession {
   final String targetPath;
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
+  final Duration initialRetryDelay;
 
   int _nextSegmentIndex = 1;
   int _lastRequestedSegment = 0;
   bool _pumpRunning = false;
+  bool _pumpFailed = false;
   Completer<void>? _needMoreCompleter;
   final List<int> _segmentStartOffsets = [];
 
@@ -260,12 +265,16 @@ class TidalStreamSession {
   int _bytesWritten = 0;
   bool _isFinished = false;
   bool _isCancelled = false;
+  bool _isFinalizing = false;
+  final Completer<void> _finalizingFile = Completer<void>();
 
   final Completer<void> _readyCompleter = Completer<void>();
   final List<({int requiredBytes, Completer<void> completer})> _waiters = [];
 
   bool get isFinished => _isFinished;
   bool get isCancelled => _isCancelled;
+  bool get hasFailed => _pumpFailed;
+  bool get isHealthy => !_isCancelled && !_pumpFailed;
   int get bytesWritten => _bytesWritten;
 
   /// Start the session: downloads init + segment 0 and unblocks playback (~300ms).
@@ -328,30 +337,61 @@ class TidalStreamSession {
 
   /// Progressive on-demand streaming pump. Only downloads ahead when needed by playback.
   Future<void> _streamPump() async {
-    if (_pumpRunning || _isFinished || _isCancelled) return;
+    if (_pumpRunning || _isFinished || _isCancelled || _pumpFailed) return;
     _pumpRunning = true;
 
     try {
       while (!_isCancelled &&
           !_isFinished &&
+          !_pumpFailed &&
           _nextSegmentIndex < dashInfo.segmentUrls.length) {
         // Sliding window: only fetch up to _bufferAheadLimit segments ahead of playback
         if (_nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
           _needMoreCompleter = Completer<void>();
           await _needMoreCompleter!.future;
-          if (_isCancelled || _isFinished) break;
+          if (_isCancelled || _isFinished || _pumpFailed) break;
         }
 
         final myIndex = _nextSegmentIndex;
         final myUrl = dashInfo.segmentUrls[myIndex];
 
-        final resp = await client
-            .get(Uri.parse(myUrl))
-            .timeout(const Duration(seconds: 20));
-        if (resp.statusCode != 200) {
+        http.Response? resp;
+        var retryCount = 0;
+        const maxRetries = 3;
+        var delay = initialRetryDelay;
+
+        while (retryCount <= maxRetries && !_isCancelled) {
+          try {
+            resp = await client
+                .get(Uri.parse(myUrl))
+                .timeout(const Duration(seconds: 20));
+            if (resp.statusCode == 200) {
+              break;
+            }
+            devLog(
+              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount failed HTTP ${resp.statusCode}',
+            );
+          } catch (e) {
+            devLog(
+              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount error: $e',
+            );
+          }
+
+          retryCount++;
+          if (retryCount <= maxRetries && !_isCancelled) {
+            if (delay > Duration.zero) {
+              await Future<void>.delayed(delay);
+            }
+            delay *= 2;
+          }
+        }
+
+        if (resp == null || resp.statusCode != 200) {
           devLog(
-            '[TidalStreamProxy] Segment $myIndex fetch failed HTTP ${resp.statusCode}',
+            '[TidalStreamProxy] Segment $myIndex fetch failed permanently after $retryCount attempts',
           );
+          _pumpFailed = true;
+          _notifyWaiters();
           break;
         }
         if (_isCancelled) break;
@@ -367,11 +407,15 @@ class TidalStreamSession {
         _nextSegmentIndex++;
       }
 
-      if (!_isCancelled && _nextSegmentIndex >= dashInfo.segmentUrls.length) {
+      if (!_isCancelled &&
+          !_pumpFailed &&
+          _nextSegmentIndex >= dashInfo.segmentUrls.length) {
         await _finalizeDownload();
       }
     } catch (e) {
       devLog('[TidalStreamProxy] Stream pump error: $e');
+      _pumpFailed = true;
+      _notifyWaiters();
     } finally {
       _pumpRunning = false;
     }
@@ -398,8 +442,8 @@ class TidalStreamSession {
   }
 
   Future<void> _finalizeDownload() async {
-    if (_isFinished || _isCancelled) return;
-    _isFinished = true;
+    if (_isFinished || _isCancelled || _isFinalizing) return;
+    _isFinalizing = true;
     try {
       await _writeRaf?.flush();
       await _writeRaf?.close();
@@ -413,6 +457,9 @@ class TidalStreamSession {
       }
       if (_partFile != null && await _partFile!.exists()) {
         await _partFile!.rename(targetPath);
+        _isFinished = true;
+        _isFinalizing = false;
+        if (!_finalizingFile.isCompleted) _finalizingFile.complete();
         if (onFinalized != null) {
           unawaited(
             Future.microtask(() async {
@@ -428,6 +475,8 @@ class TidalStreamSession {
     } catch (e) {
       devLog('[TidalStreamSession] Finalize error: $e');
     } finally {
+      _isFinalizing = false;
+      if (!_finalizingFile.isCompleted) _finalizingFile.complete();
       _notifyWaiters();
     }
   }
@@ -435,7 +484,10 @@ class TidalStreamSession {
   void _notifyWaiters() {
     final current = _bytesWritten;
     _waiters.removeWhere((w) {
-      if (_isCancelled || _isFinished || current >= w.requiredBytes) {
+      if (_isCancelled ||
+          _isFinished ||
+          _pumpFailed ||
+          current >= w.requiredBytes) {
         if (!w.completer.isCompleted) {
           w.completer.complete();
         }
@@ -446,13 +498,16 @@ class TidalStreamSession {
   }
 
   Future<void> _waitForBytes(int requiredBytes) {
-    if (_bytesWritten >= requiredBytes || _isFinished || _isCancelled) {
+    if (_bytesWritten >= requiredBytes ||
+        _isFinished ||
+        _isCancelled ||
+        _pumpFailed) {
       return Future.value();
     }
     final completer = Completer<void>();
     _waiters.add((requiredBytes: requiredBytes, completer: completer));
     return completer.future.timeout(
-      const Duration(seconds: 3),
+      const Duration(seconds: 10),
       onTimeout: () {
         if (!completer.isCompleted) completer.complete();
       },
@@ -488,7 +543,10 @@ class TidalStreamSession {
     }
 
     // Wait until at least start + 1 bytes are written
-    if (_bytesWritten <= start && !_isFinished && !_isCancelled) {
+    if (_bytesWritten <= start &&
+        !_isFinished &&
+        !_isCancelled &&
+        !_pumpFailed) {
       await _waitForBytes(start + 1);
     }
 
@@ -502,20 +560,44 @@ class TidalStreamSession {
         await req.response.close();
         return;
       }
+      // Offset not yet downloaded, but download is not finished:
+      // If pump failed or request timed out, return 503 (NEVER 416).
+      // Rust treats 416 as EOF, which would prematurely terminate playback.
+      req.response.statusCode = HttpStatus.serviceUnavailable;
+      req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      await req.response.close();
+      return;
     }
 
     final actualEnd = min(requestedEnd, _bytesWritten - 1);
     final lengthToRead = actualEnd - start + 1;
 
     if (lengthToRead <= 0) {
-      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      if (_isFinished) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        req.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */$_bytesWritten',
+        );
+      } else {
+        req.response.statusCode = HttpStatus.serviceUnavailable;
+        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      }
       await req.response.close();
       return;
     }
 
+    if (_isFinalizing) await _finalizingFile.future;
+
     // Read byte slice from disk (.part or finished file)
     final filePath = _isFinished ? targetPath : '$targetPath.part';
-    final readRaf = await File(filePath).open(mode: FileMode.read);
+    RandomAccessFile readRaf;
+    try {
+      readRaf = await File(filePath).open(mode: FileMode.read);
+    } on FileSystemException {
+      // Finalization may rename the part file between checking and opening it.
+      readRaf = await File(targetPath).open(mode: FileMode.read);
+    }
     final List<int> chunk;
     try {
       await readRaf.setPosition(start);
@@ -586,8 +668,11 @@ class TidalBtsStreamSession {
   final Future<void> Function(File targetFile)? onFinalized;
   String get extension => targetPath.split('.').last;
   bool _cancelled = false, _finished = false;
+  bool _failed = false;
   bool get isCancelled => _cancelled;
   bool get isFinished => _finished;
+  bool get hasFailed => _failed;
+  bool get isHealthy => !_cancelled && !_failed;
   int _written = 0;
   int? _total;
 
@@ -603,7 +688,7 @@ class TidalBtsStreamSession {
   void _notifyWaiters() {
     final current = _written;
     _waiters.removeWhere((w) {
-      if (_cancelled || _finished || current >= w.requiredBytes) {
+      if (_cancelled || _finished || _failed || current >= w.requiredBytes) {
         if (!w.completer.isCompleted) {
           w.completer.complete();
         }
@@ -614,7 +699,7 @@ class TidalBtsStreamSession {
   }
 
   Future<void> _waitForBytes(int requiredBytes) {
-    if (_written >= requiredBytes || _finished || _cancelled) {
+    if (_written >= requiredBytes || _finished || _cancelled || _failed) {
       return Future.value();
     }
     final completer = Completer<void>();
@@ -642,6 +727,8 @@ class TidalBtsStreamSession {
         .send(request)
         .timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) {
+      _failed = true;
+      _notifyWaiters();
       throw HttpException('BTS CDN returned HTTP ${response.statusCode}');
     }
     _total = response.contentLength;
@@ -755,6 +842,7 @@ class TidalBtsStreamSession {
         }
       }
     } catch (e) {
+      _failed = true;
       _finished = true;
       _isFinalizing = false;
       if (!_finalizingFile.isCompleted) _finalizingFile.complete();
@@ -789,12 +877,16 @@ class TidalBtsStreamSession {
     // For the initial probe request, wait until _initialBufferBytes are ready.
     // For subsequent streaming requests, only wait until the requested `start` offset has data.
     final minRequired = initialRequest ? _initialBufferBytes : (start + 1);
-    if (!servesTail && _written < minRequired && !_finished && !_cancelled) {
+    if (!servesTail &&
+        _written < minRequired &&
+        !_finished &&
+        !_cancelled &&
+        !_failed) {
       await _waitForBytes(minRequired);
     }
 
-    if (start >= _written) {
-      if (_finished) {
+    if (start >= _written && !servesTail) {
+      if (_finished && !_failed) {
         req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
         if (_total != null) {
           req.response.headers.set(
@@ -805,6 +897,12 @@ class TidalBtsStreamSession {
         await req.response.close();
         return;
       }
+      // Offset not yet downloaded, or download failed:
+      // Return 503 (NEVER 416). Rust treats 416 as EOF.
+      req.response.statusCode = HttpStatus.serviceUnavailable;
+      req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      await req.response.close();
+      return;
     }
 
     if (_isFinalizing) await _finalizingFile.future;
@@ -822,7 +920,18 @@ class TidalBtsStreamSession {
     final lengthToRead = actualEnd - start + 1;
 
     if (lengthToRead <= 0) {
-      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      if (_finished && !_failed) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        if (_total != null) {
+          req.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes */$_total',
+          );
+        }
+      } else {
+        req.response.statusCode = HttpStatus.serviceUnavailable;
+        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      }
       await req.response.close();
       return;
     }
@@ -841,7 +950,12 @@ class TidalBtsStreamSession {
     await raf.close();
 
     if (bytes.isEmpty) {
-      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      if (_finished && !_failed) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      } else {
+        req.response.statusCode = HttpStatus.serviceUnavailable;
+        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      }
       await req.response.close();
       return;
     }
