@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
 import 'package:path_provider/path_provider.dart';
+
+import '../services/sources/tidal_token_store.dart';
 
 import 'entities/artist_entity.dart';
 import 'entities/folder_entity.dart';
@@ -63,7 +67,40 @@ class Database {
         rethrow;
       }
     }
+    await _migrateTidalTokens();
   }
+
+  /// One-time migration: moves legacy plaintext TIDAL refresh tokens out of
+  /// Isar and into secure keystore storage (TidalTokenStore).
+  static Future<void> _migrateTidalTokens({TidalTokenStore? tokenStore}) async {
+    try {
+      final servers = await networkServers.where().findAll();
+      final store = tokenStore ?? TidalTokenStore();
+      for (final server in servers) {
+        if (server.protocol == 'tidal' &&
+            server.token != null &&
+            server.token!.isNotEmpty) {
+          try {
+            final j = jsonDecode(server.token!) as Map<String, dynamic>;
+            final refresh = j['refresh_token'] as String?;
+            if (refresh != null && refresh.isNotEmpty) {
+              await store.write(server.id, refresh);
+              j.remove('refresh_token');
+              server.token = jsonEncode(j);
+              await instance.writeTxn(() async {
+                await networkServers.put(server);
+              });
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  static Future<void> migrateTidalTokensForTesting({
+    TidalTokenStore? tokenStore,
+  }) => _migrateTidalTokens(tokenStore: tokenStore);
 
   static Future<void> _deleteDatabaseFiles(String directory) async {
     final paths = [

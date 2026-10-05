@@ -19,6 +19,7 @@ import '../network_cache_service.dart';
 import 'dash_manifest_parser.dart';
 import 'network_source_service.dart';
 import 'tidal_stream_proxy.dart';
+import 'tidal_token_store.dart';
 
 /// Tidal client over the reverse-engineered web/OAuth2 surface.
 ///
@@ -44,10 +45,15 @@ class TidalService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
+    TidalTokenStore? tokenStore,
+    Future<void> Function(NetworkServerEntity server, String token)?
+        persistToken,
     Future<bool> Function(Uri)? urlOpener,
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
        _networkCache = networkCache,
+       _tokenStore = tokenStore,
+       _persistToken = persistToken ?? _persistTokenToDatabase,
        _urlOpener = urlOpener ?? _defaultOpenUrl;
 
   static TidalService instance = TidalService._();
@@ -57,11 +63,16 @@ class TidalService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
+    TidalTokenStore? tokenStore,
+    Future<void> Function(NetworkServerEntity server, String token)?
+        persistToken,
     Future<bool> Function(Uri)? urlOpener,
   }) => TidalService._(
     client: client,
     songRepository: songRepository,
     networkCache: networkCache,
+    tokenStore: tokenStore,
+    persistToken: persistToken,
     urlOpener: urlOpener,
   );
 
@@ -90,6 +101,9 @@ class TidalService implements NetworkSourceService {
   final http.Client _client;
   SongRepository? _songRepository;
   NetworkCacheService? _networkCache;
+  TidalTokenStore? _tokenStore;
+  final Future<void> Function(NetworkServerEntity server, String token)
+      _persistToken;
   final Future<bool> Function(Uri) _urlOpener;
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, void Function()> _activeDownloads = {};
@@ -114,6 +128,23 @@ class TidalService implements NetworkSourceService {
 
   SongRepository get _repo => _songRepository ??= SongRepository();
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
+  TidalTokenStore get _tokens => _tokenStore ??= TidalTokenStore();
+
+  static Future<void> _persistTokenToDatabase(
+    NetworkServerEntity server,
+    String token,
+  ) async {
+    await Database.instance.writeTxn(() async {
+      final stored = await Database.networkServers.get(server.id);
+      if (stored != null) {
+        stored.token = token;
+        await Database.networkServers.put(stored);
+      }
+    });
+  }
+
+  /// Forget the refresh token in secure storage for a removed/signed-out server.
+  Future<void> forgetToken(int serverId) => _tokens.delete(serverId);
 
   /// Retrieve cached stream resolution (sampleRate, bitDepth, quality, codec) for a track.
   TidalStreamResolution? getResolvedStream(String trackId) =>
@@ -316,16 +347,34 @@ class TidalService implements NetworkSourceService {
     if (inFlight != null) {
       return inFlight;
     }
-    final creds = _creds(server.token);
+    var creds = _creds(server.token);
     if (creds == null) {
       throw TidalException('No Tidal sign-in. Tap "Sign in with Tidal".');
     }
+
     final nearExpiry =
         creds.expiresAtMs == null ||
         DateTime.now().millisecondsSinceEpoch > creds.expiresAtMs! - 60000;
-    if (nearExpiry && creds.refreshToken != null) {
+    if (nearExpiry) {
       return _refresh(server, creds);
     }
+
+    if (server.id > 0) {
+      if (creds.refreshToken != null && creds.refreshToken!.isNotEmpty) {
+        await migrateServerToken(server);
+      } else {
+        String? secureRefresh;
+        try {
+          secureRefresh = await _tokens.read(server.id);
+        } catch (e) {
+          devLog('Tidal secure storage read failed: $e');
+        }
+        if (secureRefresh != null) {
+          creds = creds.copyWith(refreshToken: secureRefresh);
+        }
+      }
+    }
+
     return creds;
   }
 
@@ -353,7 +402,14 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     _TidalCreds old,
   ) async {
-    final refresh = old.refreshToken;
+    var refresh = old.refreshToken;
+    if ((refresh == null || refresh.isEmpty) && server.id > 0) {
+      try {
+        refresh = await _tokens.read(server.id);
+      } catch (e) {
+        devLog('Tidal secure storage read failed: $e');
+      }
+    }
     if (refresh == null) {
       throw TidalException('Tidal session expired. Please sign in again.');
     }
@@ -380,25 +436,76 @@ class TidalService implements NetworkSourceService {
     return updated;
   }
 
+  Future<void> _stripRefreshTokenFromDatabase(
+    NetworkServerEntity server,
+    _TidalCreds creds,
+  ) async {
+    final stripped = jsonEncode({
+      'access_token': creds.accessToken,
+      'user_id': creds.userId,
+      'country_code': creds.countryCode,
+      'expires_at_ms': creds.expiresAtMs,
+    });
+    server.token = stripped;
+    try {
+      await _persistToken(server, stripped);
+    } catch (e) {
+      devLog('Tidal strip token persist failed: $e');
+    }
+  }
+
   Future<void> _persist(NetworkServerEntity server, _TidalCreds creds) async {
+    if (creds.refreshToken != null &&
+        creds.refreshToken!.isNotEmpty &&
+        server.id > 0) {
+      try {
+        await _tokens.write(server.id, creds.refreshToken!);
+      } catch (e) {
+        devLog('Tidal token secure persist failed: $e');
+      }
+    }
     final token = jsonEncode({
       'access_token': creds.accessToken,
-      'refresh_token': creds.refreshToken,
       'user_id': creds.userId,
       'country_code': creds.countryCode,
       'expires_at_ms': creds.expiresAtMs,
     });
     server.token = token;
     try {
-      await Database.instance.writeTxn(() async {
-        final stored = await Database.networkServers.get(server.id);
-        if (stored != null) {
-          stored.token = token;
-          await Database.networkServers.put(stored);
-        }
-      });
+      await _persistToken(server, token);
     } catch (e) {
       devLog('Tidal token persist failed: $e');
+    }
+  }
+
+  /// Migrate a legacy plaintext refresh token to secure storage and strip
+  /// it from [server.token] and the database.
+  Future<void> migrateServerToken(
+    NetworkServerEntity server, {
+    TidalTokenStore? tokenStore,
+  }) async {
+    final store = tokenStore ?? _tokens;
+    final creds = _creds(server.token);
+    if (creds == null) return;
+
+    final legacyRefresh = creds.refreshToken;
+    if (server.id > 0) {
+      String? existingSecure;
+      try {
+        existingSecure = await store.read(server.id);
+      } catch (_) {}
+
+      if (existingSecure == null &&
+          legacyRefresh != null &&
+          legacyRefresh.isNotEmpty) {
+        try {
+          await store.write(server.id, legacyRefresh);
+        } catch (_) {}
+      }
+
+      if (legacyRefresh != null && legacyRefresh.isNotEmpty) {
+        await _stripRefreshTokenFromDatabase(server, creds);
+      }
     }
   }
 
@@ -2793,6 +2900,21 @@ class TidalCreds {
   final String? userId;
   final String countryCode;
   final int? expiresAtMs;
+
+  TidalCreds copyWith({
+    String? accessToken,
+    String? refreshToken,
+    String? userId,
+    String? countryCode,
+    int? expiresAtMs,
+  }) =>
+      TidalCreds(
+        accessToken: accessToken ?? this.accessToken,
+        refreshToken: refreshToken ?? this.refreshToken,
+        userId: userId ?? this.userId,
+        countryCode: countryCode ?? this.countryCode,
+        expiresAtMs: expiresAtMs ?? this.expiresAtMs,
+      );
 }
 
 class TidalException implements Exception {

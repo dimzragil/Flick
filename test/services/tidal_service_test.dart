@@ -5,6 +5,7 @@ import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/models/playback_context.dart';
 import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -33,6 +34,9 @@ String _validToken() => jsonEncode({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() {
+    FlutterSecureStorage.setMockInitialValues({});
+  });
   group('buildSongEntity', () {
     test(
       'maps a Tidal track to a SongEntity with tidal:// path + cover marker',

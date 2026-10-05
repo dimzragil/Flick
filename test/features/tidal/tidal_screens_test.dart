@@ -7,6 +7,7 @@ import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_search_screen.dart';
 import 'package:flick/models/nav_bar_config.dart';
 import 'package:flick/models/song.dart';
+import 'package:flick/models/sources/tidal_models.dart';
 import 'package:flick/providers/player_provider.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flutter/material.dart';
@@ -81,6 +82,10 @@ void main() {
               },
             ],
           ),
+          tidalHomeFeedProvider.overrideWith(
+            (ref, slug) async => TidalHomeFeed.empty,
+          ),
+          tidalFavoriteMixesProvider.overrideWith((ref) async => []),
         ],
         child: const MaterialApp(home: TidalHubScreen()),
       ),

@@ -68,6 +68,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
     await Database.instance.writeTxn(() async {
       await Database.networkServers.put(server!);
     });
+    await tidal.migrateServerToken(server);
 
     state = AsyncValue.data(server);
     return server;
@@ -81,6 +82,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
       await Database.instance.writeTxn(() async {
         await Database.networkServers.put(server);
       });
+      await ref.read(tidalServiceProvider).forgetToken(server.id);
       state = AsyncValue.data(server);
     }
   }

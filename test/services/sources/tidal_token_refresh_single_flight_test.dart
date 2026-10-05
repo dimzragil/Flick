@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -30,6 +31,10 @@ NetworkServerEntity _server({
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() {
+    FlutterSecureStorage.setMockInitialValues({});
+  });
   group('TidalService single-flight token refresh', () {
     test(
       'concurrent ensureValidToken calls trigger only one refresh request and share result',

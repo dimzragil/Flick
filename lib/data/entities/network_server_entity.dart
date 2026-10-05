@@ -21,7 +21,8 @@ class NetworkServerEntity {
 
   /// Secret, never plaintext: Subsonic stores the salt+md5 hex form
   /// (`salt:md5hex`), Jellyfin stores the server-issued token, WebDAV the
-  /// bearer token.
+  /// bearer token. TIDAL stores access metadata; its long-lived OAuth refresh
+  /// token is kept in secure keystore storage (TidalTokenStore), not here.
   String? token;
 
   /// Last time a library sync (metadata fetch) succeeded for this server.

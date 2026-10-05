@@ -297,16 +297,19 @@ class _NetworkServerEditScreenState extends State<NetworkServerEditScreen> {
       });
       return;
     }
+    final draft = _draftEntity(token: token);
+    await Database.instance.writeTxn(() async {
+      await Database.networkServers.put(draft);
+    });
     final password = _passwordController.text;
     if (_selectedProtocol == NetworkProtocol.jellyfin &&
         token != null &&
         password.isNotEmpty) {
-      await JellyfinService.instance
-          .persistPassword(_draftEntity(token: token), password);
+      await JellyfinService.instance.persistPassword(draft, password);
     }
-    await Database.instance.writeTxn(() async {
-      await Database.networkServers.put(_draftEntity(token: token));
-    });
+    if (_selectedProtocol == NetworkProtocol.tidal && draft.token != null) {
+      await TidalService.instance.migrateServerToken(draft);
+    }
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -333,6 +336,9 @@ class _NetworkServerEditScreenState extends State<NetworkServerEditScreen> {
     if (!confirmed) return;
     if (server.protocol == NetworkProtocol.jellyfin) {
       await JellyfinService.instance.forgetPassword(server.id);
+    }
+    if (server.protocol == NetworkProtocol.tidal) {
+      await TidalService.instance.forgetToken(server.id);
     }
     await Database.instance.writeTxn(() async {
       await Database.networkServers.delete(server.id);
