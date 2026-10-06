@@ -89,9 +89,7 @@ class AudioEngineManager {
 
     final inFlight = _transitionInFlight;
     if (inFlight != null) {
-      devLog(
-        '[Engine] Waiting for in-flight engine transition to complete',
-      );
+      devLog('[Engine] Waiting for in-flight engine transition to complete');
       await inFlight;
       if (_engineInitialized &&
           _currentEngine != null &&
@@ -123,10 +121,11 @@ class AudioEngineManager {
     Song track, {
     Duration initialPosition = Duration.zero,
     bool autoPlay = true,
+    bool forceRebuild = false,
   }) async {
     final engine = _requireEngine();
     devLog('[Playback] load(${track.id})');
-    await engine.load(track);
+    await engine.load(track, forceRebuild: forceRebuild);
     _engineHasLoadedTrack = true;
     if (initialPosition > Duration.zero) {
       await engine.seek(initialPosition);
@@ -152,10 +151,10 @@ class AudioEngineManager {
     _controller.add(idleState);
   }
 
-  Future<void> load(Song track) async {
+  Future<void> load(Song track, {bool forceRebuild = false}) async {
     final engine = _requireEngine();
     devLog('[Playback] load(${track.id})');
-    await engine.load(track);
+    await engine.load(track, forceRebuild: forceRebuild);
     _engineHasLoadedTrack = true;
   }
 

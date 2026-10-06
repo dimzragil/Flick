@@ -24,12 +24,7 @@ typedef AndroidNextSongProvider = Song? Function();
 typedef AndroidTrackAdvancedCallback = void Function(Song track);
 
 /// Crossfade curve applied to the outgoing/incoming volume ramps.
-enum AndroidCrossfadeCurve {
-  equalPower,
-  linear,
-  squareRoot,
-  sCurve,
-}
+enum AndroidCrossfadeCurve { equalPower, linear, squareRoot, sCurve }
 
 /// Live snapshot of crossfade settings consumed by [AndroidAudioEngine].
 class AndroidCrossfadeConfig {
@@ -142,8 +137,8 @@ class AndroidAudioEngine implements AudioEngine {
        _shouldSuppressTrackSync = shouldSuppressTrackSync,
        _shouldIgnoreTrack = shouldIgnoreTrack,
        _shouldFastStartCurrentTrackOnly = shouldFastStartCurrentTrackOnly,
-       _crossfadeConfigProvider = crossfadeConfigProvider ??
-           (() => AndroidCrossfadeConfig.disabled),
+       _crossfadeConfigProvider =
+           crossfadeConfigProvider ?? (() => AndroidCrossfadeConfig.disabled),
        _onNextSong = onNextSong,
        _onTrackAdvanced = onTrackAdvanced;
 
@@ -439,7 +434,11 @@ class AndroidAudioEngine implements AudioEngine {
   /// (the optimistic `position` getter would then lie about the seek having
   /// landed). When null, the load keeps its old `seek(Duration.zero)` reset.
   @override
-  Future<void> load(Song track, {Duration? initialPosition}) async {
+  Future<void> load(
+    Song track, {
+    Duration? initialPosition,
+    bool forceRebuild = false,
+  }) async {
     _sinkNeedsRearmOnPlay = false;
     _emit(_state.copyWith(clearError: true));
     await _cancelCrossfade();
@@ -502,11 +501,10 @@ class AndroidAudioEngine implements AudioEngine {
     );
 
     if (canReusePlaylist &&
+        !forceRebuild &&
         player.sequence.isNotEmpty &&
         !_loadedSingleTrackOnly) {
-      devLog(
-        '[Playback] Android load(${track.id}) using existing playlist',
-      );
+      devLog('[Playback] Android load(${track.id}) using existing playlist');
       await player.seek(Duration.zero, index: index);
     } else if (shouldFastStartCurrentTrackOnly) {
       devLog(
@@ -828,8 +826,8 @@ class AndroidAudioEngine implements AudioEngine {
       final p = _rampTotal.inMilliseconds <= 0
           ? 1.0
           : (_rampElapsed.inMilliseconds / _rampTotal.inMilliseconds)
-              .clamp(0.0, 1.0)
-              .toDouble();
+                .clamp(0.0, 1.0)
+                .toDouble();
       final inVol = _rampUserVolume * crossfadeInVolume(_rampCurve, p);
       final outVol = _rampUserVolume * crossfadeInVolume(_rampCurve, 1 - p);
       incoming.setVolume(inVol);

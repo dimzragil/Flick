@@ -451,33 +451,69 @@ void main() {
       expect(harness.player.sequence, hasLength(3));
     });
 
-    test('backgroundFillDelay cancels cleanly when superseded during delay window', () async {
-      final harness = _Harness(
-        trackCount: 3,
-        backgroundFillDelay: const Duration(milliseconds: 150),
-      );
-      addTearDown(harness.dispose);
+    test(
+      'backgroundFillDelay cancels cleanly when superseded during delay window',
+      () async {
+        final harness = _Harness(
+          trackCount: 3,
+          backgroundFillDelay: const Duration(milliseconds: 150),
+        );
+        addTearDown(harness.dispose);
 
-      await harness.engine.load(harness.playlist[0]);
-      expect(harness.player.sequence, hasLength(1));
+        await harness.engine.load(harness.playlist[0]);
+        expect(harness.player.sequence, hasLength(1));
 
-      // 40ms in, user taps track 2 before gen 1's delay finishes.
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      await harness.engine.load(harness.playlist[2]);
+        // 40ms in, user taps track 2 before gen 1's delay finishes.
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await harness.engine.load(harness.playlist[2]);
 
-      // At this point gen 2 is active and waiting on its own 150ms delay.
-      expect(harness.player.sequence, hasLength(1));
-      expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
+        // At this point gen 2 is active and waiting on its own 150ms delay.
+        expect(harness.player.sequence, hasLength(1));
+        expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
 
-      // Wait until gen 1's original 150ms would have fired (e.g. at 120ms from now).
-      // Gen 1 must NOT insert s0/s1 into gen 2's player.
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      expect(harness.player.sequence, hasLength(1));
-      expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
+        // Wait until gen 1's original 150ms would have fired (e.g. at 120ms from now).
+        // Gen 1 must NOT insert s0/s1 into gen 2's player.
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        expect(harness.player.sequence, hasLength(1));
+        expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
 
-      // Eventually gen 2's delay completes and fills all 3 tracks.
-      await _pumpUntil(() => harness.player.sequence.length == 3);
-      expect(harness.player.sequence, hasLength(3));
-    });
+        // Eventually gen 2's delay completes and fills all 3 tracks.
+        await _pumpUntil(() => harness.player.sequence.length == 3);
+        expect(harness.player.sequence, hasLength(3));
+      },
+    );
+
+    test(
+      'forceRebuild: true bypasses canReusePlaylist and rebuilds via _sourceBuilder',
+      () async {
+        final harness = _Harness(trackCount: 3);
+        addTearDown(harness.dispose);
+
+        // First load builds full playlist once fill settles.
+        await harness.engine.load(harness.playlist[0]);
+        await _pumpUntil(() => harness.player.sequence.length == 3);
+        expect(harness.player.sequence, hasLength(3));
+        final initialSource0 = harness.player.sequence[0];
+
+        harness.player.seekIndices.clear();
+
+        // Loading track 1 with forceRebuild: false reuses playlist via seek.
+        await harness.engine.load(harness.playlist[1]);
+        expect(harness.player.seekIndices, contains(1));
+
+        // Now clear cache of sources to simulate a fresh resolve needed on retry.
+        harness.sourcesById.clear();
+        harness.player.seekIndices.clear();
+
+        // Loading with forceRebuild: true must bypass sequence seek and rebuild fresh.
+        await harness.engine.load(harness.playlist[0], forceRebuild: true);
+
+        // Fast-starts phase 1 with fresh source builder for s0, sequence reset to 1 child.
+        expect(harness.player.sequence, hasLength(1));
+        expect(harness.player.sequence.first, same(harness.sourcesById['s0']));
+        expect(harness.player.sequence.first, isNot(same(initialSource0)));
+        expect(harness.player.seekIndices, isNot(contains(0)));
+      },
+    );
   });
 }

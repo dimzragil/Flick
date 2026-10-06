@@ -118,7 +118,7 @@ class RustAudioEngine implements AudioEngine {
   }
 
   @override
-  Future<void> load(Song track) async {
+  Future<void> load(Song track, {bool forceRebuild = false}) async {
     await _safeEnsureInitialized();
     _attachListeners();
     _loadedTrack = track;

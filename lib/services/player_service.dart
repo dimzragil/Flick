@@ -3707,7 +3707,7 @@ class PlayerService {
   Future<void> _retryFailedTrackOnce() async {
     try {
       _debugLog('[Playback] retrying failed track once with a fresh resolve');
-      await _playSongAtCurrentIndex();
+      await _playSongAtCurrentIndex(forceRebuild: true);
     } catch (e) {
       _debugLog('[Playback] retry of failed track failed: $e; advancing');
       // Advance here only if no second error callback arrived: if the engine
@@ -5015,6 +5015,7 @@ class PlayerService {
     Song song, {
     List<Song>? playlist,
     int? generation,
+    bool forceRebuild = false,
   }) async {
     if (generation != null && generation != _playbackGeneration) {
       _debugLog('[PlayerService] superseded before starting _playInternal');
@@ -5131,7 +5132,10 @@ class PlayerService {
           await _refreshReplayGainForSong(song, pushSpawnDefault: true);
         }
         await _runWithSuppressedSequenceStateUpdates(() async {
-          await _playbackManager.playTrack(song);
+          await _playbackManager.playTrack(
+            song,
+            forceRebuild: forceRebuild,
+          );
         });
         if (!_usingRustBackend) {
           unawaited(_applyReplayGainForSystemTier(song));
@@ -5180,7 +5184,10 @@ class PlayerService {
     }
   }
 
-  Future<void> _playSongAtCurrentIndex({int? generation}) async {
+  Future<void> _playSongAtCurrentIndex({
+    int? generation,
+    bool forceRebuild = false,
+  }) async {
     final song = _songAtCurrentIndex();
     if (song == null) {
       return;
@@ -5188,7 +5195,11 @@ class PlayerService {
     final gen = generation ?? ++_playbackGeneration;
     currentSongNotifier.value = song;
     if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
-    await _playInternal(song, generation: gen);
+    await _playInternal(
+      song,
+      generation: gen,
+      forceRebuild: forceRebuild,
+    );
   }
 
   Future<void> _queueNextTrackForGapless() async {
