@@ -223,7 +223,11 @@ class TidalStreamProxy {
     }
     _sessions.clear();
     _btsSessions.clear();
-    _completedFiles.clear();
+    // NOTE: _completedFiles is intentionally NOT cleared here. It maps stream
+    // tokens to fully-downloaded files on disk; dropping it forces
+    // prepareStream to re-download tracks on every skip (sustained network
+    // churn + hot phone). Stale entries are harmless: serve paths verify
+    // File.exists() before use.
   }
 
   /// Cancel a session for a specific track.
@@ -448,6 +452,14 @@ class TidalStreamSession {
   Completer<void>? _needMoreCompleter;
   final List<int> _segmentStartOffsets = [];
 
+  static const int _bufferAheadLimit = 3;
+
+  /// Flipped on when this track is actively streamed (open-ended request):
+  /// the pump then prefetches all remaining segments instead of staying
+  /// window-limited. Background sessions never receive such requests, so
+  /// they stay light on network.
+  bool _aggressivePrefetch = false;
+
   File? _partFile;
   RandomAccessFile? _writeRaf;
   int _bytesWritten = 0;
@@ -524,8 +536,10 @@ class TidalStreamSession {
     }
   }
 
-  /// Aggressive prefetch pump: downloads all remaining segments as fast as
-  /// possible so the progressive push loop never starves waiting for bytes.
+  /// Segment prefetch pump. Background sessions stay window-limited
+  /// ([_bufferAheadLimit] segments) to keep network use light; once the track
+  /// is actively streamed (see [_aggressivePrefetch]), the pump downloads all
+  /// remaining segments as fast as possible so the push loop never starves.
   /// Files land in the persistent network cache, so prefetch is reused
   /// (not wasted) on replay; disk usage stays bounded by the cache limit.
   Future<void> _streamPump() async {
@@ -537,6 +551,15 @@ class TidalStreamSession {
           !_isFinished &&
           !_pumpFailed &&
           _nextSegmentIndex < dashInfo.segmentUrls.length) {
+        // Window-limited prefetch for background sessions; the actively
+        // playing session flips _aggressivePrefetch and downloads everything.
+        if (!_aggressivePrefetch &&
+            _nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
+          _needMoreCompleter = Completer<void>();
+          await _needMoreCompleter!.future;
+          if (_isCancelled || _isFinished || _pumpFailed) break;
+        }
+
         final myIndex = _nextSegmentIndex;
         final myUrl = dashInfo.segmentUrls[myIndex];
 
@@ -728,6 +751,15 @@ class TidalStreamSession {
           hasExplicitEnd = true;
         }
       }
+    }
+
+    // An open-ended request means ExoPlayer is progressively streaming this
+    // track (i.e. it's the one actually playing): let the pump prefetch
+    // aggressively from here on. Background sessions never receive such
+    // requests, so they stay window-limited and light on network.
+    // Set BEFORE _wakePumpForByte so a sleeping pump doesn't go back to sleep.
+    if (!hasExplicitEnd) {
+      _aggressivePrefetch = true;
     }
 
     _wakePumpForByte(start);

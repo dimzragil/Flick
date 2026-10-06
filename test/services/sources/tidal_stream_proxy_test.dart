@@ -339,6 +339,9 @@ void main() {
     test(
       'completed streams retain metadata without eviction so previous tracks do not 404',
       () async {
+        // Baseline: completed metadata now survives cancelAllSessions/stop
+        // by design, so assert relative growth, not an absolute count.
+        final before = TidalStreamProxy.instance.completedStreamCount;
         String? firstTrackUrl;
         for (var i = 0; i < 6; i++) {
           final targetPath = '${tempDir.path}/lru_track_$i.mp4';
@@ -372,7 +375,7 @@ void main() {
         }
 
         await Future<void>.delayed(const Duration(milliseconds: 100));
-        expect(TidalStreamProxy.instance.completedStreamCount, 6);
+        expect(TidalStreamProxy.instance.completedStreamCount, before + 6);
 
         // Verify that track 0 is still servable and does not return 404
         final httpClient = HttpClient();
@@ -678,6 +681,72 @@ void main() {
         final received = await resp.expand((b) => b).toList();
         expect(received.length, btsBytes.length);
         expect(received, btsBytes);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'background session stays window-limited until actively streamed',
+      () async {
+        final targetPath = '${tempDir.path}/window_test.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final requestedSegments = <String>[];
+
+        final client = MockClient((request) async {
+          final path = request.url.path;
+          if (path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          requestedSegments.add(path);
+          return http.Response.bytes(List<int>.generate(200, (i) => i), 200);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 44100,
+          bitDepth: 16,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [
+            'https://cdn.tidal.com/seg0.mp4',
+            'https://cdn.tidal.com/seg1.mp4',
+            'https://cdn.tidal.com/seg2.mp4',
+            'https://cdn.tidal.com/seg3.mp4',
+            'https://cdn.tidal.com/seg4.mp4',
+            'https://cdn.tidal.com/seg5.mp4',
+            'https://cdn.tidal.com/seg6.mp4',
+            'https://cdn.tidal.com/seg7.mp4',
+          ],
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'track_window',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        );
+
+        // Give the background pump time to run ahead.
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+
+        // Background session: seg0 downloaded upfront, then the pump fetches
+        // at most _bufferAheadLimit (3) more segments and sleeps.
+        expect(requestedSegments.length, lessThanOrEqualTo(4));
+
+        // Simulate ExoPlayer starting progressive playback (open-ended range):
+        // the session must flip to aggressive prefetch.
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+        final respFuture = req.close();
+
+        await Future<void>.delayed(const Duration(seconds: 2));
+
+        // All 8 segments must have been fetched now.
+        expect(requestedSegments.length, 8);
+
+        // Drain the progressive response (server closes after finalize).
+        final resp = await respFuture;
+        await resp.drain<void>();
         httpClient.close();
       },
     );
