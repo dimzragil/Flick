@@ -327,10 +327,12 @@ class TidalStreamProxy {
       return;
     }
     final fileLength = await file.length();
+    final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
     final match = RegExp(
       r'bytes=(\d+)-(\d*)',
-    ).firstMatch(req.headers.value(HttpHeaders.rangeHeader) ?? '');
+    ).firstMatch(rangeHeader ?? '');
     final start = int.tryParse(match?.group(1) ?? '') ?? 0;
+    final hasExplicitEnd = match != null && match.group(2)?.isNotEmpty == true;
     final requestedEnd =
         int.tryParse(match?.group(2) ?? '') ?? (start + 1024 * 1024 - 1);
 
@@ -350,54 +352,78 @@ class TidalStreamProxy {
       return;
     }
 
-    final isBts = req.uri.pathSegments.isNotEmpty &&
-        req.uri.pathSegments[0] == 'tidal-bts';
-    final actualEnd = (isBts && start == 0)
-        ? min(end, min(fileLength - 1, 256 * 1024 - 1))
-        : min(end, fileLength - 1);
-    final lengthToRead = actualEnd - start + 1;
+    if (hasExplicitEnd) {
+      final isBts = req.uri.pathSegments.isNotEmpty &&
+          req.uri.pathSegments[0] == 'tidal-bts';
+      final actualEnd = (isBts && start == 0)
+          ? min(end, min(fileLength - 1, 256 * 1024 - 1))
+          : min(end, fileLength - 1);
+      final lengthToRead = actualEnd - start + 1;
 
-    if (lengthToRead <= 0) {
-      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-      req.response.headers.set(
-        HttpHeaders.contentRangeHeader,
-        'bytes */$fileLength',
-      );
+      if (lengthToRead <= 0) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        req.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */$fileLength',
+        );
+        await req.response.close();
+        return;
+      }
+
+      final raf = await file.open(mode: FileMode.read);
+      final List<int> chunk;
+      try {
+        await raf.setPosition(start);
+        chunk = await raf.read(lengthToRead);
+      } finally {
+        await raf.close();
+      }
+
+      if (chunk.isEmpty) {
+        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        req.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */$fileLength',
+        );
+        await req.response.close();
+        return;
+      }
+
+      final effectiveEnd = start + chunk.length - 1;
+      req.response.statusCode = HttpStatus.partialContent;
+      req.response.headers
+        ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+        ..set(HttpHeaders.contentTypeHeader, completed.contentType)
+        ..set(HttpHeaders.contentLengthHeader, '${chunk.length}')
+        ..set(
+          HttpHeaders.contentRangeHeader,
+          'bytes $start-$effectiveEnd/$fileLength',
+        );
+      req.response.add(chunk);
       await req.response.close();
       return;
     }
 
-    final raf = await file.open(mode: FileMode.read);
-    final List<int> chunk;
-    try {
-      await raf.setPosition(start);
-      chunk = await raf.read(lengthToRead);
-    } finally {
-      await raf.close();
-    }
-
-    if (chunk.isEmpty) {
-      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-      req.response.headers.set(
-        HttpHeaders.contentRangeHeader,
-        'bytes */$fileLength',
-      );
-      await req.response.close();
-      return;
-    }
-
-    final effectiveEnd = start + chunk.length - 1;
-    req.response.statusCode = HttpStatus.partialContent;
+    // Open-ended request for completed file: stream from start to EOF
+    final totalToSend = fileLength - start;
+    req.response.statusCode = (start > 0 || rangeHeader != null)
+        ? HttpStatus.partialContent
+        : HttpStatus.ok;
     req.response.headers
       ..set(HttpHeaders.acceptRangesHeader, 'bytes')
       ..set(HttpHeaders.contentTypeHeader, completed.contentType)
-      ..set(HttpHeaders.contentLengthHeader, '${chunk.length}')
+      ..set(HttpHeaders.contentLengthHeader, '$totalToSend')
       ..set(
         HttpHeaders.contentRangeHeader,
-        'bytes $start-$effectiveEnd/$fileLength',
+        'bytes $start-${fileLength - 1}/$fileLength',
       );
-    req.response.add(chunk);
-    await req.response.close();
+
+    try {
+      await req.response.addStream(file.openRead(start));
+    } catch (_) {}
+    try {
+      await req.response.close();
+    } catch (_) {}
   }
 }
 
@@ -703,6 +729,7 @@ class TidalStreamSession {
 
     var start = 0;
     int? end;
+    var hasExplicitEnd = false;
 
     if (rangeHeader != null) {
       final match = RegExp(r'bytes=(\d*)-(\d*)').firstMatch(rangeHeader);
@@ -712,6 +739,7 @@ class TidalStreamSession {
         }
         if (match.group(2)?.isNotEmpty == true) {
           end = int.parse(match.group(2)!);
+          hasExplicitEnd = true;
         }
       }
     }
@@ -752,58 +780,147 @@ class TidalStreamSession {
       return;
     }
 
-    final actualEnd = min(requestedEnd, _bytesWritten - 1);
-    final lengthToRead = actualEnd - start + 1;
+    if (hasExplicitEnd) {
+      final actualEnd = min(requestedEnd, _bytesWritten - 1);
+      final lengthToRead = actualEnd - start + 1;
 
-    if (lengthToRead <= 0) {
-      if (_isFinished) {
-        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        req.response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes */$_bytesWritten',
-        );
-      } else {
-        req.response.statusCode = HttpStatus.serviceUnavailable;
-        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+      if (lengthToRead <= 0) {
+        if (_isFinished) {
+          req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+          req.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes */$_bytesWritten',
+          );
+        } else {
+          req.response.statusCode = HttpStatus.serviceUnavailable;
+          req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+        }
+        await req.response.close();
+        return;
       }
+
+      if (_isFinalizing) await _finalizingFile.future;
+
+      // Read byte slice from disk (.part or finished file)
+      final filePath = _isFinished ? targetPath : '$targetPath.part';
+      RandomAccessFile readRaf;
+      try {
+        readRaf = await File(filePath).open(mode: FileMode.read);
+      } on FileSystemException {
+        // Finalization may rename the part file between checking and opening it.
+        readRaf = await File(targetPath).open(mode: FileMode.read);
+      }
+      final List<int> chunk;
+      try {
+        await readRaf.setPosition(start);
+        chunk = await readRaf.read(lengthToRead);
+      } finally {
+        await readRaf.close();
+      }
+
+      final totalStr = _isFinished ? '$_bytesWritten' : '*';
+
+      req.response.statusCode = HttpStatus.partialContent;
+      req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      req.response.headers.set(HttpHeaders.contentTypeHeader, 'audio/mp4');
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$actualEnd/$totalStr',
+      );
+      req.response.headers.set(
+        HttpHeaders.contentLengthHeader,
+        '${chunk.length}',
+      );
+      req.response.add(chunk);
       await req.response.close();
       return;
     }
 
-    if (_isFinalizing) await _finalizingFile.future;
-
-    // Read byte slice from disk (.part or finished file)
-    final filePath = _isFinished ? targetPath : '$targetPath.part';
-    RandomAccessFile readRaf;
-    try {
-      readRaf = await File(filePath).open(mode: FileMode.read);
-    } on FileSystemException {
-      // Finalization may rename the part file between checking and opening it.
-      readRaf = await File(targetPath).open(mode: FileMode.read);
-    }
-    final List<int> chunk;
-    try {
-      await readRaf.setPosition(start);
-      chunk = await readRaf.read(lengthToRead);
-    } finally {
-      await readRaf.close();
-    }
-
-    final totalStr = _isFinished ? '$_bytesWritten' : '*';
-
-    req.response.statusCode = HttpStatus.partialContent;
+    // Open-ended streaming (ExoPlayer progressive playback or bare GET)
+    req.response.statusCode = (start > 0 || rangeHeader != null)
+        ? HttpStatus.partialContent
+        : HttpStatus.ok;
     req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
     req.response.headers.set(HttpHeaders.contentTypeHeader, 'audio/mp4');
-    req.response.headers.set(
-      HttpHeaders.contentRangeHeader,
-      'bytes $start-$actualEnd/$totalStr',
-    );
-    req.response.headers.set(
-      HttpHeaders.contentLengthHeader,
-      '${chunk.length}',
-    );
-    req.response.add(chunk);
-    await req.response.close();
+
+    if (_isFinished) {
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-${_bytesWritten - 1}/$_bytesWritten',
+      );
+      req.response.headers.set(
+        HttpHeaders.contentLengthHeader,
+        '${_bytesWritten - start}',
+      );
+    }
+
+    var currentOffset = start;
+    const chunkSize = 256 * 1024;
+
+    while (true) {
+      if (_isCancelled) break;
+
+      if (currentOffset >= _bytesWritten) {
+        if (_isFinished) break;
+        if (_pumpFailed) {
+          devLog(
+            '[TidalStreamSession] Stream pump failed while streaming at $currentOffset',
+          );
+          break;
+        }
+
+        _wakePumpForByte(currentOffset);
+        await _waitForBytes(currentOffset + 1);
+
+        if (currentOffset >= _bytesWritten) {
+          if (_isFinished || _isCancelled || _pumpFailed) break;
+          continue;
+        }
+      }
+
+      _wakePumpForByte(currentOffset);
+
+      final available = _bytesWritten - currentOffset;
+      final toRead = min(chunkSize, available);
+
+      if (_isFinalizing) await _finalizingFile.future;
+
+      final filePath = _isFinished ? targetPath : '$targetPath.part';
+      RandomAccessFile readRaf;
+      try {
+        readRaf = await File(filePath).open(mode: FileMode.read);
+      } on FileSystemException {
+        readRaf = await File(targetPath).open(mode: FileMode.read);
+      }
+
+      final List<int> chunk;
+      try {
+        await readRaf.setPosition(currentOffset);
+        chunk = await readRaf.read(toRead);
+      } finally {
+        await readRaf.close();
+      }
+
+      if (chunk.isEmpty) {
+        if (_isFinished) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        continue;
+      }
+
+      try {
+        req.response.add(chunk);
+        await req.response.flush();
+      } catch (_) {
+        // Client closed socket (seek, pause, skip, or disconnect)
+        break;
+      }
+
+      currentOffset += chunk.length;
+    }
+
+    try {
+      await req.response.close();
+    } catch (_) {}
   }
 
   /// Cancel the session, stop workers, and close file handles.
@@ -1050,10 +1167,12 @@ class TidalBtsStreamSession {
   }
 
   Future<void> handleRequest(HttpRequest req) async {
+    final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
     final match = RegExp(
       r'bytes=(\d+)-(\d*)',
-    ).firstMatch(req.headers.value(HttpHeaders.rangeHeader) ?? '');
+    ).firstMatch(rangeHeader ?? '');
     final start = int.tryParse(match?.group(1) ?? '') ?? 0;
+    final hasExplicitEnd = match != null && match.group(2)?.isNotEmpty == true;
     final requestedEnd =
         int.tryParse(match?.group(2) ?? '') ?? (start + 1024 * 1024 - 1);
 
@@ -1102,73 +1221,168 @@ class TidalBtsStreamSession {
       return;
     }
 
-    if (_isFinalizing) await _finalizingFile.future;
-    // The prefetched tail is fully present on disk even though the sequential
-    // head download hasn't reached it yet.
-    final available = servesTail
-        ? (_total ?? _written)
-        : (_total == null ? _written : min(_written, _total!));
+    if (hasExplicitEnd || servesTail) {
+      if (_isFinalizing) await _finalizingFile.future;
+      // The prefetched tail is fully present on disk even though the sequential
+      // head download hasn't reached it yet.
+      final available = servesTail
+          ? (_total ?? _written)
+          : (_total == null ? _written : min(_written, _total!));
 
-    // Probe request is capped to _initialBufferBytes to minimize startup latency.
-    // Subsequent streaming requests return whatever bytes are currently buffered.
-    final actualEnd = initialRequest
-        ? min(end, min(available - 1, _initialBufferBytes - 1))
-        : min(end, available - 1);
-    final lengthToRead = actualEnd - start + 1;
+      // Probe request is capped to _initialBufferBytes to minimize startup latency.
+      // Subsequent streaming requests return whatever bytes are currently buffered.
+      final actualEnd = initialRequest
+          ? min(end, min(available - 1, _initialBufferBytes - 1))
+          : min(end, available - 1);
+      final lengthToRead = actualEnd - start + 1;
 
-    if (lengthToRead <= 0) {
-      if (_finished && !_failed) {
-        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        if (_total != null) {
-          req.response.headers.set(
-            HttpHeaders.contentRangeHeader,
-            'bytes */$_total',
-          );
+      if (lengthToRead <= 0) {
+        if (_finished && !_failed) {
+          req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+          if (_total != null) {
+            req.response.headers.set(
+              HttpHeaders.contentRangeHeader,
+              'bytes */$_total',
+            );
+          }
+        } else {
+          req.response.statusCode = HttpStatus.serviceUnavailable;
+          req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
         }
-      } else {
-        req.response.statusCode = HttpStatus.serviceUnavailable;
-        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+        await req.response.close();
+        return;
       }
+
+      RandomAccessFile raf;
+      try {
+        raf = await File(
+          _finished ? targetPath : '$targetPath.part',
+        ).open(mode: FileMode.read);
+      } on FileSystemException {
+        // Finalization may rename the part file between checking and opening it.
+        raf = await File(targetPath).open(mode: FileMode.read);
+      }
+      final List<int> bytes;
+      try {
+        await raf.setPosition(start);
+        bytes = await raf.read(lengthToRead);
+      } finally {
+        await raf.close();
+      }
+
+      if (bytes.isEmpty) {
+        if (_finished && !_failed) {
+          req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        } else {
+          req.response.statusCode = HttpStatus.serviceUnavailable;
+          req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+        }
+        await req.response.close();
+        return;
+      }
+
+      final effectiveEnd = start + bytes.length - 1;
+      req.response.statusCode = HttpStatus.partialContent;
+      req.response.headers
+        ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+        ..set(HttpHeaders.contentTypeHeader, contentType)
+        ..set(HttpHeaders.contentLengthHeader, '${bytes.length}')
+        ..set(
+          HttpHeaders.contentRangeHeader,
+          'bytes $start-$effectiveEnd/${_total ?? '*'}',
+        );
+      req.response.add(bytes);
       await req.response.close();
       return;
     }
 
-    RandomAccessFile raf;
-    try {
-      raf = await File(
-        _finished ? targetPath : '$targetPath.part',
-      ).open(mode: FileMode.read);
-    } on FileSystemException {
-      // Finalization may rename the part file between checking and opening it.
-      raf = await File(targetPath).open(mode: FileMode.read);
-    }
-    await raf.setPosition(start);
-    final bytes = await raf.read(lengthToRead);
-    await raf.close();
+    // Open-ended streaming (ExoPlayer progressive playback or bare GET)
+    req.response.statusCode = (start > 0 || rangeHeader != null)
+        ? HttpStatus.partialContent
+        : HttpStatus.ok;
+    req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    req.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
 
-    if (bytes.isEmpty) {
-      if (_finished && !_failed) {
-        req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-      } else {
-        req.response.statusCode = HttpStatus.serviceUnavailable;
-        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
-      }
-      await req.response.close();
-      return;
-    }
-
-    final effectiveEnd = start + bytes.length - 1;
-    req.response.statusCode = HttpStatus.partialContent;
-    req.response.headers
-      ..set(HttpHeaders.acceptRangesHeader, 'bytes')
-      ..set(HttpHeaders.contentTypeHeader, contentType)
-      ..set(HttpHeaders.contentLengthHeader, '${bytes.length}')
-      ..set(
+    if (_finished && _total != null) {
+      req.response.headers.set(
         HttpHeaders.contentRangeHeader,
-        'bytes $start-$effectiveEnd/${_total ?? '*'}',
+        'bytes $start-${_total! - 1}/$_total',
       );
-    req.response.add(bytes);
-    await req.response.close();
+      req.response.headers.set(
+        HttpHeaders.contentLengthHeader,
+        '${_total! - start}',
+      );
+    }
+
+    var currentOffset = start;
+    const chunkSize = 256 * 1024;
+
+    while (true) {
+      if (_cancelled) break;
+
+      if (currentOffset >= _written) {
+        if (_finished) break;
+        if (_failed) {
+          devLog(
+            '[TidalBtsStreamSession] Download failed while streaming at $currentOffset',
+          );
+          break;
+        }
+
+        await _waitForBytes(currentOffset + 1);
+
+        if (currentOffset >= _written) {
+          if (_finished || _cancelled || _failed) break;
+          continue;
+        }
+      }
+
+      final available = _total == null ? _written : min(_written, _total!);
+      if (currentOffset >= available) {
+        if (_finished) break;
+        await _waitForBytes(currentOffset + 1);
+        continue;
+      }
+
+      final toRead = min(chunkSize, available - currentOffset);
+      if (_isFinalizing) await _finalizingFile.future;
+
+      RandomAccessFile raf;
+      try {
+        raf = await File(
+          _finished ? targetPath : '$targetPath.part',
+        ).open(mode: FileMode.read);
+      } on FileSystemException {
+        raf = await File(targetPath).open(mode: FileMode.read);
+      }
+
+      final List<int> bytes;
+      try {
+        await raf.setPosition(currentOffset);
+        bytes = await raf.read(toRead);
+      } finally {
+        await raf.close();
+      }
+
+      if (bytes.isEmpty) {
+        if (_finished) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        continue;
+      }
+
+      try {
+        req.response.add(bytes);
+        await req.response.flush();
+      } catch (_) {
+        break;
+      }
+
+      currentOffset += bytes.length;
+    }
+
+    try {
+      await req.response.close();
+    } catch (_) {}
   }
 
   void cancel() {

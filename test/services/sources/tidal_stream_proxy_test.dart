@@ -399,6 +399,266 @@ void main() {
       // Wait long enough for seg0's delayed future to complete with error
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
+
+    test(
+      'open-ended range request (bytes=0-) streams entire multi-segment DASH track continuously without early EOF',
+      () async {
+        final targetPath = '${tempDir.path}/open_ended_dash.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final seg0Bytes = List<int>.generate(200, (i) => (100 + i) % 256);
+        final seg1Bytes = List<int>.generate(200, (i) => (200 + i) % 256);
+        final seg2Bytes = List<int>.generate(200, (i) => (300 + i) % 256);
+
+        final client = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          if (request.url.path.contains('seg0')) {
+            return http.Response.bytes(seg0Bytes, 200);
+          }
+          if (request.url.path.contains('seg1')) {
+            return http.Response.bytes(seg1Bytes, 200);
+          }
+          if (request.url.path.contains('seg2')) {
+            return http.Response.bytes(seg2Bytes, 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [
+            'https://cdn.tidal.com/seg0.mp4',
+            'https://cdn.tidal.com/seg1.mp4',
+            'https://cdn.tidal.com/seg2.mp4',
+          ],
+          bandwidth: 2000000,
+          durationSeconds: 15.0,
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'open_ended_track',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        );
+
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.partialContent);
+        // While streaming dynamic segments, Content-Length must not be set to truncate at seg0
+        expect(resp.headers.value(HttpHeaders.contentLengthHeader), isNull);
+
+        final receivedBytes = await resp.expand((b) => b).toList();
+        final expectedBytes = [
+          ...initBytes,
+          ...seg0Bytes,
+          ...seg1Bytes,
+          ...seg2Bytes,
+        ];
+        expect(receivedBytes.length, expectedBytes.length);
+        expect(receivedBytes, expectedBytes);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'bare GET (no Range header) streams entire multi-segment DASH track with 200 OK',
+      () async {
+        final targetPath = '${tempDir.path}/bare_get_dash.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final seg0Bytes = List<int>.generate(200, (i) => (100 + i) % 256);
+        final seg1Bytes = List<int>.generate(200, (i) => (200 + i) % 256);
+
+        final client = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          if (request.url.path.contains('seg0')) {
+            return http.Response.bytes(seg0Bytes, 200);
+          }
+          if (request.url.path.contains('seg1')) {
+            return http.Response.bytes(seg1Bytes, 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [
+            'https://cdn.tidal.com/seg0.mp4',
+            'https://cdn.tidal.com/seg1.mp4',
+          ],
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'bare_get_track',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        );
+
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.ok);
+        expect(resp.headers.value(HttpHeaders.contentLengthHeader), isNull);
+
+        final receivedBytes = await resp.expand((b) => b).toList();
+        final expectedBytes = [...initBytes, ...seg0Bytes, ...seg1Bytes];
+        expect(receivedBytes.length, expectedBytes.length);
+        expect(receivedBytes, expectedBytes);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'open-ended seek request (bytes=100-) streams from offset to EOF',
+      () async {
+        final targetPath = '${tempDir.path}/seek_dash.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final seg0Bytes = List<int>.generate(200, (i) => (100 + i) % 256);
+        final seg1Bytes = List<int>.generate(200, (i) => (200 + i) % 256);
+
+        final client = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          if (request.url.path.contains('seg0')) {
+            return http.Response.bytes(seg0Bytes, 200);
+          }
+          if (request.url.path.contains('seg1')) {
+            return http.Response.bytes(seg1Bytes, 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [
+            'https://cdn.tidal.com/seg0.mp4',
+            'https://cdn.tidal.com/seg1.mp4',
+          ],
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'seek_track',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        );
+
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=100-');
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.partialContent);
+        final receivedBytes = await resp.expand((b) => b).toList();
+        final expectedBytes = [...seg0Bytes, ...seg1Bytes];
+        expect(receivedBytes.length, expectedBytes.length);
+        expect(receivedBytes, expectedBytes);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'explicit-end request (Rust contract) returns single closed block with Content-Length and closes',
+      () async {
+        final targetPath = '${tempDir.path}/rust_block.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final seg0Bytes = List<int>.generate(200, (i) => 100 + i);
+
+        final client = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          if (request.url.path.contains('seg0')) {
+            return http.Response.bytes(seg0Bytes, 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'rust_track',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+        );
+
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-99');
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.partialContent);
+        expect(resp.headers.value(HttpHeaders.contentLengthHeader), '100');
+        expect(
+          resp.headers.value(HttpHeaders.contentRangeHeader),
+          startsWith('bytes 0-99/'),
+        );
+
+        final body = await resp.expand((b) => b).toList();
+        expect(body, initBytes);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'BTS open-ended range request (bytes=0-) streams entire file without early socket close',
+      () async {
+        final targetPath = '${tempDir.path}/open_ended_bts.flac';
+        final btsBytes = List<int>.generate(400 * 1024, (i) => i % 256);
+
+        final client = MockClient((request) async {
+          return http.Response.bytes(
+            btsBytes,
+            200,
+            headers: {'content-length': '${btsBytes.length}'},
+          );
+        });
+
+        final streamUrl = await TidalStreamProxy.instance.prepareBtsStream(
+          trackId: 'open_ended_bts_track',
+          sourceUrl: 'https://cdn.tidal.com/audio.flac',
+          targetPath: targetPath,
+          contentType: 'audio/flac',
+          client: client,
+        );
+
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.partialContent);
+        final received = await resp.expand((b) => b).toList();
+        expect(received.length, btsBytes.length);
+        expect(received, btsBytes);
+        httpClient.close();
+      },
+    );
   });
 }
 
