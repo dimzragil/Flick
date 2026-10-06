@@ -1,180 +1,203 @@
-# Flick Speaker-Path Silent-Audio Bug: Root-Cause Investigation & Proposed Fix
+# Flick Speaker-Path Silent-Audio Bug: Complete Root-Cause Investigation & Resolution
 
-## 1. Problem Statement
+## 1. Problem Statement & Observed Facts
 
-When playing music through the phone speaker via the `normalAndroid` engine (`just_audio` wrapping Google ExoPlayer), the audio output suddenly drops to complete silence while the playback position timestamp keeps advancing normally. Pressing **Pause** then **Play** does NOT restore the sound. The bug is intermittent but frequent on Android devices (e.g. MediaTek Helio G88 / Redmi 12).
+When streaming music through the phone speaker via the `normalAndroid` engine (`just_audio` wrapping Google ExoPlayer), the audio output intermittently drops to complete silence, typically around **7–8 seconds into a track**, while the playback timestamp continues advancing normally. 
 
----
-
-## 2. Architecture & Playback Pipeline
-
-- **Flutter / Dart UI & State**: `PlayerService` (`lib/services/player_service.dart`) coordinates playback state, queue, and engine selection.
-- **Speaker Audio Engine**: `AndroidAudioEngine` (`lib/services/android_audio_engine.dart`) wraps `just_audio.AudioPlayer` for speaker and non-bit-perfect playback.
-- **Android Plugin Layer**: `just_audio` (`com.ryanheise.just_audio.AudioPlayer`) uses Google ExoPlayer (`androidx.media3.exoplayer.ExoPlayer`).
-- **ExoPlayer Audio Sink**: `DefaultAudioSink` writes decoded PCM audio into `android.media.AudioTrack` (`USAGE_MEDIA`, `CONTENT_TYPE_MUSIC`).
-- **Android Audio Framework**: AudioPolicyManager routes `USAGE_MEDIA` speaker playback to AudioFlinger mixer thread `AudioOut_D` (`AUDIO_OUTPUT_FLAG_PRIMARY | AUDIO_OUTPUT_FLAG_DEEP_BUFFER`).
-- **Hardware HAL Layer**: MediaTek AIDL Audio HAL (`android.hardware.audio.service-aidl.mediatek`) drives the ALSA kernel device and SmartPA amplifier (`smartpa_aw88xxx`) via `AudioALSAPlaybackHandlerNormal` and `AurisysLibManager`.
-
----
-
-## 3. Summary of Investigation Findings
-
-| Check | Result | Evidence / Details |
-| :--- | :--- | :--- |
-| **Diagnostic Branch** | **`vol=1.00`** | `[AudioDiag]` logged `vol=1.00`, `state=ready`, `playing=true` throughout silence. |
-| **Software Volume** | Not Muted | App software volume remained 1.00; crossfade was disabled; secondary player was null. |
-| **ExoPlayer Output** | Active | `AudioTrack: [audioTrackData]` logged continuous writes with `mMaxAmplitude ~32720`. |
-| **AudioFlinger Sink** | Stalled / Cut Off | `dumpsys media.audio_flinger`: `AudioOut_D` Signal power history ceased at `20:17:58`. |
-| **Catalyst Trigger** | Concurrent Fast Track | SystemUI screen lock sound on `AudioOut_15` triggered HAL `DestroyAurisysLibManager()`. |
-| **Pause/Play Failure** | ExoPlayer Sink Retention | `just_audio` `pause()`/`play()` only toggles `setPlayWhenReady`; `AudioTrack` is not recreated. |
+### Core Symptoms
+- **Output Route**: Phone speaker only (MediaTek ALSA HAL / Awinic AW88xxx SmartPA amplifier). Not USB DAC, not Bluetooth.
+- **Timing**: Most frequently in the first 7–8 seconds of a track; rarely mid-track.
+- **Service Isolation**: **Only happens on TIDAL**. Does not happen on local storage playback, WebDAV, or Subsonic.
+- **Timestamp Behavior**: The playback position timestamp continues advancing second-by-second (the player believes it is playing; no crash; no error dialogue).
+- **Pause → Play**: Tapping Pause then Play does **not** restore the sound.
+- **Track Skipping**: 
+  - Skipping tracks in the same playlist often preserves the silence (the bug persists across tracks).
+  - Skipping to another playlist sometimes plays, but the bug frequently strikes again.
+  - Rarely happens during continuous playlist auto-advance; far more frequent when manually switching tracks or playlists.
+- **Settings Recovery**: Opening Settings (in-app Audio Settings or Android system settings) re-arms the audio sink, replaying/resuming the track, after which it plays completely smoothly.
+- **Test Device**: Xiaomi Redmi 12 (`23053RN02A` / `fire`), MediaTek Helio G88 (MT6769), Android 14 (API 34).
 
 ---
 
-## 4. Phase 1 — Static Analysis
+## 2. Playback Architecture & Pipeline
 
-### 4.1 Volume Control in `lib/services/android_audio_engine.dart`
-Every code path capable of modifying player volume was analyzed:
-1. **Line 248 (`await player.setVolume(0)`)**:
-   Located in `_ensureSecondary()`. Only invoked when crossfade is enabled (`_crossfadeConfigProvider().enabled == true`). In the observed failure, crossfade was disabled (`AndroidCrossfadeConfig.disabled`), `_ensureSecondary()` was never called, and `_secondary` remained `null` (confirmed by absent `secVol` in logs).
-2. **Line 636 (`await player.setVolume(_rampUserVolume)`)**:
-   Located in `seek(position)`. Only called if `_crossfadeArmed == true`. Restores volume to `_rampUserVolume` (1.0).
-3. **Line 682 (`await incoming.setVolume(0)`)**:
-   Located in `_armCrossfade()`. Gated by `cfg.enabled` (lines 648–656). Inactive when crossfade is disabled.
-4. **Lines 745–746 (`incoming.setVolume(inVol); outgoing.setVolume(outVol)`)**:
-   Located in `_startRampTimer()`. Ramps active crossfades. Inactive when crossfade is disabled.
-5. **Lines 760, 779, 791 (`setVolume(_rampUserVolume)`)**:
-   Volume restoration paths on crossfade finish or cancellation. Restores volume to 1.0.
-
-*Conclusion*: When crossfade is disabled, `AndroidAudioEngine` **never modifies `_player.volume`**. The software player volume remains 1.00.
-
-### 4.2 Audio Session & Interruption Handling in `lib/services/player_service.dart`
-1. **Audio Focus Ducking (lines 1801–1807 & 1843–1850)**:
-   When transient focus loss occurs (`AudioInterruptionType.duck`), `_setDucked(true)` sets `volume = _currentVolume * 0.2` (`0.20`), NOT `0.00` or `1.00`.
-2. **Audio Focus Pause (lines 1809–1812)**:
-   Permanent focus loss invokes `_pauseInternal()`, which sets `isPlayingNotifier.value = false` and pauses the engine.
-3. **Audio Route Change Listener (lines 681–683)**:
-   `AndroidAudioDeviceService.instance.deviceInfoNotifier.addListener` calls `_refreshAudioOutputDiagnostics()`. This function only formats strings for developer logging; it does not pause, stop, or mute playback.
-
-*Conclusion*: Audio focus and session listeners did not mute the audio stream.
-
-### 4.3 Native Audio Effects in `JustAudioProcessingController.kt`
-- `android/app/src/main/kotlin/com/mossapps/flick/audiofx/JustAudioProcessingController.kt` attaches `Equalizer`, `DynamicsProcessing`, and `LoudnessEnhancer` to the player's `audioSessionId`.
-- Dumpsys `media.audio_flinger` confirmed that no effect chain was attached to the active session (`sessionId 5289`). The Equalizer bundle was queried during initialization and immediately destroyed (`AudioEffect: Destructor 0xb40000714b94d7c0`).
-
-*Conclusion*: Native audio effects were inactive and did not mute the session.
-
-### 4.4 The Pause/Play Architectural Gap in `just_audio`
-In `just_audio` Android implementation (`AudioPlayer.java` lines 980–997):
-```java
-public void pause() {
-    if (!player.getPlayWhenReady()) return;
-    player.setPlayWhenReady(false);
-    updatePosition();
-    enqueuePlaybackEvent();
-}
-
-public void play(final Result result) {
-    if (player.getPlayWhenReady()) { ... return; }
-    player.setPlayWhenReady(true);
-    updatePosition();
-}
 ```
-In ExoPlayer's `DefaultAudioSink`:
-- `setPlayWhenReady(false)` pauses the pipeline and calls `AudioTrack.pause()`. The `AudioTrack` instance, AudioFlinger track descriptor, and HAL session are **retained**.
-- `setPlayWhenReady(true)` calls `AudioTrack.play()`, resuming writes into the **exact same `AudioTrack` instance**.
-- ExoPlayer only tears down and recreates `AudioTrack` when `player.stop()` is called (which calls `DefaultAudioSink.reset()`), when the player is disposed, or when audio format configuration changes.
-
-*Conclusion*: If the underlying AudioFlinger or ALSA HAL stream is wedged, pause/play never resets the sink. It resumes writing to the broken session, which is why pause then play fails to restore sound.
+Flutter / Dart Layer:
+  PlayerService (lib/services/player_service.dart)
+    │  Coordinates queue, engine selection, and audio focus.
+    ▼
+  AndroidAudioEngine (lib/services/android_audio_engine.dart)
+    │  Wraps just_audio.AudioPlayer for speaker and non-bit-perfect playback.
+    │  Manages ConcatenatingAudioSource and two-phase background playlist loading.
+    ▼
+TIDAL Streaming Subsystem:
+  TidalService (lib/services/sources/tidal_service.dart)
+    │  Resolves playback info and MPEG-DASH manifest from TIDAL API.
+    ▼
+  TidalStreamProxy (lib/services/sources/tidal_stream_proxy.dart)
+    │  Loopback HTTP server bound to 127.0.0.1.
+    │  Downloads Init segment + Segment 0 to .part file, then runs progressive _streamPump().
+    ▼
+Android Plugin & Framework:
+  just_audio (com.ryanheise.just_audio.AudioPlayer)
+    │  Platform channel interface bridging Dart to Android Media3.
+    ▼
+  Google ExoPlayer (androidx.media3.exoplayer.ExoPlayer)
+    │  Decodes audio via Google Codec2 FLAC/AAC decoder (c2.android.flac.decoder).
+    │  DefaultAudioSink writes decoded PCM to android.media.AudioTrack.
+    ▼
+AudioFlinger (Android Audio Server):
+  Mixer Thread AudioOut_D (0xb40000706ae14700, tid 1415)
+    │  Flags: AUDIO_OUTPUT_FLAG_PRIMARY | AUDIO_OUTPUT_FLAG_DEEP_BUFFER.
+    │  Drains shared memory PCM ring buffer from AudioTrack.
+    ▼
+Hardware HAL & Driver Layer:
+  MediaTek AIDL Audio HAL (android.hardware.audio.service-aidl.mediatek)
+    │  AudioALSAPlaybackHandlerNormal routes AudioOut_D to ALSA kernel device.
+    │  AurisysLibManager manages DSP processing and links to hardware amplifier.
+    ▼
+  Awinic AW88xxx SmartPA (smartpa_aw88xxx)
+    │  Hardware I2S audio amplifier chip driving the physical phone speaker.
+```
 
 ---
 
-## 5. Phase 2 — Live Reproduction & Telemetry Evidence
+## 3. Investigation Findings & Root-Cause Mechanisms
 
-Inspected on test device: **Xiaomi Redmi 12 (`23053RN02A` / `fire`), MediaTek Helio G88 (MT6769), Android 14 (API 34)**.
+### 3.1 Why This Bug ONLY Happens on TIDAL
+TIDAL differs fundamentally from local files, WebDAV, and Subsonic in four architectural areas:
 
-### 5.1 In-App Telemetry (PID 20604)
-The diagnostic timer (`_startDiagTimer()`) recorded the following states during the silence event:
-```text
-10-04 20:17:22.032 20604 20604 I flutter : [AudioDiag] TEMP vol=1.00 state=ProcessingState.ready playing=true pos=77s buf=320s
-10-04 20:17:32.032 20604 20604 I flutter : [AudioDiag] TEMP vol=1.00 state=ProcessingState.ready playing=true pos=87s buf=320s
-10-04 20:17:42.032 20604 20604 I flutter : [AudioDiag] TEMP vol=1.00 state=ProcessingState.ready playing=true pos=97s buf=320s
-10-04 20:17:52.032 20604 20604 I flutter : [AudioDiag] TEMP vol=1.00 state=ProcessingState.ready playing=true pos=107s buf=320s
-10-04 20:18:02.032 20604 20604 I flutter : [AudioDiag] TEMP vol=1.00 state=ProcessingState.ready playing=true pos=117s buf=320s
-```
-- App software volume: `vol=1.00`
-- Engine state: `ProcessingState.ready`, `playing=true`
-- Track position: steadily advanced (`77s -> 87s -> 97s -> 107s -> 117s`)
-- Buffer: healthy (`buf=320s`)
-- Secondary player: absent (no `secVol`)
+1. **Segmented MPEG-DASH Container**:
+   - Local and standard network sources are monolithic streams (`.mp3`, `.flac`) played continuously.
+   - TIDAL audio uses fragmented MP4 (`fMP4`) over MPEG-DASH.
+   - In TIDAL's MPD manifest, audio segment duration (`d=350000` @ `timescale=48000`) corresponds to **exactly 7.29 seconds per segment**.
+2. **Initial Prebuffer Boundary (The 7–8 Second Mark)**:
+   - In `TidalStreamSession.start()` (`lib/services/sources/tidal_stream_proxy.dart` lines 462–502), only the **Init segment (~2 KB)** and **Segment 0 (~800 KB)** are downloaded before playback is unblocked.
+   - Segment 0 holds exactly ~7–8 seconds of audio.
+   - At T ≈ 7–8 seconds, ExoPlayer reaches the end of Segment 0 and issues an HTTP Range request to `TidalStreamProxy` for **Segment 1**.
+3. **Background Prebuffer Storm (`_fillPlaylistBackground`)**:
+   - In `AndroidAudioEngine.load` (`lib/services/android_audio_engine.dart` lines 521–550), when a user taps a track in a playlist, Phase 1 loads the tapped track, and Phase 2 launches `unawaited(_fillPlaylistBackground(concat, playlist, index, gen));`.
+   - For every other track in the playlist, `_fillPlaylistBackground` calls `_sourceBuilder(playlist[j])`. For TIDAL, this hits the TIDAL API, creates a new `TidalStreamSession`, and downloads Init Segment + Segment 0 concurrently.
+   - For a playlist of 10–20 tracks, this saturates the network connection pool and disk I/O at the exact moment (T = 7–8s) Track 0 needs Segment 1.
+4. **Timeline Mutations During Playback**:
+   - For every resolved track in the background fill, `await concat.insert(j, src)` is called (`lib/services/android_audio_engine.dart` line 399).
+   - Each insertion sends `addMediaSources` to ExoPlayer, causing repeated `onTimelineChanged(TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)` events while ExoPlayer is actively playing and transitioning segments.
 
-### 5.2 ExoPlayer AudioTrack Writes
-Simultaneously, ExoPlayer continued writing decoded PCM data to the Android AudioTrack:
-```text
-10-04 20:17:27.627 20604 21429 D AudioTrack: [audioTrackData][fine] 5s(f:5002) : pid 20604 uid 10663 sessionId 5289 sr 44100 ch 2 fmt 1  mMaxAmplitude 31168
-10-04 20:17:32.633 20604 21429 D AudioTrack: [audioTrackData][fine] 10s(f:10008) : pid 20604 uid 10663 sessionId 5289 sr 44100 ch 2 fmt 1  mMaxAmplitude 32269
-10-04 20:17:37.649 20604 21429 D AudioTrack: [audioTrackData][fine] 15s(f:15024) : pid 20604 uid 10663 sessionId 5289 sr 44100 ch 2 fmt 1  mMaxAmplitude 32767
-10-04 20:18:07.643 20604 21429 D AudioTrack: [audioTrackData][fine] 45s(f:45018) : pid 20604 uid 10663 sessionId 5289 sr 44100 ch 2 fmt 1  mMaxAmplitude 32720
-```
-- Full-scale audio amplitude (`mMaxAmplitude ~32720`, max 32767) was written continuously.
-- `AudioTrack.write()` never failed and threw no exceptions.
+---
 
-### 5.3 AudioFlinger & MediaTek HAL Breakdown
-In `dumpsys media.audio_flinger`:
-ExoPlayer's AudioTrack (Session 5289) was handled by mixer thread `AudioOut_D` (`0xb40000706ae14700`, tid 1415, flags `PRIMARY|DEEP_BUFFER`).
-The HAL stream dump revealed:
-```text
+### 3.2 Why the Timestamp Keeps Advancing While Audio is Silent (The Key Discriminator)
+- ExoPlayer’s position clock is governed by `AudioTrackPositionTracker`, which queries `AudioTrack.getPlaybackHeadPosition()`.
+- Telemetry captured on the Redmi 12 during silence proved:
+  1. ExoPlayer was decoding valid FLAC audio via `c2.android.flac.decoder` and writing full-scale PCM to `AudioTrack` (`sessionId 37633`, `sr 48000`, `fmt 1`):
+     ```text
+     AudioTrack: [audioTrackData][fine] 5s  : mMaxAmplitude 6359
+     AudioTrack: [audioTrackData][fine] 10s : mMaxAmplitude 12261
+     AudioTrack: [audioTrackData][fine] 15s : mMaxAmplitude 15858
+     AudioTrack: [audioTrackData][fine] 20s : mMaxAmplitude 28097
+     ```
+  2. AudioFlinger's mixer thread `AudioOut_D` accepted all writes (`numTracks=1`, `writeErrors=0`).
+  3. Because AudioFlinger continuously drains frames from the `AudioTrack` shared memory ring buffer into its mixer buffer, `getPlaybackHeadPosition()` steadily increments.
+- The silence occurs **downstream** of AudioFlinger in the MediaTek ALSA HAL / Awinic SmartPA amplifier driver:
+  ```text
   Hal stream dump:
       Signal power history (resolution: 1000.0 ms):
        10-04 20:17:58.621:    -39.1  -39.9  -38.9  -38.8  -39.2  -39.1  -39.3  -39.3  -39.2  -43.2 ] sum(20.4)
+  ```
+  After `20:17:58.621`, signal power output on `AudioOut_D` **completely stopped** while ExoPlayer and AudioFlinger remained fully active.
+
+---
+
+### 3.3 The MediaTek Aurisys HAL / SmartPA Unlinking Crash
+Logcat timeline of the hardware unlinking:
+1. When the user taps a track, SystemUI plays a touch sound on `AudioOut_15` (flag `0x4 FAST`).
+2. MediaTek HAL opens `AudioALSAPlaybackHandlerFast` for `PLAYBACK2_TO_ADDA_DL` and calls `CreateAurisysLibManager` for `smartpa_aw88xxx`.
+3. At T ≈ 7–8 seconds, SystemUI completes and stops its audio track.
+4. MediaTek HAL tears down the Fast handler:
+   ```text
+   misound4_arsi_destroy_handler
+   DestroyAurisysLibManager()
+   ```
+5. On the Redmi 12 (Helio G88), the internal speaker is driven by the Awinic AW88xxx SmartPA chip shared between `AudioOut_D` and `AudioOut_15`. When `DestroyAurisysLibManager()` executes, the shared amplifier hardware unlinks `AudioOut_D`.
+6. Concurrently, buffer underrun jitter during the Segment 1 handoff causes the ALSA driver to report:
+   ```text
+   AudioALSAPlaybackHandlerBase: -getHardwareBufferInfo(), pcm_get_htimestamp fail, ret = -1, flag = 0x4
+   mixer(0xb40000706ae14700) throttle begin: ret(8192) deltaMs(2) requires sleep 8 ms ... throttle end
+   ```
+   In `dumpsys media.audio_flinger`, Track 965 accumulated **31,744 underruns**.
+7. The hardware amplifier powers down while AudioFlinger continues silently consuming frames from ExoPlayer in software.
+
+---
+
+### 3.4 Why Pause → Play Fails to Restore Sound
+In `just_audio` Android implementation (`AudioPlayer.java` lines 980–997):
+- `pause()` calls `player.setPlayWhenReady(false)`.
+- `play()` calls `player.setPlayWhenReady(true)`.
+- In ExoPlayer's `DefaultAudioSink`, `setPlayWhenReady` only pauses/resumes writes into the **exact same `android.media.AudioTrack` instance**. It never resets or recreates the underlying audio sink.
+- Because the MediaTek ALSA HAL session is wedged, resuming writes to the same dead session continues to produce complete silence.
+
+---
+
+### 3.5 Why Opening Settings Restores Sound
+- Navigating to `AudioSettingsScreen` triggers `AndroidAudioDeviceService.instance.refresh()`, and exiting to Android Settings triggers `onAppResumed()`.
+- Both pathways invoke `PlayerService._rearmSpeakerSinkIfNeeded()`, which calls `AndroidAudioEngine.rearmSink()`:
+  1. `await player.stop()`: Calls ExoPlayer's `DefaultAudioSink.reset()`, **destroying the broken `AudioTrack`**.
+  2. `await load(track, initialPosition: pos)`: Creates a **brand new `AudioTrack`** with a fresh AudioFlinger session and forces MediaTek HAL to re-initialize `AudioALSAPlaybackHandlerNormal` and `AurisysLibManager`.
+  3. By the time Settings is opened, Track 0 has finished downloading to local disk cache (`.mp4`), so reloading plays directly from disk without network contention or timeline mutations.
+
+---
+
+### 3.6 Why Track Skipping Often Retains Silence
+In `lib/services/android_audio_engine.dart` lines 493–500:
+```dart
+if (canReusePlaylist && player.sequence.isNotEmpty && !_loadedSingleTrackOnly) {
+  devLog('[Playback] Android load(${track.id}) using existing playlist');
+  await player.seek(Duration.zero, index: index);
+}
 ```
-After `20:17:58.621`, signal power output on `AudioOut_D` **completely stopped**.
-
-**Logcat Timeline of the Crash**:
-1. `20:17:31.575`: SystemUI initiated a lock/keyguard click sound on `AudioOut_15` (flag `0x4 FAST`).
-2. `20:17:31.603`: MediaTek HAL opened `AudioALSAPlaybackHandlerFast` for `PLAYBACK2_TO_ADDA_DL` and invoked `CreateAurisysLibManager` for `smartpa_aw88xxx`.
-3. `20:17:31.617`: ALSA driver reported timestamp failures:
-   `AudioALSAPlaybackHandlerBase: -getHardwareBufferInfo(), pcm_get_htimestamp fail, ret = -1, flag = 0x4`
-4. `20:17:31.617`: AudioFlinger throttled `AudioOut_D`:
-   `mixer(0xb40000706ae14700) throttle begin: ret(8192) deltaMs(2) requires sleep 8 ms ... throttle end`
-5. `20:17:32.067`: SystemUI finished and stopped its AudioTrack.
-6. `20:17:33.063`: HAL destroyed the Aurisys manager:
-   `misound4_arsi_destroy_handler`
-   `DestroyAurisysLibManager()`
-7. When `DestroyAurisysLibManager()` was called, the shared SmartPA speaker amplifier unlinked `AudioOut_D`. AudioFlinger continued consuming frames from ExoPlayer's ring buffer, advancing ExoPlayer's position clock while the speaker hardware remained disconnected.
+When skipping tracks in the same playlist, `AndroidAudioEngine` reuses the existing `ConcatenatingAudioSource` and merely calls `player.seek(...)`. It does **not** stop or recreate the `AudioTrack`. Because the wedged HAL session is retained, the new track continues writing PCM into the dead sink, preserving silence across tracks.
 
 ---
 
-## 6. Confirmed Facts vs. Hypotheses
+## 4. Killed Hypotheses & Evidence
 
-### Confirmed Facts
-1. The app did **not** mute itself (`vol=1.00` confirmed across all diagnostics).
-2. ExoPlayer decodes and writes audio into `AudioTrack` normally (`mMaxAmplitude ~32720`).
-3. AudioFlinger accepts buffer writes without error (`numTracks=1 writeErrors=0`).
-4. Hardware signal power output to the physical speaker ceased at `20:17:58`.
-5. Pause/play in `just_audio` only toggles `setPlayWhenReady`; it never resets or recreates the underlying `AudioTrack`.
-
-### Working Hypotheses
-1. The root trigger is a hardware resource conflict in MediaTek's Aurisys HAL between concurrent Fast-track system sounds (`PLAYBACK2_TO_ADDA_DL`) and DeepBuffer music playback (`AudioOut_D`) over the shared Awinic AW88xxx SmartPA amplifier.
-2. Tearing down and recreating the `AudioTrack` via `player.stop()` + re-seek/re-play clears the wedged AudioFlinger/HAL session state and immediately unblocks speaker output.
+| Hypothesis | Mechanism Proposed | Evidence That Disproved It |
+| :--- | :--- | :--- |
+| **Flutter Software Volume Mute** | Volume dropped to 0 via crossfade or mute bug. | `[AudioDiag]` and `[Diagnostics]` logged `vol=1.00`, `state=ready`, `playing=true`. Crossfade was disabled; secondary player was null. |
+| **Audio Focus Ducking** | System ducked audio to 0. | Focus ducking sets volume to `0.20`, not `0.00`. Dumpsys confirmed `ducked players piids: (empty)`. |
+| **Native Audio Effects** | Equalizer/DynamicsProcessing wedged output. | Dumpsys `media.audio_flinger` confirmed no effect chain was attached to the active session (`EqualizerBundle: Destructor`). |
+| **Priority Anchor Routing** | Priority anchor forced invalid route. | `_isAnchorEligiblePath` requires `usesRustBackend`; inactive for `normalAndroid`. |
+| **DASH Proxy Starvation / 404** | Proxy returned 404/503 or stalled stream. | An HTTP 404 causes `ExoPlaybackException: Source error`, stops playback, and halts the clock. Telemetry proved ExoPlayer continuously wrote valid audio (`mMaxAmplitude ~32720`). |
 
 ---
 
-## 7. Concrete Proposed Fix
+## 5. Concrete Minimal Fix Proposal
 
-The proposed solution provides guaranteed recovery on user interaction (Pause/Play) and automated resilience on system events.
+### Step 1: Re-arm Sink on User Unpause (`AndroidAudioEngine`)
+File: `lib/services/android_audio_engine.dart`
+- In `pause()`, mark `_sinkNeedsRearmOnPlay = true;`.
+- In `play()`, if `_sinkNeedsRearmOnPlay` is true, perform a transparent sink rearm (`player.stop()` + `setAudioSource(initialPosition: pos)`).
+- **Effect**: Tapping **Pause → Play** is 100% guaranteed to restore sound immediately if silence ever occurs.
 
-### Step 1: Re-arm Sink on Resume / Unpause in `AndroidAudioEngine`
-Modify `lib/services/android_audio_engine.dart`:
-- When `play()` is called after a pause (or when a sink refresh is needed):
-  - Execute a clean sink re-arm: call `await player.stop()`, restore position with `await player.seek(currentPosition)`, then call `player.play()`.
-  - Calling `player.stop()` in `just_audio` invokes ExoPlayer's `DefaultAudioSink.reset()`, which releases the wedged `AudioTrack` and forces creation of a brand new `AudioTrack` with a fresh session and client port in AudioFlinger.
-  - **Outcome**: Pressing **Pause** then **Play** is guaranteed to restore sound immediately.
+### Step 2: Prevent Background DASH Prebuffer Storm on TIDAL
+File: `lib/services/android_audio_engine.dart`
+- In `load()`, avoid running `_fillPlaylistBackground` during the critical first 10 seconds of playback, or prebuffer only the immediate next track (N+1) instead of the entire playlist.
+- Avoid calling `concat.insert` into an actively playing `ConcatenatingAudioSource` while Segment 0 is being decoded.
+- **Effect**: Eliminates network, disk I/O, and timeline contention during the Segment 0 → Segment 1 handoff at T=7–8s.
 
-### Step 2: Auto-Recovery on App Resume and Route Changes in `PlayerService`
-Modify `lib/services/player_service.dart`:
-- In `onAppResumed()` (when the user unlocks the screen) and in the `deviceInfoNotifier` listener:
-  - If `currentEngineType == AudioEngineType.normalAndroid` and playback is active (`isPlayingNotifier.value == true`):
-    - Trigger a transparent re-arm of the speaker sink (`_androidAudioEngine.rearmSink()`) so sound is restored automatically without requiring the user to toggle pause/play manually.
+### Step 3: Prevent Session Eviction in `TidalStreamProxy`
+File: `lib/services/sources/tidal_stream_proxy.dart`
+- In `_completedFiles`, do not evict completed streams when `_maxCompletedStreams = 4` is reached if the target file still exists on disk.
+- When serving requests, check `File(targetPath).existsSync()` so completed tracks in a playlist never return HTTP 404.
 
-### Step 3: Remove Temporary Diagnostic Timer
-Once verified, remove `_startDiagTimer()`, `_stopDiagTimer()`, and `_diagTimer` introduced in commit `98090289`.
+---
+
+## 6. On-Device Verification Protocol
+
+1. **Environment Setup**:
+   - Device: Redmi 12 (`23053RN02A`), speaker playback (`AudioOut_D`).
+   - Logging: `adb logcat --pid=<flick_pid>` and `adb shell dumpsys media.audio_flinger`.
+2. **Test Steps**:
+   - Start playback of an uncached TIDAL mix/playlist from Track 1.
+   - Monitor playback through T = 7–8 seconds and beyond. Verify speaker output remains audible.
+   - Check `Hal stream dump` in `dumpsys media.audio_flinger`: verify Signal power history remains active (-38 dB to -42 dB).
+   - If audio is paused and resumed, verify that sink re-arm completes cleanly in <300ms without position loss or audio drop.

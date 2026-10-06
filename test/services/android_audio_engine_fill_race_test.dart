@@ -149,6 +149,7 @@ class _Harness {
       shouldIgnoreTrack: (_) => false,
       shouldFastStartCurrentTrackOnly: () => false,
       crossfadeConfigProvider: () => AndroidCrossfadeConfig.disabled,
+      backgroundFillDelay: Duration.zero,
     );
   }
 

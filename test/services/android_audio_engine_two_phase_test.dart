@@ -165,8 +165,10 @@ Future<void> _pumpUntil(
 /// Test harness: engine + fake player + a controllable per-track source
 /// builder whose behavior can be swapped mid-test via [buildOverride].
 class _Harness {
-  _Harness({required int trackCount})
-    : playlist = List.generate(trackCount, (i) => _song('s$i')) {
+  _Harness({
+    required int trackCount,
+    Duration backgroundFillDelay = Duration.zero,
+  }) : playlist = List.generate(trackCount, (i) => _song('s$i')) {
     player = _FakeAudioPlayer();
     engine = AndroidAudioEngine(
       playerProvider: () async => player,
@@ -182,6 +184,7 @@ class _Harness {
       shouldIgnoreTrack: (_) => false,
       shouldFastStartCurrentTrackOnly: () => false,
       crossfadeConfigProvider: () => AndroidCrossfadeConfig.disabled,
+      backgroundFillDelay: backgroundFillDelay,
     );
   }
 
@@ -425,6 +428,56 @@ void main() {
       expect(harness.player.sequence, hasLength(1));
       expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
       expect(harness.player.seekIndices, isNot(contains(2)));
+    });
+
+    test('backgroundFillDelay delays background track prebuffering', () async {
+      final harness = _Harness(
+        trackCount: 3,
+        backgroundFillDelay: const Duration(milliseconds: 150),
+      );
+      addTearDown(harness.dispose);
+
+      await harness.engine.load(harness.playlist[0]);
+
+      // Phase 1 finished: only the tapped track is present.
+      expect(harness.player.sequence, hasLength(1));
+
+      // After 50ms (well within the 150ms delay window), background fill has not started.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(harness.player.sequence, hasLength(1));
+
+      // After the delay elapses, background fill finishes and inserts the remaining tracks.
+      await _pumpUntil(() => harness.player.sequence.length == 3);
+      expect(harness.player.sequence, hasLength(3));
+    });
+
+    test('backgroundFillDelay cancels cleanly when superseded during delay window', () async {
+      final harness = _Harness(
+        trackCount: 3,
+        backgroundFillDelay: const Duration(milliseconds: 150),
+      );
+      addTearDown(harness.dispose);
+
+      await harness.engine.load(harness.playlist[0]);
+      expect(harness.player.sequence, hasLength(1));
+
+      // 40ms in, user taps track 2 before gen 1's delay finishes.
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      await harness.engine.load(harness.playlist[2]);
+
+      // At this point gen 2 is active and waiting on its own 150ms delay.
+      expect(harness.player.sequence, hasLength(1));
+      expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
+
+      // Wait until gen 1's original 150ms would have fired (e.g. at 120ms from now).
+      // Gen 1 must NOT insert s0/s1 into gen 2's player.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(harness.player.sequence, hasLength(1));
+      expect(harness.player.sequence.first, same(harness.sourcesById['s2']));
+
+      // Eventually gen 2's delay completes and fills all 3 tracks.
+      await _pumpUntil(() => harness.player.sequence.length == 3);
+      expect(harness.player.sequence, hasLength(3));
     });
   });
 }

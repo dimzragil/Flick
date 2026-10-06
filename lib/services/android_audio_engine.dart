@@ -133,6 +133,7 @@ class AndroidAudioEngine implements AudioEngine {
     AndroidCrossfadeConfigProvider? crossfadeConfigProvider,
     AndroidNextSongProvider? onNextSong,
     AndroidTrackAdvancedCallback? onTrackAdvanced,
+    this.backgroundFillDelay = defaultBackgroundFillDelay,
   }) : _playerProvider = playerProvider,
        _sourceBuilder = sourceBuilder,
        _playlistProvider = playlistProvider,
@@ -145,6 +146,12 @@ class AndroidAudioEngine implements AudioEngine {
            (() => AndroidCrossfadeConfig.disabled),
        _onNextSong = onNextSong,
        _onTrackAdvanced = onTrackAdvanced;
+
+  /// Default delay before background playlist prebuffering begins.
+  /// Keeps network I/O, Dart event loop, and ExoPlayer timeline quiet during
+  /// the critical Segment 0 -> 1 handoff (~7.29s) of the tapped track.
+  static const Duration defaultBackgroundFillDelay = Duration(seconds: 15);
+  final Duration backgroundFillDelay;
 
   final AndroidPlayerProvider _playerProvider;
   final AndroidAudioSourceBuilder _sourceBuilder;
@@ -381,9 +388,13 @@ class AndroidAudioEngine implements AudioEngine {
     int gen,
   ) async {
     try {
+      if (backgroundFillDelay > Duration.zero) {
+        await Future<void>.delayed(backgroundFillDelay);
+        if (gen != _fillGeneration || _disposed) return;
+      }
       for (var j = 0; j < playlist.length; j++) {
         if (j == tappedIndex) continue;
-        if (gen != _fillGeneration) return;
+        if (gen != _fillGeneration || _disposed) return;
         just_audio.AudioSource src;
         try {
           src = await _sourceBuilder(
@@ -394,14 +405,14 @@ class AndroidAudioEngine implements AudioEngine {
           // reached.
           src = just_audio.AudioSource.uri(Uri.parse(''));
         }
-        if (gen != _fillGeneration) return;
+        if (gen != _fillGeneration || _disposed) return;
         try {
           await concat.insert(j, src);
         } catch (_) {
           // concat replaced by a newer load — abort quietly.
           return;
         }
-        if (gen != _fillGeneration) return;
+        if (gen != _fillGeneration || _disposed) return;
         _childPlaylistIndices.insert(j, j);
       }
     } finally {
