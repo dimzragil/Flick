@@ -27,10 +27,10 @@ class SubsonicService implements NetworkSourceService {
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
     PlaylistService? playlistService,
-  })  : _client = client ?? http.Client(),
-        _songRepository = songRepository,
-        _networkCache = networkCache,
-        _playlistService = playlistService;
+  }) : _client = client ?? http.Client(),
+       _songRepository = songRepository,
+       _networkCache = networkCache,
+       _playlistService = playlistService;
 
   /// Singleton used by the app.
   static SubsonicService instance = SubsonicService._();
@@ -62,7 +62,10 @@ class SubsonicService implements NetworkSourceService {
   String get coverScheme => networkCoverArtScheme;
 
   @override
-  Future<String?> resolveToken(NetworkServerEntity server, String password) async {
+  Future<String?> resolveToken(
+    NetworkServerEntity server,
+    String password,
+  ) async {
     // Local transform: salt + md5, no round-trip. The [server] is ignored.
     return buildToken(password);
   }
@@ -116,12 +119,15 @@ class SubsonicService implements NetworkSourceService {
     return List.generate(10, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
-  Uri _endpoint(NetworkServerEntity server, String method,
-      [Map<String, dynamic> extra = const {}]) {
+  Uri _endpoint(
+    NetworkServerEntity server,
+    String method, [
+    Map<String, dynamic> extra = const {},
+  ]) {
     final base = server.baseUrl.replaceAll(RegExp(r'/+$'), '');
-    return Uri.parse('$base/rest/$method.view').replace(
-      queryParameters: {..._authParams(server), ...extra},
-    );
+    return Uri.parse(
+      '$base/rest/$method.view',
+    ).replace(queryParameters: {..._authParams(server), ...extra});
   }
 
   Future<Map<String, dynamic>> _getJson(
@@ -169,11 +175,15 @@ class SubsonicService implements NetworkSourceService {
     final albums = <Map<String, dynamic>>[];
     var offset = 0;
     while (true) {
-      final payload = await _getJson(server, 'getAlbumList2', extra: {
-        'type': 'alphabeticalByName',
-        'size': '$_pageSize',
-        'offset': '$offset',
-      });
+      final payload = await _getJson(
+        server,
+        'getAlbumList2',
+        extra: {
+          'type': 'alphabeticalByName',
+          'size': '$_pageSize',
+          'offset': '$offset',
+        },
+      );
       final list =
           ((payload['albumList2'] as Map<String, dynamic>?)?['album']
                   as List<dynamic>?)
@@ -191,11 +201,10 @@ class SubsonicService implements NetworkSourceService {
     NetworkServerEntity server,
     String albumId,
   ) async {
-    final payload =
-        await _getJson(server, 'getAlbum', extra: {'id': albumId});
+    final payload = await _getJson(server, 'getAlbum', extra: {'id': albumId});
     return ((payload['album'] as Map<String, dynamic>?)?['song']
-            as List<dynamic>?)
-        ?.cast<Map<String, dynamic>>() ??
+                as List<dynamic>?)
+            ?.cast<Map<String, dynamic>>() ??
         const [];
   }
 
@@ -208,8 +217,8 @@ class SubsonicService implements NetworkSourceService {
   ) async {
     final payload = await _getJson(server, 'getPlaylists');
     return ((payload['playlists'] as Map<String, dynamic>?)?['playlist']
-            as List<dynamic>?)
-        ?.cast<Map<String, dynamic>>() ??
+                as List<dynamic>?)
+            ?.cast<Map<String, dynamic>>() ??
         const [];
   }
 
@@ -219,8 +228,11 @@ class SubsonicService implements NetworkSourceService {
     NetworkServerEntity server,
     String playlistId,
   ) async {
-    final payload =
-        await _getJson(server, 'getPlaylist', extra: {'id': playlistId});
+    final payload = await _getJson(
+      server,
+      'getPlaylist',
+      extra: {'id': playlistId},
+    );
     final playlist = payload['playlist'] as Map<String, dynamic>?;
     return (playlist?['entry'] as List<dynamic>?)?.cast<Map<String, dynamic>>();
   }
@@ -233,11 +245,15 @@ class SubsonicService implements NetworkSourceService {
     String? playlistId,
     List<String>? songIds,
   }) async {
-    final payload = await _getJson(server, 'createPlaylist', extra: {
-      'name': ?name,
-      'playlistId': ?playlistId,
-      if (songIds != null && songIds.isNotEmpty) 'songId': songIds,
-    });
+    final payload = await _getJson(
+      server,
+      'createPlaylist',
+      extra: {
+        'name': ?name,
+        'playlistId': ?playlistId,
+        if (songIds != null && songIds.isNotEmpty) 'songId': songIds,
+      },
+    );
     return payload['playlist'] as Map<String, dynamic>?;
   }
 
@@ -248,17 +264,24 @@ class SubsonicService implements NetworkSourceService {
     List<String>? songIdsToAdd,
     List<String>? songIdsToRemove,
   }) async {
-    await _getJson(server, 'updatePlaylist', extra: {
-      'playlistId': playlistId,
-      'name': ?name,
-      if (songIdsToAdd != null && songIdsToAdd.isNotEmpty)
-        'songIdToAdd': songIdsToAdd,
-      if (songIdsToRemove != null && songIdsToRemove.isNotEmpty)
-        'songIdToRemove': songIdsToRemove,
-    });
+    await _getJson(
+      server,
+      'updatePlaylist',
+      extra: {
+        'playlistId': playlistId,
+        'name': ?name,
+        if (songIdsToAdd != null && songIdsToAdd.isNotEmpty)
+          'songIdToAdd': songIdsToAdd,
+        if (songIdsToRemove != null && songIdsToRemove.isNotEmpty)
+          'songIdToRemove': songIdsToRemove,
+      },
+    );
   }
 
-  Future<void> deletePlaylist(NetworkServerEntity server, String playlistId) async {
+  Future<void> deletePlaylist(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
     await _getJson(server, 'deletePlaylist', extra: {'id': playlistId});
   }
 
@@ -270,11 +293,13 @@ class SubsonicService implements NetworkSourceService {
     String coverArtId,
   ) async {
     final uri = _endpoint(server, 'getCoverArt', {'id': coverArtId});
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(uri)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw SubsonicNetworkException(
-          'HTTP ${response.statusCode} for getCoverArt');
+        'HTTP ${response.statusCode} for getCoverArt',
+      );
     }
     return response.bodyBytes;
   }
@@ -290,8 +315,11 @@ class SubsonicService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached = await _cache.getPath(server.id, songId,
-        extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      songId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     final uri = _endpoint(server, 'stream', {'id': songId});
@@ -300,8 +328,7 @@ class SubsonicService implements NetworkSourceService {
         .send(request)
         .timeout(const Duration(minutes: 5));
     if (response.statusCode != 200) {
-      throw SubsonicNetworkException(
-          'HTTP ${response.statusCode} for stream');
+      throw SubsonicNetworkException('HTTP ${response.statusCode} for stream');
     }
     final total = response.contentLength;
     final builder = BytesBuilder();
@@ -313,8 +340,12 @@ class SubsonicService implements NetworkSourceService {
         onProgress(received / total);
       }
     }
-    return _cache.stash(server.id, songId, builder.takeBytes(),
-        extension: extension);
+    return _cache.stash(
+      server.id,
+      songId,
+      builder.takeBytes(),
+      extension: extension,
+    );
   }
 
   @override
@@ -322,10 +353,14 @@ class SubsonicService implements NetworkSourceService {
     NetworkServerEntity server,
     String songId, {
     String? extension,
+    bool deferPump = false,
   }) async {
     // ponytail: Subsonic auth is entirely URL-embedded (u/p/t+s query params),
     // so headers are empty. Range support is universal across servers.
-    return (url: _endpoint(server, 'stream', {'id': songId}).toString(), headers: const <String, String>{});
+    return (
+      url: _endpoint(server, 'stream', {'id': songId}).toString(),
+      headers: const <String, String>{},
+    );
   }
 
   // --- Library sync -------------------------------------------------------
@@ -351,11 +386,16 @@ class SubsonicService implements NetworkSourceService {
       try {
         final rawSongs = await getAlbum(server, album['id'] as String);
         final entities = rawSongs
-            .map((s) => buildSongEntity(server, s,
+            .map(
+              (s) => buildSongEntity(
+                server,
+                s,
                 albumName: albumName,
                 albumArtist: albumArtist,
                 coverArt: coverArt,
-                year: year))
+                year: year,
+              ),
+            )
             .toList();
         await _repo.upsertSongs(entities);
         syncedRemoteIds.addAll(entities.map((e) => e.remoteId!));
@@ -405,9 +445,14 @@ class SubsonicService implements NetworkSourceService {
     );
   }
 
-  Future<void> _purgeStale(NetworkServerEntity server, Set<String> syncedIds) async {
+  Future<void> _purgeStale(
+    NetworkServerEntity server,
+    Set<String> syncedIds,
+  ) async {
     final existing = await _repo.getSongsByRemoteServer(server.id);
-    final stale = existing.where((e) => !syncedIds.contains(e.remoteId)).toList();
+    final stale = existing
+        .where((e) => !syncedIds.contains(e.remoteId))
+        .toList();
     if (stale.isEmpty) return;
     await _repo.deleteSongsByIds(stale.map((e) => e.id).toList());
   }
@@ -419,7 +464,10 @@ class SubsonicService implements NetworkSourceService {
   /// removed. Returns the number of playlists synced.
   Future<int> syncPlaylists(NetworkServerEntity server) async {
     final summaries = await getPlaylists(server);
-    final playlists = <({String remoteId, String name, List<Map<String, dynamic>> entries})>[];
+    final playlists =
+        <
+          ({String remoteId, String name, List<Map<String, dynamic>> entries})
+        >[];
     for (final summary in summaries) {
       final remoteId = summary['id']?.toString();
       if (remoteId == null) continue;
@@ -487,7 +535,7 @@ class SubsonicService implements NetworkSourceService {
   @visibleForTesting
   static Map<String, List<String>> resolvePlaylistSongIds(
     List<({String remoteId, String name, List<Map<String, dynamic>> entries})>
-        playlists,
+    playlists,
     Map<String, String> remoteIdToLocalId,
   ) {
     final result = <String, List<String>>{};
@@ -536,8 +584,9 @@ class SubsonicService implements NetworkSourceService {
       ..fileType = s['suffix'] as String?
       ..bitrate = _toInt(s['bitRate'])
       ..sampleRate = _toInt(s['sampleRate'])
-      ..albumArtPath =
-          songCoverArt != null ? 'subsonic-cover://$songCoverArt' : null
+      ..albumArtPath = songCoverArt != null
+          ? 'subsonic-cover://$songCoverArt'
+          : null
       ..sourceType = 'subsonic'
       ..remoteId = remoteId
       ..remoteServerId = server.id

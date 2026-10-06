@@ -10,7 +10,7 @@ import 'package:flick/services/audio_engine.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
 typedef AndroidAudioSourceBuilder =
-    Future<just_audio.AudioSource> Function(Song track);
+    Future<just_audio.AudioSource> Function(Song track, {bool deferPump});
 typedef AndroidPlaylistProvider = List<Song> Function();
 typedef AndroidPlayerProvider = Future<just_audio.AudioPlayer> Function();
 typedef AndroidPlayerConfigurator =
@@ -392,8 +392,15 @@ class AndroidAudioEngine implements AudioEngine {
         if (gen != _fillGeneration || _disposed) return;
         just_audio.AudioSource src;
         try {
+          // Prefetch policy: only the next track (N+1) gets a real prefetch
+          // (3 segments) so gapless transitions stay smooth. Tracks beyond
+          // that get deferred sessions: valid proxy URLs, zero network
+          // until actually needed (kicked by _onAndroidTrackAdvanced or
+          // started on-demand by the first handleRequest).
+          final isNextTrack = j == tappedIndex + 1;
           src = await _sourceBuilder(
             playlist[j],
+            deferPump: !isNextTrack,
           ).timeout(const Duration(seconds: 20));
         } catch (_) {
           // Index-preserving placeholder; the engine error path skips it if

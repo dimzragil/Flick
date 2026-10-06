@@ -152,7 +152,7 @@ void main() {
       playlist = [_song('s1'), _song('s2')];
       engine = AndroidAudioEngine(
         playerProvider: () async => fakePlayer,
-        sourceBuilder: (song) async =>
+        sourceBuilder: (song, {bool deferPump = false}) async =>
             just_audio.AudioSource.uri(Uri.parse('asset:///${song.id}')),
         playlistProvider: () => playlist,
         configurePlayer: (_) async {},

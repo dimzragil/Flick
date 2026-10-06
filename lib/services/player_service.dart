@@ -47,6 +47,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/data/database.dart';
 import 'package:flick/services/sources/network_source_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
+import 'package:flick/services/sources/tidal_stream_proxy.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
@@ -857,10 +858,10 @@ class PlayerService {
     AndroidAudioDeviceService.instance.deviceInfoNotifier.addListener(() {
       unawaited(_refreshAudioOutputDiagnostics(reason: 'audio route changed'));
       final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
-      final isSpeaker = info.isInternalRoute ||
+      final isSpeaker =
+          info.isInternalRoute ||
           (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
-      if (isSpeaker &&
-          currentEngineType == AudioEngineType.normalAndroid) {
+      if (isSpeaker && currentEngineType == AudioEngineType.normalAndroid) {
         unawaited(_rearmSpeakerSinkIfNeeded(reason: 'audio route changed'));
       }
     });
@@ -1292,10 +1293,10 @@ class PlayerService {
     }
     unawaited(_restoreBitPerfectEngineAfterForeground());
     final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
-    final isSpeaker = info.isInternalRoute ||
+    final isSpeaker =
+        info.isInternalRoute ||
         (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
-    if (isSpeaker &&
-        currentEngineType == AudioEngineType.normalAndroid) {
+    if (isSpeaker && currentEngineType == AudioEngineType.normalAndroid) {
       unawaited(_rearmSpeakerSinkIfNeeded(reason: 'app resumed'));
     }
   }
@@ -3849,7 +3850,10 @@ class PlayerService {
     return _audioSourceSequence!;
   }
 
-  Future<just_audio.AudioSource> _buildAudioSourceForSong(Song song) async {
+  Future<just_audio.AudioSource> _buildAudioSourceForSong(
+    Song song, {
+    bool deferPump = false,
+  }) async {
     if (song.filePath == null) {
       return just_audio.AudioSource.uri(Uri.parse(''));
     }
@@ -3861,7 +3865,7 @@ class PlayerService {
       return streamSource;
     }
 
-    final resolved = await _resolvePlaybackUri(song);
+    final resolved = await _resolvePlaybackUri(song, deferPump: deferPump);
     final uri = resolved.uri;
     final headers = resolved.headers;
 
@@ -3919,8 +3923,9 @@ class PlayerService {
   }
 
   Future<({Uri uri, Map<String, String> headers})> _resolvePlaybackUri(
-    Song song,
-  ) async {
+    Song song, {
+    bool deferPump = false,
+  }) async {
     // ponytail: HTTP-first for network sources. Hand ExoPlayer the ranged URL
     // so playback starts while bytes stream in, instead of blocking on a full
     // cache download before the first frame. Falls back to cache-then-play
@@ -3932,6 +3937,7 @@ class PlayerService {
       try {
         final http = await RemoteSourceService.instance.resolveHttpPlayback(
           song,
+          deferPump: deferPump,
         );
         if (http != null) {
           return (uri: Uri.parse(http.url), headers: http.headers);
@@ -5132,10 +5138,7 @@ class PlayerService {
           await _refreshReplayGainForSong(song, pushSpawnDefault: true);
         }
         await _runWithSuppressedSequenceStateUpdates(() async {
-          await _playbackManager.playTrack(
-            song,
-            forceRebuild: forceRebuild,
-          );
+          await _playbackManager.playTrack(song, forceRebuild: forceRebuild);
         });
         if (!_usingRustBackend) {
           unawaited(_applyReplayGainForSystemTier(song));
@@ -5195,11 +5198,7 @@ class PlayerService {
     final gen = generation ?? ++_playbackGeneration;
     currentSongNotifier.value = song;
     if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
-    await _playInternal(
-      song,
-      generation: gen,
-      forceRebuild: forceRebuild,
-    );
+    await _playInternal(song, generation: gen, forceRebuild: forceRebuild);
   }
 
   Future<void> _queueNextTrackForGapless() async {
@@ -5282,6 +5281,16 @@ class PlayerService {
     }
     _consumeQueueEntryAt(_currentIndex);
     _updatePriorityAnchor();
+    // Wake the deferred pump for the new next track so it's prefetched
+    // (3 segments) and ready for a gapless transition. Far-ahead tracks
+    // stay at zero network until they become next.
+    final nextIndex = _currentIndex + 1;
+    if (nextIndex < _playlist.length) {
+      final remoteId = _playlist[nextIndex].remoteId;
+      if (remoteId != null && remoteId.isNotEmpty) {
+        TidalStreamProxy.instance.kickPrefetch(remoteId);
+      }
+    }
   }
 
   Future<void> _savePosition({Song? song, Duration? position}) async {
@@ -5999,7 +6008,8 @@ class PlayerService {
     // Random shuffle: next is non-deterministic; approximate with linear next
     // so the user still sees a peek. Visual mismatch is preferable to no peek.
     if (shuffle == ShuffleMode.random) {
-      if (_currentIndex < _playlist.length - 1) return _playlist[_currentIndex + 1];
+      if (_currentIndex < _playlist.length - 1)
+        return _playlist[_currentIndex + 1];
       if (loopModeNotifier.value == LoopMode.all) return _playlist.first;
       return null;
     }
@@ -6007,10 +6017,12 @@ class PlayerService {
     // peek returns linear next; commit will resolve via real _nextInternal.
     if (shuffle == ShuffleMode.categories ||
         shuffle == ShuffleMode.songsAndCategories) {
-      if (_currentIndex < _playlist.length - 1) return _playlist[_currentIndex + 1];
+      if (_currentIndex < _playlist.length - 1)
+        return _playlist[_currentIndex + 1];
       return null;
     }
-    if (_currentIndex < _playlist.length - 1) return _playlist[_currentIndex + 1];
+    if (_currentIndex < _playlist.length - 1)
+      return _playlist[_currentIndex + 1];
     if (loopModeNotifier.value == LoopMode.all) return _playlist.first;
     if (loopModeNotifier.value.isAdvanceMode) return null; // async advance
     return null;

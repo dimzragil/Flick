@@ -112,8 +112,9 @@ class RemoteSourceService {
   /// byte-range requests. Returns null when unsupported (UPnP/SMB) or on
   /// resolve failure — callers fall back to cache-then-play via [ensureLocal].
   Future<({String url, Map<String, String> headers})?> resolveHttpPlayback(
-    Song song,
-  ) async {
+    Song song, {
+    bool deferPump = false,
+  }) async {
     if (!song.isNetworkSource) return null;
     final sourceType = song.sourceType;
     final remoteId = song.remoteId;
@@ -125,6 +126,7 @@ class RemoteSourceService {
         server,
         remoteId,
         extension: song.fileType,
+        deferPump: deferPump,
       );
     } catch (e) {
       AppLog.instance.add('HTTP stream resolve failed for "${song.title}": $e');
@@ -133,7 +135,9 @@ class RemoteSourceService {
   }
 
   /// Format resolution for network sources (Tidal etc.) without downloading.
-  ({int sampleRate, int bitDepth, String? resolution})? getAudioFormat(Song song) {
+  ({int sampleRate, int bitDepth, String? resolution})? getAudioFormat(
+    Song song,
+  ) {
     if (!song.isNetworkSource) return null;
     final remoteId = song.remoteId;
     if (remoteId == null) return null;

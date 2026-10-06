@@ -124,20 +124,20 @@ class _FakeAudioPlayer implements just_audio.AudioPlayer {
 }
 
 Song _song(String id) => Song(
-      id: id,
-      title: 'Title $id',
-      artist: 'Artist',
-      duration: const Duration(minutes: 3),
-      fileType: 'FLAC',
-    );
+  id: id,
+  title: 'Title $id',
+  artist: 'Artist',
+  duration: const Duration(minutes: 3),
+  fileType: 'FLAC',
+);
 
 class _Harness {
   _Harness({required int trackCount})
-      : playlist = List.generate(trackCount, (i) => _song('s$i')) {
+    : playlist = List.generate(trackCount, (i) => _song('s$i')) {
     player = _FakeAudioPlayer();
     engine = AndroidAudioEngine(
       playerProvider: () async => player,
-      sourceBuilder: (song) {
+      sourceBuilder: (song, {bool deferPump = false}) {
         final override = buildOverride;
         if (override != null) return override(song);
         return immediateSource(song);

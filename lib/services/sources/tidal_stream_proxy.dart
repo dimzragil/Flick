@@ -115,6 +115,7 @@ class TidalStreamProxy {
     http.Client? client,
     Future<void> Function(File targetFile)? onFinalized,
     Duration? initialRetryDelay,
+    bool deferPump = false,
   }) async {
     final serverPort = await ensureServer();
 
@@ -158,7 +159,7 @@ class TidalStreamProxy {
     _sessions[token] = session;
 
     try {
-      await session.start();
+      await session.start(deferPump: deferPump);
       return 'http://127.0.0.1:$serverPort/tidal/$token.mp4';
     } catch (e) {
       session.cancel();
@@ -228,6 +229,18 @@ class TidalStreamProxy {
     // prepareStream to re-download tracks on every skip (sustained network
     // churn + hot phone). Stale entries are harmless: serve paths verify
     // File.exists() before use.
+  }
+
+  /// Starts the pump for a deferred (lazy) session, e.g. when it becomes the
+  /// next track. No-op if no such session exists or it already started.
+  /// Used to prefetch one track ahead without downloading the whole playlist.
+  void kickPrefetch(String trackId) {
+    final session = _sessions.values
+        .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
+        .firstOrNull;
+    if (session != null) {
+      unawaited(session.ensureDownloadStarted());
+    }
   }
 
   /// Cancel a session for a specific track.
@@ -476,7 +489,7 @@ class TidalStreamSession {
   bool get isHealthy => !_isCancelled && !_pumpFailed;
 
   /// Start the session: downloads init + segment 0 and unblocks playback (~300ms).
-  Future<void> start() async {
+  Future<void> start({bool deferPump = false}) async {
     _partFile = File('$targetPath.part');
     if (await _partFile!.exists()) {
       try {
@@ -487,6 +500,29 @@ class TidalStreamSession {
     _writeRaf = await _partFile!.open(mode: FileMode.write);
     _segmentStartOffsets.add(0);
 
+    if (deferPump) {
+      // Lazy session: the proxy URL is valid, but nothing is downloaded yet.
+      // The initial download + pump start on the first handleRequest
+      // (or kickPrefetch), keeping far-ahead tracks at zero network cost.
+      _readyCompleter.complete();
+      return;
+    }
+    await _beginDownload();
+  }
+
+  bool _downloadBegan = false;
+  Future<void>? _beginDownloadFuture;
+
+  /// Starts the initial download (init + seg0) and the pump, on demand.
+  /// Idempotent: concurrent calls share one in-flight attempt.
+  Future<void> ensureDownloadStarted() async {
+    if (_downloadBegan || _isCancelled) return;
+    _beginDownloadFuture ??= _beginDownload();
+    return _beginDownloadFuture;
+  }
+
+  Future<void> _beginDownload() async {
+    _downloadBegan = true;
     // 1 & 2. Download initialization segment (~2 KB) and segment 0 (~800 KB) in parallel
     final initFuture = client
         .get(Uri.parse(dashInfo.initializationUrl))
@@ -526,7 +562,7 @@ class TidalStreamSession {
     }
 
     _segmentStartOffsets.add(_bytesWritten);
-    _readyCompleter.complete();
+    if (!_readyCompleter.isCompleted) _readyCompleter.complete();
 
     // 3. Start progressive on-demand streaming pump (keeps modest buffer ahead of playback)
     if (dashInfo.segmentUrls.length > 1) {
@@ -734,6 +770,22 @@ class TidalStreamSession {
 
   /// Handle an incoming HTTP Range request from RustAudioEngine or ExoPlayer.
   Future<void> handleRequest(HttpRequest req) async {
+    // For deferred (lazy) sessions, the first request kicks off the initial
+    // download. Subsequent requests are no-ops (idempotent).
+    if (!_isFinished && !_isCancelled && !_pumpFailed) {
+      try {
+        await ensureDownloadStarted();
+      } catch (e) {
+        devLog('[TidalStreamSession] Deferred start failed: $e');
+        req.response.statusCode = HttpStatus.serviceUnavailable;
+        req.response.headers.set(HttpHeaders.retryAfterHeader, '1');
+        try {
+          await req.response.close();
+        } catch (_) {}
+        return;
+      }
+    }
+
     final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
 
     var start = 0;

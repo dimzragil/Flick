@@ -31,10 +31,7 @@ abstract class NetworkSourceService {
   /// Resolve the value to persist in [NetworkServerEntity.token] for a typed
   /// [password]. Returns null when the protocol stores no secret (anonymous
   /// UPnP). May perform a network round-trip (Jellyfin authenticateByName).
-  Future<String?> resolveToken(
-    NetworkServerEntity server,
-    String password,
-  );
+  Future<String?> resolveToken(NetworkServerEntity server, String password);
 
   /// Validate connectivity + stored credentials. Returns false (not throws)
   /// on expected auth/network failures so the edit screen can show a banner.
@@ -61,6 +58,7 @@ abstract class NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool deferPump = false,
   }) async => null;
 
   /// Pull the full server library into the local DB as [SongEntity]s,

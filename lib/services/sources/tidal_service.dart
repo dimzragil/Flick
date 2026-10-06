@@ -47,7 +47,7 @@ class TidalService implements NetworkSourceService {
     NetworkCacheService? networkCache,
     TidalTokenStore? tokenStore,
     Future<void> Function(NetworkServerEntity server, String token)?
-        persistToken,
+    persistToken,
     Future<bool> Function(Uri)? urlOpener,
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
@@ -65,7 +65,7 @@ class TidalService implements NetworkSourceService {
     NetworkCacheService? networkCache,
     TidalTokenStore? tokenStore,
     Future<void> Function(NetworkServerEntity server, String token)?
-        persistToken,
+    persistToken,
     Future<bool> Function(Uri)? urlOpener,
   }) => TidalService._(
     client: client,
@@ -103,7 +103,7 @@ class TidalService implements NetworkSourceService {
   NetworkCacheService? _networkCache;
   TidalTokenStore? _tokenStore;
   final Future<void> Function(NetworkServerEntity server, String token)
-      _persistToken;
+  _persistToken;
   final Future<bool> Function(Uri) _urlOpener;
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, Set<void Function()>> _activeDownloads = {};
@@ -1034,6 +1034,7 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool deferPump = false,
   }) async {
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
@@ -1080,6 +1081,7 @@ class TidalService implements NetworkSourceService {
         targetPath: targetPath,
         client: _NonClosingClient(_client),
         onFinalized: (file) => _cache.evictIfOverCap(protect: file),
+        deferPump: deferPump,
       );
       return (
         url: streamUrl,
@@ -1193,6 +1195,7 @@ class TidalService implements NetworkSourceService {
     void cancelFn() {
       isCancelled = true;
     }
+
     (_activeDownloads[remoteId] ??= {}).add(cancelFn);
 
     try {
@@ -1201,7 +1204,9 @@ class TidalService implements NetworkSourceService {
           .send(request)
           .timeout(const Duration(minutes: 5));
       if (response.statusCode != 200) {
-        throw TidalException('HTTP ${response.statusCode} for stream $remoteId');
+        throw TidalException(
+          'HTTP ${response.statusCode} for stream $remoteId',
+        );
       }
       final total = response.contentLength;
       final builder = BytesBuilder();
@@ -1254,6 +1259,7 @@ class TidalService implements NetworkSourceService {
     void cancelFn() {
       isCancelled = true;
     }
+
     (_activeDownloads[remoteId] ??= {}).add(cancelFn);
 
     try {
@@ -3063,14 +3069,13 @@ class TidalCreds {
     String? userId,
     String? countryCode,
     int? expiresAtMs,
-  }) =>
-      TidalCreds(
-        accessToken: accessToken ?? this.accessToken,
-        refreshToken: refreshToken ?? this.refreshToken,
-        userId: userId ?? this.userId,
-        countryCode: countryCode ?? this.countryCode,
-        expiresAtMs: expiresAtMs ?? this.expiresAtMs,
-      );
+  }) => TidalCreds(
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: refreshToken ?? this.refreshToken,
+    userId: userId ?? this.userId,
+    countryCode: countryCode ?? this.countryCode,
+    expiresAtMs: expiresAtMs ?? this.expiresAtMs,
+  );
 }
 
 class TidalException implements Exception {

@@ -24,14 +24,25 @@ class SmbService implements NetworkSourceService {
   SmbService._({
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
-  })  : _songRepository = songRepository,
-        _networkCache = networkCache;
+  }) : _songRepository = songRepository,
+       _networkCache = networkCache;
 
   static SmbService instance = SmbService._();
 
   static const _audioExtensions = {
-    'flac', 'mp3', 'm4a', 'wav', 'ogg', 'opus', 'aac', 'wv', 'ape', 'mpc',
-    'aiff', 'dsf', 'dff',
+    'flac',
+    'mp3',
+    'm4a',
+    'wav',
+    'ogg',
+    'opus',
+    'aac',
+    'wv',
+    'ape',
+    'mpc',
+    'aiff',
+    'dsf',
+    'dff',
   };
   static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'};
   static const _coverNames = ['cover', 'folder', 'album', 'albumart', 'front'];
@@ -77,8 +88,9 @@ class SmbService implements NetworkSourceService {
       host: uri.host,
       port: uri.port == 0 ? 445 : uri.port,
       share: segments.isNotEmpty ? Uri.decodeComponent(segments.first) : '',
-      rootPath:
-          segments.length > 1 ? segments.skip(1).map(Uri.decodeComponent).join('/') : '',
+      rootPath: segments.length > 1
+          ? segments.skip(1).map(Uri.decodeComponent).join('/')
+          : '',
     );
   }
 
@@ -128,13 +140,19 @@ class SmbService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached =
-        await _cache.getPath(server.id, remoteId, extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      remoteId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     final s = _parseServer(server);
-    final destPath =
-        await _cache.pathFor(server.id, remoteId, extension: extension);
+    final destPath = await _cache.pathFor(
+      server.id,
+      remoteId,
+      extension: extension,
+    );
     await for (final p in smbDownloadFile(
       host: s.host,
       port: s.port,
@@ -157,6 +175,7 @@ class SmbService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool deferPump = false,
   }) async => null;
 
   // --- Library walk -------------------------------------------------------
@@ -213,14 +232,16 @@ class SmbService implements NetworkSourceService {
       final album = _lastPathSegment(dirPath);
       final artist = _grandparentSegment(dirPath);
       final entities = songEntries
-          .map((e) => _songEntity(
-                server: server,
-                entry: e,
-                remoteId: e.path,
-                album: album,
-                artist: artist,
-                coverPath: coverPath,
-              ))
+          .map(
+            (e) => _songEntity(
+              server: server,
+              entry: e,
+              remoteId: e.path,
+              album: album,
+              artist: artist,
+              coverPath: coverPath,
+            ),
+          )
           .toList();
       await _repo.upsertSongs(entities);
       syncedRemoteIds.addAll(entities.map((e) => e.remoteId!));
@@ -282,8 +303,9 @@ class SmbService implements NetworkSourceService {
     final ext = _extension(name);
     if (ext == null || !_imageExtensions.contains(ext)) return false;
     final dot = name.lastIndexOf('.');
-    final stem =
-        dot > 0 ? name.substring(0, dot).toLowerCase() : name.toLowerCase();
+    final stem = dot > 0
+        ? name.substring(0, dot).toLowerCase()
+        : name.toLowerCase();
     return _coverNames.any((c) => stem == c || stem.startsWith('$c.'));
   }
 

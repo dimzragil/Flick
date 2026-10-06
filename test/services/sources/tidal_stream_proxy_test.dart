@@ -750,6 +750,99 @@ void main() {
         httpClient.close();
       },
     );
+
+    test(
+      'deferPump creates a lazy session with zero network until needed',
+      () async {
+        final targetPath = '${tempDir.path}/track_deferred.mp4';
+        final requestedSegments = <String>[];
+        final client = MockClient((request) async {
+          final path = request.url.path;
+          requestedSegments.add(path);
+          return http.Response.bytes(List<int>.generate(200, (i) => i), 200);
+        });
+
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: [
+            'https://cdn.tidal.com/seg0.mp4',
+            'https://cdn.tidal.com/seg1.mp4',
+            'https://cdn.tidal.com/seg2.mp4',
+            'https://cdn.tidal.com/seg3.mp4',
+          ],
+        );
+
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'track_deferred',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: client,
+          deferPump: true,
+        );
+
+        // URL is valid immediately...
+        expect(streamUrl, contains('127.0.0.1'));
+
+        // ...but nothing is downloaded while deferred.
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(requestedSegments, isEmpty);
+
+        // kickPrefetch starts the pump on demand (init + seg0 + window).
+        TidalStreamProxy.instance.kickPrefetch('track_deferred');
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(requestedSegments, isNotEmpty);
+        expect(requestedSegments.any((p) => p.contains('init')), isTrue);
+        expect(requestedSegments.any((p) => p.contains('seg0')), isTrue);
+      },
+    );
+
+    test('first handleRequest starts a deferred session on demand', () async {
+      final targetPath = '${tempDir.path}/track_deferred2.mp4';
+      final requestedSegments = <String>[];
+      final client = MockClient((request) async {
+        final path = request.url.path;
+        requestedSegments.add(path);
+        return http.Response.bytes(List<int>.generate(200, (i) => i), 200);
+      });
+
+      const dashInfo = DashTrackInfo(
+        codec: 'flac',
+        sampleRate: 44100,
+        bitDepth: 16,
+        initializationUrl: 'https://cdn.tidal.com/init.mp4',
+        segmentUrls: [
+          'https://cdn.tidal.com/seg0.mp4',
+          'https://cdn.tidal.com/seg1.mp4',
+        ],
+      );
+
+      final streamUrl = await TidalStreamProxy.instance.prepareStream(
+        trackId: 'track_deferred2',
+        dashInfo: dashInfo,
+        targetPath: targetPath,
+        client: client,
+        deferPump: true,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(requestedSegments, isEmpty);
+
+      // Simulate a player connecting: the first request must trigger the
+      // initial download, then serve bytes.
+      final httpClient = HttpClient();
+      final req = await httpClient.getUrl(Uri.parse(streamUrl));
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-100');
+      final resp = await req.close();
+      expect(resp.statusCode, 206);
+      await resp.drain<void>();
+      httpClient.close();
+
+      expect(requestedSegments.any((p) => p.contains('init')), isTrue);
+      expect(requestedSegments.any((p) => p.contains('seg0')), isTrue);
+    });
   });
 }
 

@@ -67,7 +67,8 @@ void main() {
       fakePlayer = _FakeAudioPlayer();
       engine = AndroidAudioEngine(
         playerProvider: () async => fakePlayer,
-        sourceBuilder: (_) => throw UnimplementedError(),
+        sourceBuilder: (_, {bool deferPump = false}) =>
+            throw UnimplementedError(),
         playlistProvider: () => const [],
         configurePlayer: (_) async {},
         disposeEngine: () async {},

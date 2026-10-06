@@ -28,12 +28,12 @@ class JellyfinService implements NetworkSourceService {
     NetworkCacheService? networkCache,
     JellyfinPasswordStore? passwordStore,
     Future<void> Function(NetworkServerEntity server, String token)?
-        persistToken,
-  })  : _client = client ?? http.Client(),
-        _songRepository = songRepository,
-        _networkCache = networkCache,
-        _passwordStore = passwordStore,
-        _persistToken = persistToken ?? _persistTokenToDatabase;
+    persistToken,
+  }) : _client = client ?? http.Client(),
+       _songRepository = songRepository,
+       _networkCache = networkCache,
+       _passwordStore = passwordStore,
+       _persistToken = persistToken ?? _persistTokenToDatabase;
 
   static JellyfinService instance = JellyfinService._();
 
@@ -44,15 +44,14 @@ class JellyfinService implements NetworkSourceService {
     NetworkCacheService? networkCache,
     JellyfinPasswordStore? passwordStore,
     Future<void> Function(NetworkServerEntity server, String token)?
-        persistToken,
-  }) =>
-      JellyfinService._(
-        client: client,
-        songRepository: songRepository,
-        networkCache: networkCache,
-        passwordStore: passwordStore,
-        persistToken: persistToken,
-      );
+    persistToken,
+  }) => JellyfinService._(
+    client: client,
+    songRepository: songRepository,
+    networkCache: networkCache,
+    passwordStore: passwordStore,
+    persistToken: persistToken,
+  );
 
   static const String _clientName = 'flick';
   static const String _device = 'flick';
@@ -68,7 +67,7 @@ class JellyfinService implements NetworkSourceService {
   NetworkCacheService? _networkCache;
   JellyfinPasswordStore? _passwordStore;
   final Future<void> Function(NetworkServerEntity server, String token)
-      _persistToken;
+  _persistToken;
 
   SongRepository get _repo => _songRepository ??= SongRepository();
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
@@ -161,22 +160,21 @@ class JellyfinService implements NetworkSourceService {
             'Authorization': _authHeader(null),
             'Content-Type': 'application/json',
           },
-          body: jsonEncode({
-            'Username': server.username ?? '',
-            'Pw': password,
-          }),
+          body: jsonEncode({'Username': server.username ?? '', 'Pw': password}),
         )
         // ponytail: 60s ceiling for LDAP/SSO backends (Authentik et al);
         // wrong-credential 401s still return as fast as the server sends them.
         .timeout(const Duration(seconds: 60));
     if (response.statusCode != 200) {
       throw JellyfinNetworkException(
-          'Authentication failed (HTTP ${response.statusCode})');
+        'Authentication failed (HTTP ${response.statusCode})',
+      );
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final user = (body['User'] as Map<String, dynamic>?) ?? const {};
     final userId = user['Id'] as String? ?? body['UserId'] as String?;
-    final accessToken = (body['AccessToken'] as String?) ??
+    final accessToken =
+        (body['AccessToken'] as String?) ??
         ((body['SessionInfo'] as Map<String, dynamic>?)?['AccessToken']
             as String?);
     if (userId == null || accessToken == null) {
@@ -215,10 +213,13 @@ class JellyfinService implements NetworkSourceService {
       var uri = Uri.parse('${_base(server)}$path');
       if (query != null) uri = uri.replace(queryParameters: query);
       final response = await _client
-          .get(uri, headers: {
-            'Authorization': _authHeader(token),
-            'Accept': 'application/json',
-          })
+          .get(
+            uri,
+            headers: {
+              'Authorization': _authHeader(token),
+              'Accept': 'application/json',
+            },
+          )
           .timeout(timeout);
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -263,11 +264,10 @@ class JellyfinService implements NetworkSourceService {
     var token = creds?.token;
     for (var attempt = 0; ; attempt++) {
       var uri = Uri.parse('${_base(server)}/Items/$marker/Images/Primary');
-      uri = uri.replace(queryParameters: {
-        'api_key': ?token,
-      });
-      final response =
-          await _client.get(uri).timeout(const Duration(seconds: 30));
+      uri = uri.replace(queryParameters: {'api_key': ?token});
+      final response = await _client
+          .get(uri)
+          .timeout(const Duration(seconds: 30));
       if (response.statusCode == 200) return response.bodyBytes;
       if (response.statusCode == 401 && attempt == 0) {
         final fresh = await _reauth(server);
@@ -277,7 +277,8 @@ class JellyfinService implements NetworkSourceService {
         }
       }
       throw JellyfinNetworkException(
-          'HTTP ${response.statusCode} for cover $marker');
+        'HTTP ${response.statusCode} for cover $marker',
+      );
     }
   }
 
@@ -288,8 +289,11 @@ class JellyfinService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached =
-        await _cache.getPath(server.id, songId, extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      songId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     final creds = _creds(server.token);
@@ -299,13 +303,13 @@ class JellyfinService implements NetworkSourceService {
     var token = creds.token;
     http.StreamedResponse response;
     for (var attempt = 0; ; attempt++) {
-      final uri = Uri.parse('${_base(server)}/Audio/$songId/stream')
-          .replace(queryParameters: {
-        'static': 'true',
-        'api_key': token,
-      });
+      final uri = Uri.parse(
+        '${_base(server)}/Audio/$songId/stream',
+      ).replace(queryParameters: {'static': 'true', 'api_key': token});
       final request = http.Request('GET', uri);
-      response = await _client.send(request).timeout(const Duration(minutes: 5));
+      response = await _client
+          .send(request)
+          .timeout(const Duration(minutes: 5));
       if (response.statusCode != 401 || attempt > 0) break;
       final fresh = await _reauth(server);
       if (fresh == null) break;
@@ -313,7 +317,8 @@ class JellyfinService implements NetworkSourceService {
     }
     if (response.statusCode != 200) {
       throw JellyfinNetworkException(
-          'HTTP ${response.statusCode} for stream $songId');
+        'HTTP ${response.statusCode} for stream $songId',
+      );
     }
     final total = response.contentLength;
     final builder = BytesBuilder();
@@ -325,8 +330,12 @@ class JellyfinService implements NetworkSourceService {
         onProgress(received / total);
       }
     }
-    return _cache.stash(server.id, songId, builder.takeBytes(),
-        extension: extension);
+    return _cache.stash(
+      server.id,
+      songId,
+      builder.takeBytes(),
+      extension: extension,
+    );
   }
 
   @override
@@ -334,14 +343,13 @@ class JellyfinService implements NetworkSourceService {
     NetworkServerEntity server,
     String songId, {
     String? extension,
+    bool deferPump = false,
   }) async {
     final creds = _creds(server.token);
     if (creds == null) return null;
-    final uri = Uri.parse('${_base(server)}/Audio/$songId/stream')
-        .replace(queryParameters: {
-      'static': 'true',
-      'api_key': creds.token,
-    });
+    final uri = Uri.parse(
+      '${_base(server)}/Audio/$songId/stream',
+    ).replace(queryParameters: {'static': 'true', 'api_key': creds.token});
     return (url: uri.toString(), headers: const <String, String>{});
   }
 
@@ -399,7 +407,8 @@ class JellyfinService implements NetworkSourceService {
     final bitrateBps = _toInt(mediaSource?['Bitrate']);
     final albumName = (s['Album'] as String?) ?? '';
     final albumId = (s['AlbumId'] as String?) ?? '';
-    final albumArtist = (s['AlbumArtist'] as String?) ??
+    final albumArtist =
+        (s['AlbumArtist'] as String?) ??
         (artists != null && artists.isNotEmpty ? (artists.first ?? '') : '');
     return SongEntity()
       ..filePath = '${NetworkProtocol.jellyfin}://${server.id}/$remoteId'

@@ -29,9 +29,9 @@ class WebdavService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
-  })  : _client = client ?? http.Client(),
-        _songRepository = songRepository,
-        _networkCache = networkCache;
+  }) : _client = client ?? http.Client(),
+       _songRepository = songRepository,
+       _networkCache = networkCache;
 
   static WebdavService instance = WebdavService._();
 
@@ -40,24 +40,32 @@ class WebdavService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
-  }) =>
-      WebdavService._(
-        client: client,
-        songRepository: songRepository,
-        networkCache: networkCache,
-      );
+  }) => WebdavService._(
+    client: client,
+    songRepository: songRepository,
+    networkCache: networkCache,
+  );
 
   static const String _coverMarkerScheme = 'webdav-cover://';
 
   static const _audioExtensions = {
-    'flac', 'mp3', 'm4a', 'wav', 'ogg', 'opus', 'aac', 'wv', 'ape', 'mpc',
-    'aiff', 'dsf', 'dff',
+    'flac',
+    'mp3',
+    'm4a',
+    'wav',
+    'ogg',
+    'opus',
+    'aac',
+    'wv',
+    'ape',
+    'mpc',
+    'aiff',
+    'dsf',
+    'dff',
   };
   static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'};
   // Cover filenames scanned per folder, in priority order.
-  static const _coverNames = [
-    'cover', 'folder', 'album', 'albumart', 'front',
-  ];
+  static const _coverNames = ['cover', 'folder', 'album', 'albumart', 'front'];
 
   final http.Client _client;
   SongRepository? _songRepository;
@@ -130,7 +138,8 @@ class WebdavService implements NetworkSourceService {
 
   // --- PROPFIND -----------------------------------------------------------
 
-  static const _propfindBody = '<?xml version="1.0" encoding="utf-8"?>'
+  static const _propfindBody =
+      '<?xml version="1.0" encoding="utf-8"?>'
       '<D:propfind xmlns:D="DAV:"><D:prop>'
       '<D:resourcetype/><D:getcontentlength/><D:getlastmodified/>'
       '<D:displayname/>'
@@ -146,9 +155,9 @@ class WebdavService implements NetworkSourceService {
       ..headers['Content-Type'] = 'application/xml; charset=utf-8'
       ..headers['Authorization'] = _basicAuth(server)
       ..body = _propfindBody;
-    final streamed = await _client.send(request).timeout(
-          const Duration(seconds: 30),
-        );
+    final streamed = await _client
+        .send(request)
+        .timeout(const Duration(seconds: 30));
     return http.Response.fromStream(streamed);
   }
 
@@ -160,8 +169,7 @@ class WebdavService implements NetworkSourceService {
     } catch (_) {
       return results;
     }
-    for (final response
-        in doc.findAllElements('response', namespace: '*')) {
+    for (final response in doc.findAllElements('response', namespace: '*')) {
       final href = response
           .findElements('href', namespace: '*')
           .firstOrNull
@@ -173,45 +181,40 @@ class WebdavService implements NetworkSourceService {
       if (_samePath(decoded, requestedHref)) continue;
 
       final isCollection = response
-              .findAllElements('collection', namespace: '*')
-              .isNotEmpty;
+          .findAllElements('collection', namespace: '*')
+          .isNotEmpty;
       // ponytail: getcontentlength nests under propstat/prop; recursive find
       // keeps this robust to both flattened and nested multistatus bodies.
       final sizeText = response
           .findAllElements('getcontentlength', namespace: '*')
           .firstOrNull
           ?.innerText;
-      results.add(_DavEntry(
-        href: decoded,
-        isCollection: isCollection,
-        size: sizeText == null ? null : int.tryParse(sizeText),
-      ));
+      results.add(
+        _DavEntry(
+          href: decoded,
+          isCollection: isCollection,
+          size: sizeText == null ? null : int.tryParse(sizeText),
+        ),
+      );
     }
     return results;
   }
 
   bool _samePath(String a, String b) {
-    String norm(String s) => s.endsWith('/') && s.length > 1
-        ? s.substring(0, s.length - 1)
-        : s;
+    String norm(String s) =>
+        s.endsWith('/') && s.length > 1 ? s.substring(0, s.length - 1) : s;
     return norm(a) == norm(b);
   }
 
   // --- Test surface (pure parse helpers, no network) ----------------------
 
   @visibleForTesting
-  static List<({String href, bool isCollection, int? size})> parseMultistatusForTest(
-    String body,
-    String requestedHref,
-  ) {
+  static List<({String href, bool isCollection, int? size})>
+  parseMultistatusForTest(String body, String requestedHref) {
     final svc = WebdavService._();
     return svc
         ._parseMultistatus(body, requestedHref)
-        .map((e) => (
-              href: e.href,
-              isCollection: e.isCollection,
-              size: e.size,
-            ))
+        .map((e) => (href: e.href, isCollection: e.isCollection, size: e.size))
         .toList();
   }
 
@@ -243,10 +246,9 @@ class WebdavService implements NetworkSourceService {
   ) async {
     final href = utf8.decode(base64Decode(marker));
     final uri = _requestUri(server, href);
-    final response = await _client.get(
-      uri,
-      headers: {'Authorization': _basicAuth(server)},
-    ).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(uri, headers: {'Authorization': _basicAuth(server)})
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw WebdavNetworkException('HTTP ${response.statusCode} for cover');
     }
@@ -260,8 +262,11 @@ class WebdavService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached =
-        await _cache.getPath(server.id, remoteId, extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      remoteId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     // remoteId is stored url-encoded so the cache key is filesystem-safe;
@@ -270,8 +275,9 @@ class WebdavService implements NetworkSourceService {
     final uri = _requestUri(server, href);
     final request = http.Request('GET', uri)
       ..headers['Authorization'] = _basicAuth(server);
-    final response =
-        await _client.send(request).timeout(const Duration(minutes: 5));
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 5));
     if (response.statusCode != 200) {
       throw WebdavNetworkException('HTTP ${response.statusCode} for stream');
     }
@@ -285,8 +291,12 @@ class WebdavService implements NetworkSourceService {
         onProgress(received / total);
       }
     }
-    return _cache.stash(server.id, remoteId, builder.takeBytes(),
-        extension: extension);
+    return _cache.stash(
+      server.id,
+      remoteId,
+      builder.takeBytes(),
+      extension: extension,
+    );
   }
 
   @override
@@ -294,12 +304,16 @@ class WebdavService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool deferPump = false,
   }) async {
     // remoteId is stored url-encoded (cache-key-safe); decode once, then
     // re-encode at the request boundary.
     final href = _tryDecode(remoteId);
     final uri = _requestUri(server, href);
-    return (url: uri.toString(), headers: {'Authorization': _basicAuth(server)});
+    return (
+      url: uri.toString(),
+      headers: {'Authorization': _basicAuth(server)},
+    );
   }
 
   // --- Library walk -------------------------------------------------------
@@ -332,17 +346,28 @@ class WebdavService implements NetworkSourceService {
         final response = await _propfind(server, dir.url);
         if (response.statusCode != 207 && response.statusCode != 200) {
           filesProcessed++;
-          yield _progress(server, songsFound, allDirs.length, filesProcessed,
-              dir.path);
+          yield _progress(
+            server,
+            songsFound,
+            allDirs.length,
+            filesProcessed,
+            dir.path,
+          );
           continue;
         }
         entries = _parseMultistatus(response.body, dir.path);
       } catch (e) {
-        AppLog.instance
-            .add('WebDAV sync skipped "${dir.path}" on ${server.label}: $e');
+        AppLog.instance.add(
+          'WebDAV sync skipped "${dir.path}" on ${server.label}: $e',
+        );
         filesProcessed++;
         yield _progress(
-            server, songsFound, allDirs.length, filesProcessed, dir.path);
+          server,
+          songsFound,
+          allDirs.length,
+          filesProcessed,
+          dir.path,
+        );
         continue;
       }
 
@@ -351,7 +376,9 @@ class WebdavService implements NetworkSourceService {
       for (final e in entries) {
         if (e.isCollection) {
           allDirs.add(e.href);
-          queue.add(_DavDir(url: '$origin${_encodePath(e.href)}', path: e.href));
+          queue.add(
+            _DavDir(url: '$origin${_encodePath(e.href)}', path: e.href),
+          );
         } else if (_isCoverName(e.href)) {
           coverHref ??= e.href;
         } else if (_isAudio(e.href)) {
@@ -381,7 +408,12 @@ class WebdavService implements NetworkSourceService {
 
       filesProcessed++;
       yield _progress(
-          server, songsFound, allDirs.length, filesProcessed, dir.path);
+        server,
+        songsFound,
+        allDirs.length,
+        filesProcessed,
+        dir.path,
+      );
     }
 
     await purgeAndStampNetworkSync(
@@ -456,7 +488,9 @@ class WebdavService implements NetworkSourceService {
     if (ext == null || !_imageExtensions.contains(ext)) return false;
     final name = _lastPathSegment(href);
     final dot = name.lastIndexOf('.');
-    final stem = dot > 0 ? name.substring(0, dot).toLowerCase() : name.toLowerCase();
+    final stem = dot > 0
+        ? name.substring(0, dot).toLowerCase()
+        : name.toLowerCase();
     return _coverNames.any((c) => stem == c || stem.startsWith('$c.'));
   }
 
@@ -491,11 +525,7 @@ class WebdavService implements NetworkSourceService {
 }
 
 class _DavEntry {
-  const _DavEntry({
-    required this.href,
-    required this.isCollection,
-    this.size,
-  });
+  const _DavEntry({required this.href, required this.isCollection, this.size});
   final String href;
   final bool isCollection;
   final int? size;

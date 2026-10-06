@@ -26,9 +26,9 @@ class UpnpService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
-  })  : _client = client ?? http.Client(),
-        _songRepository = songRepository,
-        _networkCache = networkCache;
+  }) : _client = client ?? http.Client(),
+       _songRepository = songRepository,
+       _networkCache = networkCache;
 
   static UpnpService instance = UpnpService._();
 
@@ -37,12 +37,11 @@ class UpnpService implements NetworkSourceService {
     http.Client? client,
     SongRepository? songRepository,
     NetworkCacheService? networkCache,
-  }) =>
-      UpnpService._(
-        client: client,
-        songRepository: songRepository,
-        networkCache: networkCache,
-      );
+  }) => UpnpService._(
+    client: client,
+    songRepository: songRepository,
+    networkCache: networkCache,
+  );
 
   static const String _coverMarkerScheme = 'upnp-cover://';
   static const String _cdServiceType =
@@ -102,7 +101,9 @@ class UpnpService implements NetworkSourceService {
           ?.innerText
           .trim();
       if (controlUrl == null || controlUrl.isEmpty) return null;
-      return Uri.parse(server.baseUrl).resolveUri(Uri.parse(controlUrl)).toString();
+      return Uri.parse(
+        server.baseUrl,
+      ).resolveUri(Uri.parse(controlUrl)).toString();
     } catch (e) {
       AppLog.instance.add('UPnP description fetch failed: $e');
       return null;
@@ -122,7 +123,8 @@ class UpnpService implements NetworkSourceService {
     String objectId, {
     int timeoutSeconds = 30,
   }) async {
-    final body = '<?xml version="1.0" encoding="utf-8"?>'
+    final body =
+        '<?xml version="1.0" encoding="utf-8"?>'
         '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
         's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
         '<s:Body>'
@@ -140,12 +142,14 @@ class UpnpService implements NetworkSourceService {
       ..headers['Content-Type'] = 'text/xml; charset="utf-8"'
       ..headers['SOAPAction'] = _soapAction
       ..body = body;
-    final streamed =
-        await _client.send(request).timeout(Duration(seconds: timeoutSeconds));
+    final streamed = await _client
+        .send(request)
+        .timeout(Duration(seconds: timeoutSeconds));
     final response = await http.Response.fromStream(streamed);
     if (response.statusCode != 200) {
       throw UpnpNetworkException(
-          'HTTP ${response.statusCode} for Browse $objectId');
+        'HTTP ${response.statusCode} for Browse $objectId',
+      );
     }
     final doc = XmlDocument.parse(response.body);
     // The DIDL-Lite payload sits (escaped) inside the <Result> element.
@@ -170,8 +174,9 @@ class UpnpService implements NetworkSourceService {
     String marker,
   ) async {
     final url = Uri.decodeFull(marker);
-    final response =
-        await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(Uri.parse(url))
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw UpnpNetworkException('HTTP ${response.statusCode} for cover');
     }
@@ -185,14 +190,18 @@ class UpnpService implements NetworkSourceService {
     String? extension,
     void Function(double progress)? onProgress,
   }) async {
-    final cached =
-        await _cache.getPath(server.id, remoteId, extension: extension);
+    final cached = await _cache.getPath(
+      server.id,
+      remoteId,
+      extension: extension,
+    );
     if (cached != null) return cached;
 
     final url = Uri.decodeFull(remoteId);
     final request = http.Request('GET', Uri.parse(url));
-    final response =
-        await _client.send(request).timeout(const Duration(minutes: 5));
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 5));
     if (response.statusCode != 200) {
       throw UpnpNetworkException('HTTP ${response.statusCode} for stream');
     }
@@ -206,8 +215,12 @@ class UpnpService implements NetworkSourceService {
         onProgress(received / total);
       }
     }
-    return _cache.stash(server.id, remoteId, builder.takeBytes(),
-        extension: extension);
+    return _cache.stash(
+      server.id,
+      remoteId,
+      builder.takeBytes(),
+      extension: extension,
+    );
   }
 
   @override
@@ -215,6 +228,7 @@ class UpnpService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool deferPump = false,
   }) async {
     // remoteId is the url-encoded <res> stream URL. DLNA MediaServer spec
     // mandates byte-range support; no auth on LAN by convention.
@@ -228,7 +242,8 @@ class UpnpService implements NetworkSourceService {
     final controlUrl = await resolveControlUrl(server);
     if (controlUrl == null) {
       throw StateError(
-          'UPnP server "${server.label}" has no ContentDirectory service');
+        'UPnP server "${server.label}" has no ContentDirectory service',
+      );
     }
 
     final syncedRemoteIds = <String>{};
@@ -237,7 +252,9 @@ class UpnpService implements NetworkSourceService {
     // BFS over containers. Start at root "0"; some servers use different root
     // ids but "0" is the UPnP convention.
     final queue = <_UpnpContainer>[_UpnpContainer(id: '0', title: 'Root')];
-    final allContainers = <_UpnpContainer>[_UpnpContainer(id: '0', title: 'Root')];
+    final allContainers = <_UpnpContainer>[
+      _UpnpContainer(id: '0', title: 'Root'),
+    ];
     var filesProcessed = 0;
 
     while (queue.isNotEmpty) {
@@ -250,8 +267,13 @@ class UpnpService implements NetworkSourceService {
           'UPnP sync skipped container "${container.title}" on ${server.label}: $e',
         );
         filesProcessed++;
-        yield _progress(server, songsFound, allContainers.length,
-            filesProcessed, container.title);
+        yield _progress(
+          server,
+          songsFound,
+          allContainers.length,
+          filesProcessed,
+          container.title,
+        );
         continue;
       }
 
@@ -270,8 +292,13 @@ class UpnpService implements NetworkSourceService {
       }
 
       filesProcessed++;
-      yield _progress(server, songsFound, allContainers.length,
-          filesProcessed, container.title);
+      yield _progress(
+        server,
+        songsFound,
+        allContainers.length,
+        filesProcessed,
+        container.title,
+      );
     }
 
     await purgeAndStampNetworkSync(server, syncedRemoteIds);
@@ -332,27 +359,28 @@ class UpnpService implements NetworkSourceService {
       final resUrl = resElement.innerText.trim();
       if (resUrl.isEmpty) continue;
       final protocolInfo = resElement.getAttribute('protocolInfo') ?? '';
-      final ext = _audioExtensionFromProtocolInfo(protocolInfo) ??
+      final ext =
+          _audioExtensionFromProtocolInfo(protocolInfo) ??
           _audioExtensionFromUrl(resUrl);
-      items.add(_DidlItem(
-        title: _text(it, 'title').isEmpty
-            ? 'Unknown'
-            : _text(it, 'title'),
-        artist: _text(it, 'artist'),
-        album: _text(it, 'album'),
-        albumArtist: _text(it, 'albumArtist'),
-        trackNumber: int.tryParse(_text(it, 'originalTrackNumber')),
-        genre: _text(it, 'genre'),
-        year: _yearFrom(_text(it, 'date')),
-        durationMs: _parseDurationMs(resElement.getAttribute('duration')),
-        size: int.tryParse(resElement.getAttribute('size') ?? ''),
-        fileType: ext,
-        resUrl: resUrl,
-        coverUrl: _text(it, 'albumArtURI').isEmpty
-            ? null
-            : _text(it, 'albumArtURI'),
-        protocolInfo: protocolInfo,
-      ));
+      items.add(
+        _DidlItem(
+          title: _text(it, 'title').isEmpty ? 'Unknown' : _text(it, 'title'),
+          artist: _text(it, 'artist'),
+          album: _text(it, 'album'),
+          albumArtist: _text(it, 'albumArtist'),
+          trackNumber: int.tryParse(_text(it, 'originalTrackNumber')),
+          genre: _text(it, 'genre'),
+          year: _yearFrom(_text(it, 'date')),
+          durationMs: _parseDurationMs(resElement.getAttribute('duration')),
+          size: int.tryParse(resElement.getAttribute('size') ?? ''),
+          fileType: ext,
+          resUrl: resUrl,
+          coverUrl: _text(it, 'albumArtURI').isEmpty
+              ? null
+              : _text(it, 'albumArtURI'),
+          protocolInfo: protocolInfo,
+        ),
+      );
     }
 
     return _DidlParseResult(containers, items);
@@ -361,22 +389,37 @@ class UpnpService implements NetworkSourceService {
   // --- Test surface (pure DIDL-Lite parse, no network) --------------------
 
   @visibleForTesting
-  static List<({String title, String artist, String album, int? trackNumber, int? durationMs, String? fileType, String resUrl, String? coverUrl, int? year})> parseDidlItemsForTest(String didl) {
+  static List<
+    ({
+      String title,
+      String artist,
+      String album,
+      int? trackNumber,
+      int? durationMs,
+      String? fileType,
+      String resUrl,
+      String? coverUrl,
+      int? year,
+    })
+  >
+  parseDidlItemsForTest(String didl) {
     final svc = UpnpService._();
     return svc
         ._parseDidl(didl)
         .items
-        .map((i) => (
-              title: i.title,
-              artist: i.artist,
-              album: i.album,
-              trackNumber: i.trackNumber,
-              durationMs: i.durationMs,
-              fileType: i.fileType,
-              resUrl: i.resUrl,
-              coverUrl: i.coverUrl,
-              year: i.year,
-            ))
+        .map(
+          (i) => (
+            title: i.title,
+            artist: i.artist,
+            album: i.album,
+            trackNumber: i.trackNumber,
+            durationMs: i.durationMs,
+            fileType: i.fileType,
+            resUrl: i.resUrl,
+            coverUrl: i.coverUrl,
+            year: i.year,
+          ),
+        )
         .toList();
   }
 
@@ -451,8 +494,7 @@ class UpnpService implements NetworkSourceService {
       ..title = item.title
       ..artist = item.artist.isEmpty ? 'Unknown' : item.artist
       ..album = item.album.isEmpty ? null : item.album
-      ..albumArtist =
-          item.albumArtist.isEmpty ? null : item.albumArtist
+      ..albumArtist = item.albumArtist.isEmpty ? null : item.albumArtist
       ..durationMs = item.durationMs
       ..trackNumber = item.trackNumber
       ..year = item.year
