@@ -67,4 +67,35 @@ void main() {
       );
     });
   });
+
+  group('shouldSkipDucking', () {
+    bool skip({
+      VolumeTier tier = VolumeTier.system,
+      bool dop = false,
+      bool directUsb = false,
+    }) => shouldSkipDucking(
+      activeTier: tier,
+      isCurrentTrackDoP: dop,
+      isDirectUsbPath: directUsb,
+    );
+
+    test('skips DoP over direct USB (legacy guard preserved)', () {
+      expect(skip(dop: true, directUsb: true), isTrue);
+      // DoP without direct USB still ducks (not the exclusive path).
+      expect(skip(dop: true, directUsb: false), isFalse);
+    });
+
+    test('skips hardware tier: DAC knob is the volume authority', () {
+      expect(skip(tier: VolumeTier.hardware), isTrue);
+    });
+
+    test('skips unavailable tier: passthrough must never be scaled', () {
+      expect(skip(tier: VolumeTier.unavailable), isTrue);
+    });
+
+    test('software and system tiers still duck normally', () {
+      expect(skip(tier: VolumeTier.software), isFalse);
+      expect(skip(tier: VolumeTier.system), isFalse);
+    });
+  });
 }

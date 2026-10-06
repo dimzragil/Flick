@@ -93,6 +93,25 @@ VolumeTier determineVolumeTier({
   return isPassthrough ? VolumeTier.unavailable : VolumeTier.software;
 }
 
+/// Whether audio-focus ducking must be skipped to protect bit-perfect output.
+///
+/// Ducking applies software gain, which corrupts bit-perfect streams. It is
+/// also pointless on the exclusive direct-USB path, which never mixes with
+/// system sounds. Skip when:
+/// - DoP over direct USB (software gain corrupts DoP markers), or
+/// - the volume tier is [VolumeTier.hardware] (DAC knob is the authority;
+///   engine must stay at unity) or [VolumeTier.unavailable] (passthrough
+///   must never be scaled).
+bool shouldSkipDucking({
+  required VolumeTier activeTier,
+  required bool isCurrentTrackDoP,
+  required bool isDirectUsbPath,
+}) {
+  if (isCurrentTrackDoP && isDirectUsbPath) return true;
+  return activeTier == VolumeTier.hardware ||
+      activeTier == VolumeTier.unavailable;
+}
+
 /// Loop mode for playback
 enum LoopMode {
   off,
@@ -2107,7 +2126,17 @@ class PlayerService {
     _isDucked = ducked;
     // DoP over direct USB: software gain corrupts DoP markers, and the
     // exclusive device is not mixed with system sounds anyway. Leave as-is.
-    if (isCurrentTrackDoP && _isDirectUsbPath) return;
+    // Bit-perfect USB DAC (hardware tier: DAC knob is the volume authority;
+    // unavailable tier: passthrough must never be scaled): software gain
+    // would corrupt bit-perfectness, and the exclusive device is not mixed
+    // with system sounds anyway, so ducking serves no purpose. Leave as-is.
+    if (shouldSkipDucking(
+      activeTier: _activeTier,
+      isCurrentTrackDoP: isCurrentTrackDoP,
+      isDirectUsbPath: _isDirectUsbPath,
+    )) {
+      return;
+    }
     final volume = ducked ? _currentVolume * _duckVolumeScale : _currentVolume;
     try {
       if (_usingRustBackend && _rustAudioService.isInitialized) {
@@ -6180,7 +6209,8 @@ class PlayerService {
 
   Future<void> setVolume(double volume) async {
     final tier = _determineCurrentTier();
-    final tierSupportsBoost = _extendedVolumeEnabled &&
+    final tierSupportsBoost =
+        _extendedVolumeEnabled &&
         (tier == VolumeTier.software || tier == VolumeTier.system);
     final maxForTier = tierSupportsBoost ? 2.0 : 1.0;
     final clampedVolume = volume.clamp(0.0, maxForTier).toDouble();
@@ -6269,10 +6299,12 @@ class PlayerService {
     }
 
     if (_isDirectUsbPath) {
-      unawaited(_notificationService.updateUsbState(
-        isDirectUsb: true,
-        usbVolume: _currentVolume,
-      ));
+      unawaited(
+        _notificationService.updateUsbState(
+          isDirectUsb: true,
+          usbVolume: _currentVolume,
+        ),
+      );
     }
   }
 
@@ -6290,8 +6322,8 @@ class PlayerService {
     final mode = await _appPreferencesService.getReplayGainMode();
     if (mode == ReplayGainMode.off) return 0.0;
     final preampDb = await _appPreferencesService.getReplayGainPreampDb();
-    final preventClipping =
-        await _appPreferencesService.getReplayGainPreventClipping();
+    final preventClipping = await _appPreferencesService
+        .getReplayGainPreventClipping();
     return computeReplayGainDbForSong(
       song,
       mode: mode,
@@ -6314,8 +6346,8 @@ class PlayerService {
       _replayGainState = ReplayGainAppliedState.neutral;
     } else {
       final preampDb = await _appPreferencesService.getReplayGainPreampDb();
-      final preventClipping =
-          await _appPreferencesService.getReplayGainPreventClipping();
+      final preventClipping = await _appPreferencesService
+          .getReplayGainPreventClipping();
       _replayGainState = ReplayGainAppliedState(
         mode: mode,
         gainDb: computeReplayGainDbForSong(
@@ -6326,7 +6358,9 @@ class PlayerService {
         ),
       );
     }
-    if (pushSpawnDefault && _usingRustBackend && _rustAudioService.isInitialized) {
+    if (pushSpawnDefault &&
+        _usingRustBackend &&
+        _rustAudioService.isInitialized) {
       try {
         await _rustAudioService.setReplayGainDefault(_replayGainState.gainDb);
       } catch (e) {
@@ -6355,8 +6389,8 @@ class PlayerService {
   /// Re-apply ReplayGain to the current track after the user changes the
   /// settings (mode / pre-amp / clipping prevention).
   Future<void> applyReplayGainFromSettings() async {
-    final song = currentSongNotifier.value ??
-        _playbackManager.latestState?.currentTrack;
+    final song =
+        currentSongNotifier.value ?? _playbackManager.latestState?.currentTrack;
     await _refreshReplayGainForSong(song);
     if (_usingRustBackend && _rustAudioService.isInitialized) {
       try {
@@ -6961,8 +6995,7 @@ class PlayerService {
       try {
         final allSongs = await _songRepository.getAllSongs();
         final currentId = currentSongNotifier.value?.id;
-        final candidates =
-            allSongs.where((s) => s.id != currentId).toList();
+        final candidates = allSongs.where((s) => s.id != currentId).toList();
         if (candidates.isNotEmpty) {
           final rng = math.Random();
           await _playInternal(
