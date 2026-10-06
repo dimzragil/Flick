@@ -243,61 +243,64 @@ void main() {
       },
     );
 
-    test('finalized session is evicted from active map, closes client, and serves ranges', () async {
-      final targetPath = '${tempDir.path}/finalize_eviction.mp4';
-      final initBytes = List<int>.generate(100, (i) => i);
-      final seg0Bytes = List<int>.generate(200, (i) => 100 + i);
+    test(
+      'finalized session is evicted from active map, closes client, and serves ranges',
+      () async {
+        final targetPath = '${tempDir.path}/finalize_eviction.mp4';
+        final initBytes = List<int>.generate(100, (i) => i);
+        final seg0Bytes = List<int>.generate(200, (i) => 100 + i);
 
-      final innerClient = MockClient((request) async {
-        if (request.url.path.contains('init')) {
-          return http.Response.bytes(initBytes, 200);
-        }
-        if (request.url.path.contains('seg0')) {
-          return http.Response.bytes(seg0Bytes, 200);
-        }
-        return http.Response('Not Found', 404);
-      });
-      final trackingClient = _ClosingMockClient(innerClient);
+        final innerClient = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            return http.Response.bytes(initBytes, 200);
+          }
+          if (request.url.path.contains('seg0')) {
+            return http.Response.bytes(seg0Bytes, 200);
+          }
+          return http.Response('Not Found', 404);
+        });
+        final trackingClient = _ClosingMockClient(innerClient);
 
-      const dashInfo = DashTrackInfo(
-        codec: 'flac',
-        sampleRate: 96000,
-        bitDepth: 24,
-        initializationUrl: 'https://cdn.tidal.com/init.mp4',
-        segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
-      );
+        const dashInfo = DashTrackInfo(
+          codec: 'flac',
+          sampleRate: 96000,
+          bitDepth: 24,
+          initializationUrl: 'https://cdn.tidal.com/init.mp4',
+          segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
+        );
 
-      final finalizedCompleter = Completer<void>();
-      final streamUrl = await TidalStreamProxy.instance.prepareStream(
-        trackId: 'track_finalize',
-        dashInfo: dashInfo,
-        targetPath: targetPath,
-        client: trackingClient,
-        onFinalized: (_) async {
-          if (!finalizedCompleter.isCompleted) finalizedCompleter.complete();
-        },
-      );
+        final finalizedCompleter = Completer<void>();
+        final streamUrl = await TidalStreamProxy.instance.prepareStream(
+          trackId: 'track_finalize',
+          dashInfo: dashInfo,
+          targetPath: targetPath,
+          client: trackingClient,
+          onFinalized: (_) async {
+            if (!finalizedCompleter.isCompleted) finalizedCompleter.complete();
+          },
+        );
 
-      await finalizedCompleter.future.timeout(const Duration(seconds: 5));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+        await finalizedCompleter.future.timeout(const Duration(seconds: 5));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      // 1. Heavy session must be evicted from active map
-      expect(TidalStreamProxy.instance.activeSessionCount, 0);
+        // 1. Heavy session must be evicted from active map
+        expect(TidalStreamProxy.instance.activeSessionCount, 0);
 
-      // 2. Client must be closed on finalize
-      expect(trackingClient.closeCallCount, greaterThanOrEqualTo(1));
+        // 2. Client must be closed on finalize
+        expect(trackingClient.closeCallCount, greaterThanOrEqualTo(1));
 
-      // 3. Completed stream must still serve HTTP range requests without 404
-      final httpClient = HttpClient();
-      final req = await httpClient.getUrl(Uri.parse(streamUrl));
-      req.headers.set(HttpHeaders.rangeHeader, 'bytes=50-99');
-      final resp = await req.close();
+        // 3. Completed stream must still serve HTTP range requests without 404
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=50-99');
+        final resp = await req.close();
 
-      expect(resp.statusCode, HttpStatus.partialContent);
-      final body = await resp.expand((b) => b).toList();
-      expect(body, initBytes.sublist(50, 100));
-      httpClient.close();
-    });
+        expect(resp.statusCode, HttpStatus.partialContent);
+        final body = await resp.expand((b) => b).toList();
+        expect(body, initBytes.sublist(50, 100));
+        httpClient.close();
+      },
+    );
 
     test('client is closed when session is cancelled', () async {
       final targetPath = '${tempDir.path}/cancel_client.mp4';
@@ -311,7 +314,10 @@ void main() {
         sampleRate: 96000,
         bitDepth: 24,
         initializationUrl: 'https://cdn.tidal.com/init.mp4',
-        segmentUrls: List.generate(10, (i) => 'https://cdn.tidal.com/seg$i.mp4'),
+        segmentUrls: List.generate(
+          10,
+          (i) => 'https://cdn.tidal.com/seg$i.mp4',
+        ),
       );
 
       await TidalStreamProxy.instance.prepareStream(
@@ -330,75 +336,91 @@ void main() {
       expect(TidalStreamProxy.instance.activeSessionCount, 0);
     });
 
-    test('completed streams are pruned to LRU cap', () async {
-      const maxCap = 4;
-      for (var i = 0; i < 6; i++) {
-        final targetPath = '${tempDir.path}/lru_track_$i.mp4';
-        final initBytes = List<int>.generate(20, (x) => x);
-        final innerClient = MockClient((request) async {
-          return http.Response.bytes(initBytes, 200);
+    test(
+      'completed streams retain metadata without eviction so previous tracks do not 404',
+      () async {
+        String? firstTrackUrl;
+        for (var i = 0; i < 6; i++) {
+          final targetPath = '${tempDir.path}/lru_track_$i.mp4';
+          final initBytes = List<int>.generate(20, (x) => x);
+          final innerClient = MockClient((request) async {
+            return http.Response.bytes(initBytes, 200);
+          });
+
+          const dashInfo = DashTrackInfo(
+            codec: 'flac',
+            sampleRate: 96000,
+            bitDepth: 24,
+            initializationUrl: 'https://cdn.tidal.com/init.mp4',
+            segmentUrls: [],
+          );
+
+          final finalizedCompleter = Completer<void>();
+          final url = await TidalStreamProxy.instance.prepareStream(
+            trackId: 'lru_track_$i',
+            dashInfo: dashInfo,
+            targetPath: targetPath,
+            client: innerClient,
+            onFinalized: (_) async {
+              if (!finalizedCompleter.isCompleted)
+                finalizedCompleter.complete();
+            },
+          );
+          if (i == 0) firstTrackUrl = url;
+
+          await finalizedCompleter.future.timeout(const Duration(seconds: 5));
+        }
+
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(TidalStreamProxy.instance.completedStreamCount, 6);
+
+        // Verify that track 0 is still servable and does not return 404
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(firstTrackUrl!));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-9');
+        final resp = await req.close();
+        expect(resp.statusCode, HttpStatus.partialContent);
+        httpClient.close();
+      },
+    );
+
+    test(
+      'init failure does not cause unhandled async error from seg0Future',
+      () async {
+        final targetPath = '${tempDir.path}/seg0_error.mp4';
+        final client = MockClient((request) async {
+          if (request.url.path.contains('init')) {
+            throw http.ClientException('Init failed');
+          }
+          if (request.url.path.contains('seg0')) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            throw http.ClientException('Seg0 failed');
+          }
+          return http.Response('Not Found', 404);
         });
 
         const dashInfo = DashTrackInfo(
           codec: 'flac',
-          sampleRate: 96000,
-          bitDepth: 24,
+          sampleRate: 44100,
+          bitDepth: 16,
           initializationUrl: 'https://cdn.tidal.com/init.mp4',
-          segmentUrls: [],
+          segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
         );
 
-        final finalizedCompleter = Completer<void>();
-        await TidalStreamProxy.instance.prepareStream(
-          trackId: 'lru_track_$i',
-          dashInfo: dashInfo,
-          targetPath: targetPath,
-          client: innerClient,
-          onFinalized: (_) async {
-            if (!finalizedCompleter.isCompleted) finalizedCompleter.complete();
-          },
+        await expectLater(
+          TidalStreamProxy.instance.prepareStream(
+            trackId: 'seg0_err_track',
+            dashInfo: dashInfo,
+            targetPath: targetPath,
+            client: client,
+          ),
+          throwsA(isA<http.ClientException>()),
         );
 
-        await finalizedCompleter.future.timeout(const Duration(seconds: 5));
-      }
-
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(TidalStreamProxy.instance.completedStreamCount, lessThanOrEqualTo(maxCap));
-    });
-
-    test('init failure does not cause unhandled async error from seg0Future', () async {
-      final targetPath = '${tempDir.path}/seg0_error.mp4';
-      final client = MockClient((request) async {
-        if (request.url.path.contains('init')) {
-          throw http.ClientException('Init failed');
-        }
-        if (request.url.path.contains('seg0')) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          throw http.ClientException('Seg0 failed');
-        }
-        return http.Response('Not Found', 404);
-      });
-
-      const dashInfo = DashTrackInfo(
-        codec: 'flac',
-        sampleRate: 44100,
-        bitDepth: 16,
-        initializationUrl: 'https://cdn.tidal.com/init.mp4',
-        segmentUrls: ['https://cdn.tidal.com/seg0.mp4'],
-      );
-
-      await expectLater(
-        TidalStreamProxy.instance.prepareStream(
-          trackId: 'seg0_err_track',
-          dashInfo: dashInfo,
-          targetPath: targetPath,
-          client: client,
-        ),
-        throwsA(isA<http.ClientException>()),
-      );
-
-      // Wait long enough for seg0's delayed future to complete with error
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    });
+        // Wait long enough for seg0's delayed future to complete with error
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      },
+    );
 
     test(
       'open-ended range request (bytes=0-) streams entire multi-segment DASH track continuously without early EOF',

@@ -38,7 +38,6 @@ class TidalStreamProxy {
 
   static final TidalStreamProxy instance = TidalStreamProxy._();
 
-  static const int _maxCompletedStreams = 4;
   HttpServer? _server;
   final Map<String, TidalStreamSession> _sessions = {};
   final Map<String, TidalBtsStreamSession> _btsSessions = {};
@@ -62,9 +61,6 @@ class TidalStreamProxy {
       targetPath: session.targetPath,
       contentType: 'audio/mp4',
     );
-    if (_completedFiles.length > _maxCompletedStreams) {
-      _completedFiles.remove(_completedFiles.keys.first);
-    }
   }
 
   void _onBtsSessionFinalized(TidalBtsStreamSession session) {
@@ -74,9 +70,6 @@ class TidalStreamProxy {
       targetPath: session.targetPath,
       contentType: session.contentType,
     );
-    if (_completedFiles.length > _maxCompletedStreams) {
-      _completedFiles.remove(_completedFiles.keys.first);
-    }
   }
 
   /// Local URL for an in-progress or finished BTS session; never exposes the CDN URL.
@@ -328,9 +321,7 @@ class TidalStreamProxy {
     }
     final fileLength = await file.length();
     final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
-    final match = RegExp(
-      r'bytes=(\d+)-(\d*)',
-    ).firstMatch(rangeHeader ?? '');
+    final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader ?? '');
     final start = int.tryParse(match?.group(1) ?? '') ?? 0;
     final hasExplicitEnd = match != null && match.group(2)?.isNotEmpty == true;
     final requestedEnd =
@@ -353,7 +344,8 @@ class TidalStreamProxy {
     }
 
     if (hasExplicitEnd) {
-      final isBts = req.uri.pathSegments.isNotEmpty &&
+      final isBts =
+          req.uri.pathSegments.isNotEmpty &&
           req.uri.pathSegments[0] == 'tidal-bts';
       final actualEnd = (isBts && start == 0)
           ? min(end, min(fileLength - 1, 256 * 1024 - 1))
@@ -1168,9 +1160,7 @@ class TidalBtsStreamSession {
 
   Future<void> handleRequest(HttpRequest req) async {
     final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
-    final match = RegExp(
-      r'bytes=(\d+)-(\d*)',
-    ).firstMatch(rangeHeader ?? '');
+    final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader ?? '');
     final start = int.tryParse(match?.group(1) ?? '') ?? 0;
     final hasExplicitEnd = match != null && match.group(2)?.isNotEmpty == true;
     final requestedEnd =
