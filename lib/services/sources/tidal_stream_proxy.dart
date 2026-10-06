@@ -448,8 +448,6 @@ class TidalStreamSession {
   Completer<void>? _needMoreCompleter;
   final List<int> _segmentStartOffsets = [];
 
-  static const int _bufferAheadLimit = 3;
-
   File? _partFile;
   RandomAccessFile? _writeRaf;
   int _bytesWritten = 0;
@@ -526,7 +524,10 @@ class TidalStreamSession {
     }
   }
 
-  /// Progressive on-demand streaming pump. Only downloads ahead when needed by playback.
+  /// Aggressive prefetch pump: downloads all remaining segments as fast as
+  /// possible so the progressive push loop never starves waiting for bytes.
+  /// Files land in the persistent network cache, so prefetch is reused
+  /// (not wasted) on replay; disk usage stays bounded by the cache limit.
   Future<void> _streamPump() async {
     if (_pumpRunning || _isFinished || _isCancelled || _pumpFailed) return;
     _pumpRunning = true;
@@ -536,13 +537,6 @@ class TidalStreamSession {
           !_isFinished &&
           !_pumpFailed &&
           _nextSegmentIndex < dashInfo.segmentUrls.length) {
-        // Sliding window: only fetch up to _bufferAheadLimit segments ahead of playback
-        if (_nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
-          _needMoreCompleter = Completer<void>();
-          await _needMoreCompleter!.future;
-          if (_isCancelled || _isFinished || _pumpFailed) break;
-        }
-
         final myIndex = _nextSegmentIndex;
         final myUrl = dashInfo.segmentUrls[myIndex];
 
