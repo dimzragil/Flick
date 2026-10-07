@@ -28,6 +28,7 @@ import 'tidal_artist_screen.dart';
 import 'tidal_mix_screen.dart';
 import 'tidal_playlist_screen.dart';
 import 'tidal_search_screen.dart';
+import 'tidal_liked_songs_screen.dart';
 
 class TidalHubScreen extends ConsumerStatefulWidget {
   const TidalHubScreen({super.key});
@@ -891,13 +892,16 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ref.refresh(tidalHomeFeedProvider(_activeFeedSlug).future),
           ref.refresh(tidalUserPlaylistsProvider.future),
           ref.refresh(tidalFavoriteMixesProvider.future),
+          ref.refresh(tidalLikedSongsProvider.future),
         ]);
       },
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
         children: [
-          // 3. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
+          // 1. Liked Songs (TIDAL favorites) — pinned at the very top.
+          _buildLikedSongsSection(),
+          // 2. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
           feedAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
@@ -1157,9 +1161,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               // defeats builder laziness (all items are laid out anyway),
               // so a Column avoids the nested Scrollable/Viewport overhead.
               return Column(
-                children: [
-                  for (final pl in playlists) _buildPlaylistTile(pl),
-                ],
+                children: [for (final pl in playlists) _buildPlaylistTile(pl)],
               );
             },
           ),
@@ -1177,10 +1179,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     return RepaintBoundary(
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(vertical: 4),
-        leading: TidalPlaylistCoverWidget(
-          playlist: pl,
-          size: size,
-        ),
+        leading: TidalPlaylistCoverWidget(playlist: pl, size: size),
         title: Text(
           title,
           maxLines: 1,
@@ -1254,7 +1253,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: AppColors.glassBackgroundStrong,
-                        borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusSm,
+                        ),
                         border: Border.all(color: AppColors.glassBorder),
                       ),
                       child: Row(
@@ -1364,7 +1365,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusMd,
+                      ),
                       onTap: () => _openHomeItem(item),
                       onLongPress: () => _showItemActionSheet(item),
                       child: Column(
@@ -1401,7 +1404,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                           ),
                                         )
                                       : const ColoredBox(
-                                          color: AppColors.glassBackgroundStrong,
+                                          color:
+                                              AppColors.glassBackgroundStrong,
                                           child: Center(
                                             child: Icon(
                                               LucideIcons.music,
@@ -1412,62 +1416,64 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         ),
                                 ),
                               ),
-                            Positioned(
-                              right: 6,
-                              bottom: 6,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _openHomeItem(item),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.7),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: const Color(0x6600FFFF),
+                              Positioned(
+                                right: 6,
+                                bottom: 6,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => _openHomeItem(item),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: const Color(0x6600FFFF),
+                                      ),
                                     ),
-                                  ),
-                                  child: const Icon(
-                                    LucideIcons.play,
-                                    size: 14,
-                                    color: Color(0xFF00FFFF),
+                                    child: const Icon(
+                                      LucideIcons.play,
+                                      size: 14,
+                                      color: Color(0xFF00FFFF),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          item.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                            ],
                           ),
-                        ),
-                        if (item.subtitle != null &&
-                            item.subtitle!.isNotEmpty) ...[
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 6),
                           Text(
-                            item.subtitle!,
+                            item.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (item.subtitle != null &&
+                              item.subtitle!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              item.subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
           ),
         ),
         SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
@@ -1717,7 +1723,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (item.subtitle != null && item.subtitle!.isNotEmpty) ...[
+                      if (item.subtitle != null &&
+                          item.subtitle!.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
                           item.subtitle!,
@@ -1745,6 +1752,106 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// "Liked Songs" — the user's TIDAL favorite tracks, pinned at the very top
+  /// of the Hub. Tapping opens the full collection.
+  Widget _buildLikedSongsSection() {
+    final likedAsync = ref.watch(tidalLikedSongsProvider);
+
+    return likedAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (songs) {
+        if (songs.isEmpty) return const SizedBox.shrink();
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: context.scaleSize(AppConstants.spacingMd),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const TidalLikedSongsScreen(),
+                ),
+              );
+            },
+            child: Container(
+              padding: EdgeInsets.all(
+                context.scaleSize(AppConstants.spacingMd),
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.pinkAccent.withValues(alpha: 0.25),
+                    AppColors.surfaceLight.withValues(alpha: 0.7),
+                  ],
+                ),
+                border: Border.all(
+                  color: Colors.pinkAccent.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: context.scaleSize(56),
+                    height: context.scaleSize(56),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusMd,
+                      ),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.pinkAccent, Colors.purpleAccent],
+                      ),
+                    ),
+                    child: Icon(
+                      LucideIcons.heart,
+                      color: Colors.white,
+                      size: context.scaleSize(28),
+                    ),
+                  ),
+                  SizedBox(width: context.scaleSize(AppConstants.spacingMd)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Liked Songs',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${songs.length} loved tracks',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    LucideIcons.chevronRight,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

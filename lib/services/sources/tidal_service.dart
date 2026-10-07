@@ -2494,7 +2494,38 @@ class TidalService implements NetworkSourceService {
     }
   }
 
+  /// Get the user's TIDAL favorite tracks with full metadata as [Song]s.
+  /// Used for the "Liked Songs" collection view.
+  Future<List<Song>> getFavoriteTracks(NetworkServerEntity server) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return [];
+    try {
+      final res = await _apiGet(
+        server,
+        '/users/$userId/favorites/tracks',
+        query: {'limit': '2000'},
+      );
+      final items = res['items'] as List<dynamic>?;
+      if (items == null) return [];
+      final songs = <Song>[];
+      for (final it in items) {
+        if (it is Map<String, dynamic>) {
+          final trackJson = it['item'] as Map<String, dynamic>?;
+          if (trackJson != null) {
+            songs.add(makeEphemeralSong(server, trackJson));
+          }
+        }
+      }
+      return songs;
+    } catch (e) {
+      devLog('[Tidal] getFavoriteTracks error: $e');
+      return [];
+    }
+  }
+
   /// Add a track to TIDAL favorites.
+
   Future<void> addFavoriteTrack(
     NetworkServerEntity server,
     String trackId,

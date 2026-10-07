@@ -374,3 +374,14 @@ final tidalFavoriteTrackIdsProvider = FutureProvider<Set<String>>((ref) async {
   final tidal = ref.read(tidalServiceProvider);
   return await tidal.getFavoriteTrackIds(server);
 });
+
+/// Fetches the full TIDAL "Liked Songs" collection (favorite tracks with
+/// metadata) for the authenticated account.
+final tidalLikedSongsProvider = FutureProvider<List<Song>>((ref) async {
+  final server = await ref.watch(tidalServerProvider.future);
+  if (server == null || server.token == null || server.token!.isEmpty) {
+    return const <Song>[];
+  }
+  final tidal = ref.read(tidalServiceProvider);
+  return await tidal.getFavoriteTracks(server);
+});

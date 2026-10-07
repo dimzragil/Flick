@@ -86,6 +86,7 @@ void main() {
             (ref, slug) async => TidalHomeFeed.empty,
           ),
           tidalFavoriteMixesProvider.overrideWith((ref) async => []),
+          tidalLikedSongsProvider.overrideWith((ref) async => []),
         ],
         child: const MaterialApp(home: TidalHubScreen()),
       ),
