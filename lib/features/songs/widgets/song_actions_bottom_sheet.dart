@@ -15,6 +15,7 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/services/metadata_editor_service.dart';
 import 'package:flick/services/music_folder_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/features/player/widgets/player_navigation.dart';
 import 'package:flick/src/rust/api/metadata_editor.dart' as rust_metadata;
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -118,29 +119,30 @@ class SongActionsBottomSheet extends ConsumerWidget {
           _buildActionTile(
             context: context,
             icon: LucideIcons.listPlus,
-            label: 'Add to Queue',
+            label: 'Play Next',
             onTap: () async {
               await ref.read(playerProvider.notifier).addToQueue(song);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Queued "${song.title}"'),
+                    content: Text('Will play next: "${song.title}"'),
                     duration: const Duration(seconds: 2),
                   ),
                 );
               }
             },
           ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.listMusic,
-            label: 'Add to Playlist',
-            onTap: () {
-              Navigator.pop(context);
-              AddToPlaylistSheet.show(rootContext, song);
-            },
-          ),
+          if (!isTidal)
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.listMusic,
+              label: 'Add to Playlist',
+              onTap: () {
+                Navigator.pop(context);
+                AddToPlaylistSheet.show(rootContext, song);
+              },
+            ),
           if (isTidal) ...[
             _buildActionTile(
               context: context,
@@ -192,24 +194,26 @@ class SongActionsBottomSheet extends ConsumerWidget {
               },
             ),
           ],
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.image,
-            label: 'Set Album Art',
-            onTap: () {
-              Navigator.pop(context);
-              Future.delayed(Duration.zero, () async {
-                final changed = await AlbumArtPickerBottomSheet.show(
-                  rootContext,
-                  song,
-                );
-                if (changed && rootContext.mounted) {
-                  ref.invalidate(songsProvider);
-                }
-              });
-            },
-          ),
-          if (song.filePath != null &&
+          if (!isTidal)
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.image,
+              label: 'Set Album Art',
+              onTap: () {
+                Navigator.pop(context);
+                Future.delayed(Duration.zero, () async {
+                  final changed = await AlbumArtPickerBottomSheet.show(
+                    rootContext,
+                    song,
+                  );
+                  if (changed && rootContext.mounted) {
+                    ref.invalidate(songsProvider);
+                  }
+                });
+              },
+            ),
+          if (!isTidal &&
+              song.filePath != null &&
               song.startOffsetMs == null &&
               !song.isExternal)
             _buildActionTile(
@@ -238,6 +242,30 @@ class SongActionsBottomSheet extends ConsumerWidget {
               _showMetadataSheet(context);
             },
           ),
+          _buildActionTile(
+            context: context,
+            icon: LucideIcons.user,
+            label: 'Go to Artist',
+            onTap: () {
+              Navigator.pop(context);
+              PlayerNavigation(
+                playerService: PlayerService(),
+                songRepository: ref.read(songRepositoryProvider),
+              ).openArtistFromSong(rootContext, song);
+            },
+          ),
+          _buildActionTile(
+            context: context,
+            icon: LucideIcons.disc,
+            label: 'Go to Album',
+            onTap: () {
+              Navigator.pop(context);
+              PlayerNavigation(
+                playerService: PlayerService(),
+                songRepository: ref.read(songRepositoryProvider),
+              ).openAlbumFromSong(rootContext, song);
+            },
+          ),
           if (song.filePath != null && !song.isExternal)
             _buildActionTile(
               context: context,
@@ -249,15 +277,17 @@ class SongActionsBottomSheet extends ConsumerWidget {
               },
             ),
           const SizedBox(height: AppConstants.spacingSm),
-          Divider(height: 1, color: AppColors.glassBorderStrong),
-          const SizedBox(height: AppConstants.spacingSm),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.trash2,
-            label: 'Delete Song',
-            onTap: () => _showDeleteWarning(context, ref),
-            highlighted: true,
-          ),
+          if (!isTidal) ...[
+            Divider(height: 1, color: AppColors.glassBorderStrong),
+            const SizedBox(height: AppConstants.spacingSm),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.trash2,
+              label: 'Delete Song',
+              onTap: () => _showDeleteWarning(context, ref),
+              highlighted: true,
+            ),
+          ],
         ],
       ),
     );

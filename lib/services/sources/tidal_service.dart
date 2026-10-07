@@ -2599,6 +2599,33 @@ class TidalService implements NetworkSourceService {
     }
   }
 
+  /// Get track credits (writers, composers, producers, etc.) from TIDAL.
+  /// Returns a list of {type, name} maps.
+  Future<List<Map<String, String>>> getTrackCredits(
+    NetworkServerEntity server,
+    String trackId,
+  ) async {
+    try {
+      final res = await _apiGet(server, '/tracks/$trackId/credits');
+      final items = res['items'] as List<dynamic>?;
+      if (items == null) return [];
+      final credits = <Map<String, String>>[];
+      for (final it in items) {
+        if (it is Map<String, dynamic>) {
+          final type = it['type'] as String? ?? 'Contributor';
+          final name = it['name'] as String? ?? '';
+          if (name.isNotEmpty) {
+            credits.add({'type': type, 'name': name});
+          }
+        }
+      }
+      return credits;
+    } catch (e) {
+      devLog('[Tidal] getTrackCredits error: $e');
+      return [];
+    }
+  }
+
   /// Create a new playlist in the user's TIDAL account.
   Future<Map<String, dynamic>> createPlaylist(
     NetworkServerEntity server, {

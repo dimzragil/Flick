@@ -758,7 +758,8 @@ class PlayerService {
   AdvanceListOrder _advanceListOrder = AdvanceListOrder.alphabetical;
 
   // Wrap-around queue: tapping a song mid-list queues preceding songs at the end.
-  final ValueNotifier<bool> wrapAroundQueueNotifier = ValueNotifier(true);
+  // Default OFF: queue ends at the last track, then Smart Autoplay takes over.
+  final ValueNotifier<bool> wrapAroundQueueNotifier = ValueNotifier(false);
   bool get wrapAroundQueue => wrapAroundQueueNotifier.value;
 
   final ValueNotifier<bool> autoplayOnQueueEndNotifier = ValueNotifier(true);
