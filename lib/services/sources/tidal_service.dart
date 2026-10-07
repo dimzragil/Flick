@@ -2500,27 +2500,36 @@ class TidalService implements NetworkSourceService {
     final creds = _creds(server.token);
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return [];
+    // Paginate: the API returns oldest-first, so a single page would miss
+    // recently liked tracks.
+    const pageSize = 100;
+    const maxTracks = 5000;
+    final songs = <Song>[];
+    var offset = 0;
     try {
-      final res = await _apiGet(
-        server,
-        '/users/$userId/favorites/tracks',
-        query: {'limit': '2000'},
-      );
-      final items = res['items'] as List<dynamic>?;
-      if (items == null) return [];
-      final songs = <Song>[];
-      for (final it in items) {
-        if (it is Map<String, dynamic>) {
-          final trackJson = it['item'] as Map<String, dynamic>?;
-          if (trackJson != null) {
-            songs.add(makeEphemeralSong(server, trackJson));
+      while (offset < maxTracks) {
+        final res = await _apiGet(
+          server,
+          '/users/$userId/favorites/tracks',
+          query: {'limit': '$pageSize', 'offset': '$offset'},
+        );
+        final items = res['items'] as List<dynamic>?;
+        if (items == null || items.isEmpty) break;
+        for (final it in items) {
+          if (it is Map<String, dynamic>) {
+            final trackJson = it['item'] as Map<String, dynamic>?;
+            if (trackJson != null) {
+              songs.add(makeEphemeralSong(server, trackJson));
+            }
           }
         }
+        if (items.length < pageSize) break;
+        offset += pageSize;
       }
       return songs;
     } catch (e) {
       devLog('[Tidal] getFavoriteTracks error: $e');
-      return [];
+      return songs;
     }
   }
 

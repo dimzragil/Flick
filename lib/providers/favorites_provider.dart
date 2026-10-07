@@ -117,6 +117,7 @@ class FavoritesNotifier extends AsyncNotifier<FavoritesState> {
           await tidal.removeFavoriteTrack(server, trackId);
         }
         ref.invalidate(tidalFavoriteTrackIdsProvider);
+        ref.invalidate(tidalLikedSongsProvider);
       }
     } catch (_) {
       // Local state is preserved even if network sync errors out
@@ -157,7 +158,10 @@ final isSongFavoriteProvider = Provider.autoDispose.family<bool, String>((
   }
 
   final tidalFavs = ref.watch(tidalFavoriteTrackIdsProvider).value;
-  if (tidalFavs != null && trackId != null && trackId.isNotEmpty && tidalFavs.contains(trackId)) {
+  if (tidalFavs != null &&
+      trackId != null &&
+      trackId.isNotEmpty &&
+      tidalFavs.contains(trackId)) {
     return true;
   }
 
