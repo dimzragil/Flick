@@ -261,8 +261,8 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     final dominantColor = ref.watch(albumDominantColorSyncProvider);
     final Color? albumColor =
         (colorMode != AlbumColorMode.off && dominantColor != null)
-            ? dominantColor
-            : null;
+        ? dominantColor
+        : null;
 
     return Container(
       decoration: const BoxDecoration(
@@ -351,15 +351,21 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
                           child: Container(
                             padding: const EdgeInsets.all(5),
                             decoration: BoxDecoration(
-                              color: AppColors.background.withValues(alpha: 0.5),
+                              color: AppColors.background.withValues(
+                                alpha: 0.5,
+                              ),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 250),
-                              transitionBuilder: (child, anim) => FadeTransition(
-                                opacity: anim,
-                                child: ScaleTransition(scale: anim, child: child),
-                              ),
+                              transitionBuilder: (child, anim) =>
+                                  FadeTransition(
+                                    opacity: anim,
+                                    child: ScaleTransition(
+                                      scale: anim,
+                                      child: child,
+                                    ),
+                                  ),
                               child: Icon(
                                 _isExpanded
                                     ? Icons.close_fullscreen_rounded
@@ -416,7 +422,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.verified_rounded, size: 12, color: Colors.green.shade400),
+                Icon(
+                  Icons.verified_rounded,
+                  size: 12,
+                  color: Colors.green.shade400,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   'Bit-perfect',
@@ -459,18 +469,20 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
             color: widget.isVerified
                 ? Colors.green.withValues(alpha: 0.15)
                 : widget.isDirectUsb
-                    ? Colors.blue.withValues(alpha: 0.15)
-                    : AppColors.glassBackgroundStrong,
+                ? Colors.blue.withValues(alpha: 0.15)
+                : AppColors.glassBackgroundStrong,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
-            widget.isVerified ? LucideIcons.badgeCheck : LucideIcons.audioWaveform,
+            widget.isVerified
+                ? LucideIcons.badgeCheck
+                : LucideIcons.audioWaveform,
             size: 20,
             color: widget.isVerified
                 ? Colors.green.shade400
                 : widget.isDirectUsb
-                    ? Colors.blue.shade400
-                    : context.adaptiveTextPrimary,
+                ? Colors.blue.shade400
+                : context.adaptiveTextPrimary,
           ),
         ),
         const SizedBox(width: 12),
@@ -565,6 +577,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
   ) {
     final rows = <Widget>[];
     final d = widget.diagnostics;
+    // Honest Android mixer display: on the speaker path (mixer-managed),
+    // Android resamples to its native 48 kHz / 16-bit regardless of what
+    // ExoPlayer requests. The USB DAC path (isMixerManaged == false) is
+    // untouched and keeps its verified values.
+    final isMixerManaged = d?.isMixerManaged == true;
     final codecLabel = resolved?.codec;
     final formatValue = widget.song.isDsd
         ? '${widget.song.fileType.toUpperCase()} (${widget.song.dsdRateLabel})'
@@ -572,29 +589,18 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
               ? codecLabel.toUpperCase()
               : widget.song.fileType.toUpperCase());
 
-    rows.add(
-      _buildRow(
-        context,
-        label: 'Format',
-        value: formatValue,
-      ),
-    );
+    rows.add(_buildRow(context, label: 'Format', value: formatValue));
 
-    final resolutionValue = resolved?.resolutionString ?? widget.song.resolution;
+    final resolutionValue =
+        resolved?.resolutionString ?? widget.song.resolution;
     if (resolutionValue != null && !widget.song.isDsd) {
-      rows.add(
-        _buildRow(context, label: 'Resolution', value: resolutionValue),
-      );
+      rows.add(_buildRow(context, label: 'Resolution', value: resolutionValue));
     }
 
     final sourceRate = resolved?.sampleRate ?? widget.song.sampleRate;
     if (sourceRate != null) {
       rows.add(
-        _buildRow(
-          context,
-          label: 'Source rate',
-          value: _formatHz(sourceRate),
-        ),
+        _buildRow(context, label: 'Source rate', value: _formatHz(sourceRate)),
       );
     }
 
@@ -626,17 +632,36 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         _buildRow(
           context,
           label: 'Output rate',
-          value: _formatHz(displayRate),
-          trailing: matches
-              ? Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade400)
-              : Icon(Icons.warning_amber_rounded, size: 14, color: Colors.amber.shade400),
+          value: isMixerManaged ? '48.0 kHz' : _formatHz(displayRate),
+          trailing: isMixerManaged
+              ? Icon(Icons.android, size: 14, color: Colors.green.shade400)
+              : (matches
+                    ? Icon(
+                        Icons.check_circle_rounded,
+                        size: 14,
+                        color: Colors.green.shade400,
+                      )
+                    : Icon(
+                        Icons.warning_amber_rounded,
+                        size: 14,
+                        color: Colors.amber.shade400,
+                      )),
         ),
       );
     }
 
-    final bitDepth = widget.deviceStatus?.currentFormat?.bitDepth ?? widget.song.bitDepth;
+    final bitDepth =
+        widget.deviceStatus?.currentFormat?.bitDepth ?? widget.song.bitDepth;
     if (bitDepth != null) {
-      rows.add(_buildRow(context, label: 'Bit depth', value: '$bitDepth-bit'));
+      rows.add(
+        _buildRow(
+          context,
+          label: 'Bit depth',
+          value: (isMixerManaged && bitDepth == 24)
+              ? '24-bit → 16-bit'
+              : '$bitDepth-bit',
+        ),
+      );
     }
 
     final channels = widget.deviceStatus?.currentFormat?.channels;
@@ -645,7 +670,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         _buildRow(
           context,
           label: 'Channels',
-          value: channels == 1 ? 'Mono' : channels == 2 ? 'Stereo' : '$channels ch',
+          value: channels == 1
+              ? 'Mono'
+              : channels == 2
+              ? 'Stereo'
+              : '$channels ch',
         ),
       );
     }
@@ -670,7 +699,9 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
 
     final volMode = widget.deviceStatus?.volumeMode;
     if (volMode != null && volMode != Uac2VolumeMode.unavailable) {
-      rows.add(_buildRow(context, label: 'Volume', value: _formatVolumeMode(volMode)));
+      rows.add(
+        _buildRow(context, label: 'Volume', value: _formatVolumeMode(volMode)),
+      );
     }
 
     final routeLabel = d?.routeLabel;
@@ -683,8 +714,8 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
           trailing: widget.isDirectUsb
               ? _buildTinyBadge('Direct', Colors.blue)
               : (d?.isMixerManaged ?? false)
-                  ? _buildTinyBadge('Mixer', Colors.grey)
-                  : null,
+              ? _buildTinyBadge('Mixer', Colors.grey)
+              : null,
         ),
       );
     }
@@ -694,10 +725,20 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         _buildRow(
           context,
           label: 'Resampler',
-          value: d.resamplerActive ? 'Active' : 'Inactive',
-          trailing: d.resamplerActive
-              ? Icon(Icons.warning_amber_rounded, size: 14, color: Colors.amber.shade400)
-              : Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade400),
+          value: isMixerManaged
+              ? 'Active (Android Mixer)'
+              : (d.resamplerActive ? 'Active' : 'Inactive'),
+          trailing: (isMixerManaged || d.resamplerActive)
+              ? Icon(
+                  Icons.warning_amber_rounded,
+                  size: 14,
+                  color: Colors.amber.shade400,
+                )
+              : Icon(
+                  Icons.check_circle_rounded,
+                  size: 14,
+                  color: Colors.green.shade400,
+                ),
         ),
       );
     }
@@ -709,7 +750,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
           label: 'Passthrough',
           value: d.passthroughAllowed ? 'Allowed' : 'Blocked',
           trailing: d.passthroughAllowed
-              ? Icon(Icons.check_circle_rounded, size: 14, color: Colors.green.shade400)
+              ? Icon(
+                  Icons.check_circle_rounded,
+                  size: 14,
+                  color: Colors.green.shade400,
+                )
               : Icon(Icons.block_rounded, size: 14, color: Colors.red.shade400),
         ),
       );
@@ -734,15 +779,24 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     }
 
     final isDop = widget.deviceStatus?.currentFormat?.isDop ?? false;
-    final isNativeDsd = widget.deviceStatus?.currentFormat?.isNativeDsd ?? false;
+    final isNativeDsd =
+        widget.deviceStatus?.currentFormat?.isNativeDsd ?? false;
     if (isDop || isNativeDsd || widget.song.isDsd) {
-      final dsdLabel = isNativeDsd ? 'Native DSD' : isDop ? 'DoP' : 'DSD';
+      final dsdLabel = isNativeDsd
+          ? 'Native DSD'
+          : isDop
+          ? 'DoP'
+          : 'DSD';
       rows.add(_buildRow(context, label: 'DSD mode', value: dsdLabel));
     }
 
     if (widget.song.filePath != null) {
       rows.add(
-        _buildRow(context, label: 'Source', value: _truncatePath(widget.song.filePath!)),
+        _buildRow(
+          context,
+          label: 'Source',
+          value: _truncatePath(widget.song.filePath!),
+        ),
       );
     }
 
@@ -958,10 +1012,7 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
           if (bd != null) '$bd-bit',
           if (ch != null) (ch == 2 ? 'Stereo' : '$ch ch'),
         ].join(' · '),
-        visual: _FlowVisual.buffer(
-          bd != null ? bd / 32.0 : 0.5,
-          stageIndex: 2,
-        ),
+        visual: _FlowVisual.buffer(bd != null ? bd / 32.0 : 0.5, stageIndex: 2),
         color: stageColors[2],
       ),
     ];
@@ -995,10 +1046,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     final fillRatio = (urb.bufferFillMs != null && urb.bufferTargetMs != null)
         ? (urb.bufferFillMs! / urb.bufferTargetMs!).clamp(0.0, 1.0)
         : 0.5;
-    final packetCount = (urb.activeMaxPacketBytes != null
-            ? (urb.activeMaxPacketBytes! / 64).clamp(2, 8)
-            : 4)
-        .toInt();
+    final packetCount =
+        (urb.activeMaxPacketBytes != null
+                ? (urb.activeMaxPacketBytes! / 64).clamp(2, 8)
+                : 4)
+            .toInt();
 
     const stageColors = [
       Color(0xFF69F0AE), // PCM Frames — vibrant mint
@@ -1012,7 +1064,9 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
       _FlowStageData(
         icon: Icons.grid_on_rounded,
         title: 'PCM Frames',
-        subtitle: urb.framesPerPacket != null ? '${urb.framesPerPacket} fr/pkt' : '-',
+        subtitle: urb.framesPerPacket != null
+            ? '${urb.framesPerPacket} fr/pkt'
+            : '-',
         detail: urb.transportFormat,
         visual: _FlowVisual.bytes(
           _seededBytes('pcm-${widget.song.id}', 12),
@@ -1146,7 +1200,9 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
   }
 
   bool _crcMatch(Song song) =>
-      song.testCrc != null && song.copyCrc != null && song.testCrc == song.copyCrc;
+      song.testCrc != null &&
+      song.copyCrc != null &&
+      song.testCrc == song.copyCrc;
 
   Widget _emptyFlowPage(BuildContext context, String message) {
     return Center(
@@ -1221,31 +1277,34 @@ class _FlowVisual {
   final int? stageIndex;
 
   const _FlowVisual.bytes(this.bytes, {this.stageIndex})
-      : kind = _FlowVisualKind.bytes,
-        packetCount = null,
-        fillRatio = null,
-        verified = null,
-        pending = null;
+    : kind = _FlowVisualKind.bytes,
+      packetCount = null,
+      fillRatio = null,
+      verified = null,
+      pending = null;
 
   const _FlowVisual.packets(this.packetCount, {this.stageIndex})
-      : kind = _FlowVisualKind.packets,
-        bytes = null,
-        fillRatio = null,
-        verified = null,
-        pending = null;
+    : kind = _FlowVisualKind.packets,
+      bytes = null,
+      fillRatio = null,
+      verified = null,
+      pending = null;
 
   const _FlowVisual.buffer(this.fillRatio, {this.stageIndex})
-      : kind = _FlowVisualKind.buffer,
-        bytes = null,
-        packetCount = null,
-        verified = null,
-        pending = null;
+    : kind = _FlowVisualKind.buffer,
+      bytes = null,
+      packetCount = null,
+      verified = null,
+      pending = null;
 
-  const _FlowVisual.check(this.verified, {this.pending = false, this.stageIndex})
-      : kind = _FlowVisualKind.check,
-        bytes = null,
-        packetCount = null,
-        fillRatio = null;
+  const _FlowVisual.check(
+    this.verified, {
+    this.pending = false,
+    this.stageIndex,
+  }) : kind = _FlowVisualKind.check,
+       bytes = null,
+       packetCount = null,
+       fillRatio = null;
 }
 
 enum _FlowVisualKind { bytes, packets, buffer, check }
@@ -1437,15 +1496,18 @@ class _ConnectorPainter extends CustomPainter {
 
     // Main vertical line with gradient (faded at ends).
     final linePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          fromColor.withValues(alpha: 0.15),
-          midColor.withValues(alpha: 0.55),
-          toColor.withValues(alpha: 0.15),
-        ],
-      ).createShader(Rect.fromLTWH(cx - 0.75, lineTop, 1.5, lineBottom - lineTop));
+      ..shader =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              fromColor.withValues(alpha: 0.15),
+              midColor.withValues(alpha: 0.55),
+              toColor.withValues(alpha: 0.15),
+            ],
+          ).createShader(
+            Rect.fromLTWH(cx - 0.75, lineTop, 1.5, lineBottom - lineTop),
+          );
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(cx - 0.75, lineTop, 1.5, lineBottom - lineTop),
       const Radius.circular(0.75),
@@ -1462,7 +1524,8 @@ class _ConnectorPainter extends CustomPainter {
         ..color = particleColor.withValues(alpha: 0.35 * alpha)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
       canvas.drawCircle(Offset(cx, y), 3.0, glow);
-      final dot = Paint()..color = particleColor.withValues(alpha: 0.85 * alpha);
+      final dot = Paint()
+        ..color = particleColor.withValues(alpha: 0.85 * alpha);
       canvas.drawCircle(Offset(cx, y), 1.8, dot);
     }
 
@@ -1487,10 +1550,7 @@ class _ConnectorPainter extends CustomPainter {
 class _CompactFlowArrow extends StatefulWidget {
   final Color fromColor;
   final Color toColor;
-  const _CompactFlowArrow({
-    required this.fromColor,
-    required this.toColor,
-  });
+  const _CompactFlowArrow({required this.fromColor, required this.toColor});
 
   @override
   State<_CompactFlowArrow> createState() => _CompactFlowArrowState();
@@ -1682,16 +1742,10 @@ class _FlowStageCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.glassBackgroundStrong,
-            AppColors.glassBackground,
-          ],
+          colors: [AppColors.glassBackgroundStrong, AppColors.glassBackground],
         ),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: color.withValues(alpha: 0.3),
-          width: 1,
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.08),
@@ -1742,7 +1796,9 @@ class _FlowStageCard extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: 'ProductSans',
                       fontSize: 11,
-                      color: context.adaptiveTextSecondary.withValues(alpha: 0.65),
+                      color: context.adaptiveTextSecondary.withValues(
+                        alpha: 0.65,
+                      ),
                     ),
                   ),
                 ],
@@ -1764,7 +1820,11 @@ class _StageIcon extends StatelessWidget {
   final IconData icon;
   final Color color;
   final int index;
-  const _StageIcon({required this.icon, required this.color, required this.index});
+  const _StageIcon({
+    required this.icon,
+    required this.color,
+    required this.index,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1775,10 +1835,7 @@ class _StageIcon extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            color.withValues(alpha: 0.25),
-            color.withValues(alpha: 0.1),
-          ],
+          colors: [color.withValues(alpha: 0.25), color.withValues(alpha: 0.1)],
         ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: 0.35), width: 0.8),
@@ -1801,7 +1858,8 @@ class _StageIndexBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = '${(index + 1).toString().padLeft(2, '0')}/${total.toString().padLeft(2, '0')}';
+    final label =
+        '${(index + 1).toString().padLeft(2, '0')}/${total.toString().padLeft(2, '0')}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -1832,15 +1890,9 @@ class _FlowVisualRenderer extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (visual.kind) {
       case _FlowVisualKind.bytes:
-        return _HexByteStrip(
-          bytes: visual.bytes ?? const [],
-          color: color,
-        );
+        return _HexByteStrip(bytes: visual.bytes ?? const [], color: color);
       case _FlowVisualKind.packets:
-        return _PacketStream(
-          count: visual.packetCount ?? 4,
-          color: color,
-        );
+        return _PacketStream(count: visual.packetCount ?? 4, color: color);
       case _FlowVisualKind.buffer:
         return _BufferBar(
           fillRatio: (visual.fillRatio ?? 0.5).clamp(0.0, 1.0),
@@ -1933,13 +1985,13 @@ class _HexStripPainter extends CustomPainter {
       final b = bytes[i];
       // Pulse per cell.
       final t = ((progress + i / count) % 1.0);
-      final intensity = 0.3 + 0.7 * (1.0 - (t - 0.5).abs() * 2.0).clamp(0.0, 1.0);
+      final intensity =
+          0.3 + 0.7 * (1.0 - (t - 0.5).abs() * 2.0).clamp(0.0, 1.0);
       // Highlight band.
       final inBand = (x - bandX).abs() < cellW * 1.5;
       final alpha = inBand ? 1.0 : intensity * 0.6;
 
-      final paint = Paint()
-        ..color = color.withValues(alpha: alpha * 0.9);
+      final paint = Paint()..color = color.withValues(alpha: alpha * 0.9);
       final cellRect = Rect.fromLTWH(
         x + 1,
         size.height * 0.2,
@@ -1965,13 +2017,7 @@ class _HexStripPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       tp.layout(maxWidth: cellW);
-      tp.paint(
-        canvas,
-        Offset(
-          x + (cellW - tp.width) / 2,
-          size.height * 0.85,
-        ),
-      );
+      tp.paint(canvas, Offset(x + (cellW - tp.width) / 2, size.height * 0.85));
     }
   }
 
@@ -2157,8 +2203,7 @@ class _BufferBarPainter extends CustomPainter {
     final y = (h - barH) / 2;
 
     // Track.
-    final track = Paint()
-      ..color = color.withValues(alpha: 0.12);
+    final track = Paint()..color = color.withValues(alpha: 0.12);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(0, y, w, barH),
@@ -2171,10 +2216,7 @@ class _BufferBarPainter extends CustomPainter {
     final fillW = w * fillRatio;
     final fill = Paint()
       ..shader = LinearGradient(
-        colors: [
-          color.withValues(alpha: 0.5),
-          color.withValues(alpha: 0.85),
-        ],
+        colors: [color.withValues(alpha: 0.5), color.withValues(alpha: 0.85)],
       ).createShader(Rect.fromLTWH(0, y, fillW, barH));
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -2284,10 +2326,7 @@ class _CheckPainter extends CustomPainter {
       Rect.fromLTWH(boxX, boxY, boxSize, boxSize),
       const Radius.circular(4),
     );
-    canvas.drawRRect(
-      rrect,
-      Paint()..color = color.withValues(alpha: 0.15),
-    );
+    canvas.drawRRect(rrect, Paint()..color = color.withValues(alpha: 0.15));
     canvas.drawRRect(
       rrect,
       Paint()
@@ -2332,11 +2371,7 @@ class _CheckPainter extends CustomPainter {
       final glow = Paint()
         ..color = color.withValues(alpha: 0.5)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-      canvas.drawCircle(
-        Offset(boxX + boxSize / 2, cy),
-        r * 1.5,
-        glow,
-      );
+      canvas.drawCircle(Offset(boxX + boxSize / 2, cy), r * 1.5, glow);
       canvas.drawCircle(
         Offset(boxX + boxSize / 2, cy),
         r,
