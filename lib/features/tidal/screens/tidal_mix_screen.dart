@@ -90,7 +90,7 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
               ),
             ),
             body: const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+              child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
             ),
           ),
           error: (err, _) => Scaffold(
@@ -215,16 +215,16 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                                     vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0x3300FFFF),
+                                    color: const Color(0x33FFFFFF),
                                     borderRadius: BorderRadius.circular(4),
                                     border: Border.all(
-                                      color: const Color(0x5500FFFF),
+                                      color: const Color(0x54FFFFFF),
                                     ),
                                   ),
                                   child: Text(
                                     mix.mixType!,
                                     style: const TextStyle(
-                                      color: Color(0xFF00FFFF),
+                                      color: Color(0xD9FFFFFF),
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
                                     ),

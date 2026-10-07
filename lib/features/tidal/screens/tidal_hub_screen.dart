@@ -276,7 +276,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               ),
               const Divider(color: AppColors.glassBorder),
               ListTile(
-                leading: const Icon(LucideIcons.play, color: Color(0xFF00FFFF)),
+                leading: const Icon(LucideIcons.play, color: Color(0xD9FFFFFF)),
                 title: const Text('Open / Play'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -287,7 +287,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 ListTile(
                   leading: const Icon(
                     LucideIcons.listPlus,
-                    color: Color(0xFF00FFFF),
+                    color: Color(0xD9FFFFFF),
                   ),
                   title: const Text('Add to Playlist'),
                   onTap: () async {
@@ -309,7 +309,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 ListTile(
                   leading: const Icon(
                     LucideIcons.radio,
-                    color: Color(0xFF00FFFF),
+                    color: Color(0xD9FFFFFF),
                   ),
                   title: const Text('Start Radio'),
                   onTap: () async {
@@ -391,7 +391,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   children: [
                     Icon(
                       LucideIcons.listPlus,
-                      color: Color(0xFF00FFFF),
+                      color: Color(0xD9FFFFFF),
                       size: 22,
                     ),
                     SizedBox(width: 8),
@@ -431,7 +431,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                             AppConstants.radiusSm,
                           ),
                           borderSide: const BorderSide(
-                            color: Color(0xFF00FFFF),
+                            color: Color(0xD9FFFFFF),
                           ),
                         ),
                       ),
@@ -459,7 +459,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                             AppConstants.radiusSm,
                           ),
                           borderSide: const BorderSide(
-                            color: Color(0xFF00FFFF),
+                            color: Color(0xD9FFFFFF),
                           ),
                         ),
                       ),
@@ -702,13 +702,13 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0x3300FFFF),
+                  color: const Color(0x33FFFFFF),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
                   'HiFi',
                   style: TextStyle(
-                    color: Color(0xFF00FFFF),
+                    color: Color(0xD9FFFFFF),
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
@@ -759,7 +759,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(AppConstants.radiusXl),
-              border: Border.all(color: const Color(0x4400FFFF), width: 1.5),
+              border: Border.all(color: const Color(0x45FFFFFF), width: 1.5),
             ),
             child: Center(
               child: Image.asset(
@@ -792,7 +792,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           SizedBox(height: context.scaleSize(AppConstants.spacingXl)),
 
           if (_isSigningIn) ...[
-            const CircularProgressIndicator(color: Color(0xFF00FFFF)),
+            const CircularProgressIndicator(color: Color(0xD9FFFFFF)),
             SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
             const Text(
               'Waiting for TIDAL authorization...',
@@ -807,7 +807,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.surface,
                   borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  border: Border.all(color: const Color(0x3300FFFF)),
+                  border: Border.all(color: const Color(0x33FFFFFF)),
                 ),
                 child: Column(
                   children: [
@@ -822,7 +822,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     SelectableText(
                       _verificationUri!,
                       style: const TextStyle(
-                        color: Color(0xFF00FFFF),
+                        color: Color(0xD9FFFFFF),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
@@ -836,8 +836,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                       icon: const Icon(LucideIcons.externalLink, size: 16),
                       label: const Text('Open Browser'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF00FFFF),
-                        side: const BorderSide(color: Color(0xFF00FFFF)),
+                        foregroundColor: const Color(0xD9FFFFFF),
+                        side: const BorderSide(color: Color(0xD9FFFFFF)),
                       ),
                     ),
                   ],
@@ -885,7 +885,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     final mixesAsync = ref.watch(tidalFavoriteMixesProvider);
 
     return RefreshIndicator(
-      color: const Color(0xFF00FFFF),
+      color: const Color(0xD9FFFFFF),
       backgroundColor: AppColors.surface,
       onRefresh: () async {
         await Future.wait([
@@ -904,7 +904,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
               child: Center(
-                child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+                child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
               ),
             ),
             error: (err, _) => Padding(
@@ -965,12 +965,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         : tab.slug;
                                   });
                                 },
-                                selectedColor: const Color(0x4000FFFF),
+                                selectedColor: const Color(0x40FFFFFF),
                                 backgroundColor:
                                     AppColors.glassBackgroundStrong,
                                 labelStyle: TextStyle(
                                   color: isActive
-                                      ? const Color(0xFF00FFFF)
+                                      ? const Color(0xD9FFFFFF)
                                       : AppColors.textPrimary,
                                   fontWeight: isActive
                                       ? FontWeight.bold
@@ -979,7 +979,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                 ),
                                 side: BorderSide(
                                   color: isActive
-                                      ? const Color(0xFF00FFFF)
+                                      ? const Color(0xD9FFFFFF)
                                       : AppColors.glassBorder,
                                 ),
                                 shape: RoundedRectangleBorder(
@@ -1035,7 +1035,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     icon: const Icon(
                       LucideIcons.fileSpreadsheet,
                       size: 19,
-                      color: Color(0xFF00FFFF),
+                      color: Color(0xD9FFFFFF),
                     ),
                     tooltip: 'Import Playlist from JSON',
                     onPressed: _importPlaylistFromJson,
@@ -1044,7 +1044,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     icon: const Icon(
                       LucideIcons.plus,
                       size: 20,
-                      color: Color(0xFF00FFFF),
+                      color: Color(0xD9FFFFFF),
                     ),
                     tooltip: 'Create TIDAL Playlist',
                     onPressed: _showCreatePlaylistDialog,
@@ -1071,7 +1071,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+                child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
               ),
             ),
             error: (err, _) => Padding(
@@ -1123,15 +1123,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                               icon: const Icon(
                                 LucideIcons.plus,
                                 size: 16,
-                                color: Color(0xFF00FFFF),
+                                color: Color(0xD9FFFFFF),
                               ),
                               label: const Text(
                                 'Create Playlist',
-                                style: TextStyle(color: Color(0xFF00FFFF)),
+                                style: TextStyle(color: Color(0xD9FFFFFF)),
                               ),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(
-                                  color: Color(0xFF00FFFF),
+                                  color: Color(0xD9FFFFFF),
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
@@ -1145,15 +1145,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                               icon: const Icon(
                                 LucideIcons.fileSpreadsheet,
                                 size: 16,
-                                color: Color(0xFF00FFFF),
+                                color: Color(0xD9FFFFFF),
                               ),
                               label: const Text(
                                 'Import JSON',
-                                style: TextStyle(color: Color(0xFF00FFFF)),
+                                style: TextStyle(color: Color(0xD9FFFFFF)),
                               ),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(
-                                  color: Color(0xFF00FFFF),
+                                  color: Color(0xD9FFFFFF),
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
@@ -1433,22 +1433,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () => _openHomeItem(item),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: const Color(0x6600FFFF),
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      LucideIcons.play,
-                                      size: 14,
-                                      color: Color(0xFF00FFFF),
-                                    ),
+                                  child: const Icon(
+                                    LucideIcons.play,
+                                    size: 20,
+                                    color: Color(0xD9FFFFFF),
                                   ),
                                 ),
                               ),
@@ -1601,7 +1589,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               icon: const Icon(
                 LucideIcons.play,
                 size: 16,
-                color: Color(0xFF00FFFF),
+                color: Color(0xD9FFFFFF),
               ),
               onPressed: () => _playTrackItem(item),
             ),
@@ -1755,7 +1743,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   child: Icon(
                     LucideIcons.play,
                     size: 14,
-                    color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                    color: const Color(0xCCFFFFFF),
                   ),
                 ),
               ],
@@ -1844,7 +1832,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           children: [
             const Row(
               children: [
-                Icon(LucideIcons.sparkles, size: 18, color: Color(0xFF00FFFF)),
+                Icon(LucideIcons.sparkles, size: 18, color: Color(0xD9FFFFFF)),
                 SizedBox(width: 6),
                 Text(
                   'Custom Mixes & Daily Discovery',
@@ -1914,22 +1902,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   Positioned(
                                     right: 6,
                                     bottom: 6,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: const Color(0x6600FFFF),
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        LucideIcons.play,
-                                        size: 14,
-                                        color: Color(0xFF00FFFF),
-                                      ),
+                                    child: const Icon(
+                                      LucideIcons.play,
+                                      size: 20,
+                                      color: Color(0xD9FFFFFF),
                                     ),
                                   ),
                                 ],

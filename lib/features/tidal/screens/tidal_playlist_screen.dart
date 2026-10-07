@@ -96,7 +96,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
               ),
             ),
             body: const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+              child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
             ),
           ),
           error: (err, _) => Scaffold(
@@ -159,8 +159,10 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
             final creatorName = creator != null
                 ? (creator['id'] == 0 ? 'TIDAL' : (creator['name'] as String?))
                 : null;
-            final nativeCover =
-                TidalService.extractPlaylistCover(playlist, size: 640);
+            final nativeCover = TidalService.extractPlaylistCover(
+              playlist,
+              size: 640,
+            );
             final imageUrl = (nativeCover != null && nativeCover.isNotEmpty)
                 ? nativeCover
                 : ((tracks.isNotEmpty &&
@@ -236,16 +238,16 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0x3300FFFF),
+                                  color: const Color(0x33FFFFFF),
                                   borderRadius: BorderRadius.circular(4),
                                   border: Border.all(
-                                    color: const Color(0x5500FFFF),
+                                    color: const Color(0x54FFFFFF),
                                   ),
                                 ),
                                 child: const Text(
                                   'PLAYLIST',
                                   style: TextStyle(
-                                    color: Color(0xFF00FFFF),
+                                    color: Color(0xD9FFFFFF),
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                   ),

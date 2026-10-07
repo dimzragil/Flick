@@ -300,7 +300,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
               ),
               if (isTidalLoggedIn && _selectedTabIndex == 0)
                 IconButton(
-                  icon: const Icon(LucideIcons.plus, color: Color(0xFF00FFFF)),
+                  icon: const Icon(LucideIcons.plus, color: Color(0xD9FFFFFF)),
                   tooltip: 'Create TIDAL Playlist',
                   onPressed: _isProcessing
                       ? null
@@ -342,17 +342,17 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
                       if (selected) setState(() => _selectedTabIndex = 0);
                     },
                     selectedColor: const Color(
-                      0xFF00FFFF,
+                      0xD9FFFFFF,
                     ).withValues(alpha: 0.2),
                     side: BorderSide(
                       color: _selectedTabIndex == 0
-                          ? const Color(0xFF00FFFF)
+                          ? const Color(0xD9FFFFFF)
                           : AppColors.glassBorder,
                     ),
                     labelStyle: TextStyle(
                       fontFamily: 'ProductSans',
                       color: _selectedTabIndex == 0
-                          ? const Color(0xFF00FFFF)
+                          ? const Color(0xD9FFFFFF)
                           : context.adaptiveTextSecondary,
                       fontWeight: _selectedTabIndex == 0
                           ? FontWeight.bold
@@ -399,7 +399,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
                   style: TextStyle(
                     color: _statusMessage!.startsWith('Error')
                         ? Colors.redAccent
-                        : const Color(0xFF00FFFF),
+                        : const Color(0xD9FFFFFF),
                     fontSize: 13,
                     fontFamily: 'ProductSans',
                   ),
@@ -411,7 +411,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+                child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
               ),
             )
           else ...[
@@ -437,7 +437,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
         loading: () => const Center(
           child: Padding(
             padding: EdgeInsets.all(32),
-            child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+            child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
           ),
         ),
         error: (err, _) => Padding(
@@ -512,7 +512,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
                 ),
                 trailing: const Icon(
                   LucideIcons.plus,
-                  color: Color(0xFF00FFFF),
+                  color: Color(0xD9FFFFFF),
                   size: 20,
                 ),
                 onTap: () => _addSongsToTidalPlaylist(playlistId, title),

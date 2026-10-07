@@ -212,7 +212,7 @@ class _TidalAddToPlaylistDialogState
               children: [
                 const Icon(
                   LucideIcons.listMusic,
-                  color: Color(0xFF00FFFF),
+                  color: Color(0xD9FFFFFF),
                   size: 22,
                 ),
                 const SizedBox(width: 10),
@@ -227,7 +227,7 @@ class _TidalAddToPlaylistDialogState
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(LucideIcons.plus, color: Color(0xFF00FFFF)),
+                  icon: const Icon(LucideIcons.plus, color: Color(0xD9FFFFFF)),
                   tooltip: 'Create Playlist',
                   onPressed: _isProcessing ? null : _showCreatePlaylistDialog,
                 ),
@@ -255,7 +255,7 @@ class _TidalAddToPlaylistDialogState
                   style: TextStyle(
                     color: _statusMessage!.startsWith('Error')
                         ? Colors.redAccent
-                        : const Color(0xFF00FFFF),
+                        : const Color(0xD9FFFFFF),
                     fontSize: 13,
                   ),
                 ),
@@ -265,7 +265,7 @@ class _TidalAddToPlaylistDialogState
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(color: Color(0xFF00FFFF)),
+                  child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
                 ),
               )
             else
@@ -278,7 +278,7 @@ class _TidalAddToPlaylistDialogState
                     child: Padding(
                       padding: EdgeInsets.all(32),
                       child: CircularProgressIndicator(
-                        color: Color(0xFF00FFFF),
+                        color: Color(0xD9FFFFFF),
                       ),
                     ),
                   ),

@@ -240,10 +240,10 @@ class _TidalImportPlaylistDialogState
                     ? LucideIcons.circleAlert
                     : LucideIcons.fileSpreadsheet),
           color: _step == _ImportStep.completed
-              ? const Color(0xFF00FFFF)
+              ? const Color(0xD9FFFFFF)
               : (_step == _ImportStep.error
                     ? Colors.redAccent
-                    : const Color(0xFF00FFFF)),
+                    : const Color(0xD9FFFFFF)),
           size: 22,
         ),
         const SizedBox(width: 10),
@@ -284,7 +284,7 @@ class _TidalImportPlaylistDialogState
                   children: [
                     const Icon(
                       LucideIcons.music,
-                      color: Color(0xFF00FFFF),
+                      color: Color(0xD9FFFFFF),
                       size: 20,
                     ),
                     const SizedBox(width: 10),
@@ -324,7 +324,7 @@ class _TidalImportPlaylistDialogState
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                    borderSide: const BorderSide(color: Color(0xFF00FFFF)),
+                    borderSide: const BorderSide(color: Color(0xD9FFFFFF)),
                   ),
                 ),
               ),
@@ -353,7 +353,7 @@ class _TidalImportPlaylistDialogState
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                    borderSide: const BorderSide(color: Color(0xFF00FFFF)),
+                    borderSide: const BorderSide(color: Color(0xD9FFFFFF)),
                   ),
                 ),
               ),
@@ -390,7 +390,7 @@ class _TidalImportPlaylistDialogState
                 Text(
                   '${(progress * 100).toInt()}%',
                   style: const TextStyle(
-                    color: Color(0xFF00FFFF),
+                    color: Color(0xD9FFFFFF),
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
@@ -404,7 +404,7 @@ class _TidalImportPlaylistDialogState
                 value: progress,
                 backgroundColor: AppColors.surfaceLight,
                 valueColor: const AlwaysStoppedAnimation<Color>(
-                  Color(0xFF00FFFF),
+                  Color(0xD9FFFFFF),
                 ),
                 minHeight: 8,
               ),
@@ -422,7 +422,7 @@ class _TidalImportPlaylistDialogState
             const SizedBox(height: 8),
             Text(
               'Matched: ${_matchedTrackIds.length}  •  Unmatched: ${_unmatchedTracks.length}',
-              style: const TextStyle(color: Color(0xFF00FFFF), fontSize: 12),
+              style: const TextStyle(color: Color(0xD9FFFFFF), fontSize: 12),
             ),
           ],
         );
@@ -514,7 +514,7 @@ class _TidalImportPlaylistDialogState
           FilledButton(
             onPressed: _startImport,
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF00FFFF),
+              backgroundColor: const Color(0xD9FFFFFF),
               foregroundColor: Colors.black,
             ),
             child: const Text('Start Import'),
@@ -541,7 +541,7 @@ class _TidalImportPlaylistDialogState
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF00FFFF),
+              backgroundColor: const Color(0xD9FFFFFF),
               foregroundColor: Colors.black,
             ),
             child: const Text('Done'),
@@ -565,7 +565,7 @@ class _TidalImportPlaylistDialogState
               });
             },
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF00FFFF),
+              backgroundColor: const Color(0xD9FFFFFF),
               foregroundColor: Colors.black,
             ),
             child: const Text('Retry'),

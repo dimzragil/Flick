@@ -176,10 +176,10 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                         onSelected: (_) =>
                             setState(() => _selectedCategory = cat),
                         backgroundColor: AppColors.glassBackgroundStrong,
-                        selectedColor: const Color(0x3300FFFF),
+                        selectedColor: const Color(0x33FFFFFF),
                         labelStyle: TextStyle(
                           color: isSelected
-                              ? const Color(0xFF00FFFF)
+                              ? const Color(0xD9FFFFFF)
                               : AppColors.textPrimary,
                           fontSize: 12,
                           fontWeight: isSelected
@@ -192,7 +192,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                           ),
                           side: BorderSide(
                             color: isSelected
-                                ? const Color(0xFF00FFFF)
+                                ? const Color(0xD9FFFFFF)
                                 : AppColors.glassBorder,
                             width: 1,
                           ),
