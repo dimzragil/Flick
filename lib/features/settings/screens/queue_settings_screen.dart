@@ -72,7 +72,7 @@ class _AutoplayOnQueueEndTile extends StatelessWidget {
           icon: LucideIcons.shuffle,
           title: 'Autoplay on Queue End',
           subtitle: enabled
-              ? 'Play a random library song when the queue ends'
+              ? 'Continue with TIDAL Radio when the queue ends'
               : 'Stop when the queue ends',
           value: enabled,
           onChanged: (value) => playerService.setAutoplayOnQueueEnd(value),

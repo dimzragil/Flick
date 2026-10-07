@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/utils/dev_log.dart';
 import '../../data/database.dart';
+import 'package:isar_community/isar.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../models/playback_context.dart';
 import '../../models/song.dart';
@@ -2240,6 +2241,36 @@ class TidalService implements NetworkSourceService {
       devLog('[Tidal] Failed to get TRACK_MIX for track $trackId: $e');
     }
     return null;
+  }
+
+  /// Fetches TIDAL Radio tracks for a given TIDAL track ID.
+  /// Uses TIDAL's own TRACK_MIX algorithm (same as "Start Radio").
+  /// Returns empty list if unavailable. Tracks are ephemeral Songs ready to play.
+  Future<List<Song>> getRadioTracks(String trackId) async {
+    try {
+      final servers = await Database.networkServers.where().findAll();
+      NetworkServerEntity? server;
+      for (final s in servers) {
+        if (s.protocol == NetworkProtocol.tidal) {
+          server = s;
+          break;
+        }
+      }
+      if (server == null) {
+        devLog('[Tidal] getRadioTracks: no TIDAL server found');
+        return [];
+      }
+      final mixId = await getTrackRadioMixId(server, trackId);
+      if (mixId == null || mixId.isEmpty) {
+        devLog('[Tidal] getRadioTracks: no TRACK_MIX for $trackId');
+        return [];
+      }
+      final mix = await getMix(server, mixId);
+      return mix.tracks;
+    } catch (e) {
+      devLog('[Tidal] getRadioTracks failed for $trackId: $e');
+      return [];
+    }
   }
 
   /// Resolves the Radio Mix ID for a TidalHomeItem (track, artist, or mix).
