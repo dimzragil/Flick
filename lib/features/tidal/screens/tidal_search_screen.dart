@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/theme/adaptive_color_provider.dart';
 import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/duration_format.dart';
@@ -315,6 +316,13 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         vertical: context.scaleSize(AppConstants.spacingSm),
       ),
       children: [
+        // Top Result: highlighted best match (first track, TIDAL returns
+        // results in relevance order).
+        if (results.tracks.isNotEmpty) ...[
+          _buildSectionHeader('Top Result'),
+          _buildTopResultCard(results.tracks.first),
+          SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        ],
         if (results.tracks.isNotEmpty) ...[
           _buildSectionHeader('Tracks (${results.tracks.length})'),
           ...results.tracks
@@ -382,6 +390,97 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
           color: AppColors.textPrimary,
           fontSize: 16,
           fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopResultCard(Song song) {
+    final artSize = context.scaleSize(96);
+    final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 320);
+
+    return RepaintBoundary(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        onTap: () => _playSong(song, [song]),
+        child: Container(
+          padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.accent.withValues(alpha: 0.18),
+                AppColors.surfaceLight.withValues(alpha: 0.7),
+              ],
+            ),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                child: SizedBox(
+                  width: artSize,
+                  height: artSize,
+                  child: thumbArt != null
+                      ? CachedImageWidget(
+                          imagePath: thumbArt,
+                          audioSourcePath: song.filePath,
+                          width: artSize,
+                          height: artSize,
+                          useThumbnail: true,
+                          thumbnailWidth: 320,
+                          thumbnailHeight: 320,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
+                ),
+              ),
+              SizedBox(width: context.scaleSize(AppConstants.spacingMd)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: context.adaptiveTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Top Result • ${song.formattedDuration}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                LucideIcons.play,
+                color: AppColors.accent,
+                size: context.scaleSize(32),
+              ),
+            ],
+          ),
         ),
       ),
     );

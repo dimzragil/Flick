@@ -1680,6 +1680,7 @@ class TidalService implements NetworkSourceService {
         'limit': '$limit',
         'offset': '$offset',
         'types': types,
+        'countryCode': _countryCode(server.token),
       },
     );
   }
