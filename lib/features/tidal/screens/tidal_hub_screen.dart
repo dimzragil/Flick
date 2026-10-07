@@ -1057,8 +1057,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     ),
                     tooltip: 'Refresh Playlists',
                     onPressed: () {
-                      ref.refresh(tidalUserPlaylistsProvider.future);
-                      ref.refresh(tidalLikedSongsProvider.future);
+                      ref.invalidate(tidalUserPlaylistsProvider);
+                      ref.invalidate(tidalLikedSongsProvider);
                     },
                   ),
                 ],

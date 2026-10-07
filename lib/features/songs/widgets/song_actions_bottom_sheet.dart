@@ -98,7 +98,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
             onTap: () async {
               await ref
                   .read(favoritesProvider.notifier)
-                  .toggleFavorite(song.id);
+                  .toggleFavorite(song.id, song: song);
               PlayerService().refreshNotificationState();
               if (context.mounted) {
                 Navigator.pop(context);

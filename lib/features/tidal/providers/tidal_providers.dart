@@ -365,23 +365,124 @@ final tidalMixDetailsProvider = FutureProvider.family<TidalMix, String>((
   return await tidal.getMix(server, mixId);
 });
 
-/// Fetches the set of favorite track IDs for the authenticated TIDAL account.
+/// Local optimistic adjustments to TIDAL favorite track IDs (added/removed).
+class TidalFavoriteTrackIdsOptimisticNotifier
+    extends Notifier<({Set<String> added, Set<String> removed})> {
+  @override
+  ({Set<String> added, Set<String> removed}) build() =>
+      (added: const <String>{}, removed: const <String>{});
+
+  void add(String id) {
+    state = (
+      added: {...state.added, id},
+      removed: state.removed.where((x) => x != id).toSet(),
+    );
+  }
+
+  void remove(String id) {
+    state = (
+      added: state.added.where((x) => x != id).toSet(),
+      removed: {...state.removed, id},
+    );
+  }
+}
+
+final tidalFavoriteTrackIdsOptimisticProvider =
+    NotifierProvider<
+      TidalFavoriteTrackIdsOptimisticNotifier,
+      ({Set<String> added, Set<String> removed})
+    >(TidalFavoriteTrackIdsOptimisticNotifier.new);
+
+/// Fetches the set of favorite track IDs for the authenticated TIDAL account,
+/// merged with local optimistic additions and removals for real-time updates.
 final tidalFavoriteTrackIdsProvider = FutureProvider<Set<String>>((ref) async {
   final server = await ref.watch(tidalServerProvider.future);
   if (server == null || server.token == null || server.token!.isEmpty) {
     return const <String>{};
   }
   final tidal = ref.read(tidalServiceProvider);
-  return await tidal.getFavoriteTrackIds(server);
+  final remoteIds = await tidal.getFavoriteTrackIds(server);
+
+  final optimistic = ref.watch(tidalFavoriteTrackIdsOptimisticProvider);
+  if (optimistic.added.isEmpty && optimistic.removed.isEmpty) {
+    return remoteIds;
+  }
+
+  final result = Set<String>.from(remoteIds);
+  result.addAll(optimistic.added);
+  result.removeAll(optimistic.removed);
+  return result;
 });
 
+/// Local optimistic adjustments to TIDAL Liked Songs collection.
+class TidalLikedSongsOptimisticNotifier
+    extends Notifier<({List<Song> added, Set<String> removed})> {
+  @override
+  ({List<Song> added, Set<String> removed}) build() =>
+      (added: const <Song>[], removed: const <String>{});
+
+  void add(Song song) {
+    state = (
+      added: [
+        song,
+        ...state.added.where(
+          (s) => s.id != song.id && s.remoteId != song.remoteId,
+        ),
+      ],
+      removed: state.removed
+          .where((id) => id != song.id && id != song.remoteId)
+          .toSet(),
+    );
+  }
+
+  void remove(String trackId) {
+    state = (
+      added: state.added
+          .where(
+            (s) =>
+                s.id != trackId &&
+                s.remoteId != trackId &&
+                !s.id.endsWith('_$trackId'),
+          )
+          .toList(),
+      removed: {...state.removed, trackId},
+    );
+  }
+}
+
+final tidalLikedSongsOptimisticProvider =
+    NotifierProvider<
+      TidalLikedSongsOptimisticNotifier,
+      ({List<Song> added, Set<String> removed})
+    >(TidalLikedSongsOptimisticNotifier.new);
+
 /// Fetches the full TIDAL "Liked Songs" collection (favorite tracks with
-/// metadata) for the authenticated account.
+/// metadata) for the authenticated account, merged with local optimistic updates
+/// so newly loved tracks appear immediately.
 final tidalLikedSongsProvider = FutureProvider<List<Song>>((ref) async {
   final server = await ref.watch(tidalServerProvider.future);
   if (server == null || server.token == null || server.token!.isEmpty) {
     return const <Song>[];
   }
   final tidal = ref.read(tidalServiceProvider);
-  return await tidal.getFavoriteTracks(server);
+  final remoteSongs = await tidal.getFavoriteTracks(server);
+
+  final optimistic = ref.watch(tidalLikedSongsOptimisticProvider);
+  if (optimistic.added.isEmpty && optimistic.removed.isEmpty) {
+    return remoteSongs;
+  }
+
+  final result = <Song>[...optimistic.added];
+  for (final s in remoteSongs) {
+    if (optimistic.removed.contains(s.id) ||
+        (s.remoteId != null && optimistic.removed.contains(s.remoteId))) {
+      continue;
+    }
+    if (!result.any(
+      (r) => r.id == s.id || (s.remoteId != null && r.remoteId == s.remoteId),
+    )) {
+      result.add(s);
+    }
+  }
+  return result;
 });

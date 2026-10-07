@@ -2469,28 +2469,35 @@ class TidalService implements NetworkSourceService {
     final creds = _creds(server.token);
     final userId = creds?.userId;
     if (userId == null || userId.isEmpty) return {};
+    const pageSize = 100;
+    const maxTracks = 5000;
+    final ids = <String>{};
+    var offset = 0;
     try {
-      final res = await _apiGet(
-        server,
-        '/users/$userId/favorites/tracks',
-        query: {'limit': '2000'},
-      );
-      final items = res['items'] as List<dynamic>?;
-      if (items == null) return {};
-      final ids = <String>{};
-      for (final it in items) {
-        if (it is Map<String, dynamic>) {
-          final item = it['item'] as Map<String, dynamic>?;
-          final id = item?['id']?.toString() ?? it['id']?.toString();
-          if (id != null && id.isNotEmpty) {
-            ids.add(id);
+      while (offset < maxTracks) {
+        final res = await _apiGet(
+          server,
+          '/users/$userId/favorites/tracks',
+          query: {'limit': '$pageSize', 'offset': '$offset'},
+        );
+        final items = res['items'] as List<dynamic>?;
+        if (items == null || items.isEmpty) break;
+        for (final it in items) {
+          if (it is Map<String, dynamic>) {
+            final item = it['item'] as Map<String, dynamic>?;
+            final id = item?['id']?.toString() ?? it['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              ids.add(id);
+            }
           }
         }
+        if (items.length < pageSize) break;
+        offset += pageSize;
       }
       return ids;
     } catch (e) {
       devLog('[Tidal] getFavoriteTrackIds error: $e');
-      return {};
+      return ids;
     }
   }
 
@@ -2519,12 +2526,30 @@ class TidalService implements NetworkSourceService {
           if (it is Map<String, dynamic>) {
             final trackJson = it['item'] as Map<String, dynamic>?;
             if (trackJson != null) {
-              songs.add(makeEphemeralSong(server, trackJson));
+              DateTime? dateAdded;
+              final createdStr = it['created'] as String?;
+              if (createdStr != null) {
+                dateAdded = DateTime.tryParse(createdStr);
+              }
+              final song = makeEphemeralSong(
+                server,
+                trackJson,
+              ).copyWith(dateAdded: dateAdded);
+              songs.add(song);
             }
           }
         }
         if (items.length < pageSize) break;
         offset += pageSize;
+      }
+      if (songs.any((s) => s.dateAdded != null)) {
+        songs.sort((a, b) {
+          final bDate = b.dateAdded ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final aDate = a.dateAdded ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bDate.compareTo(aDate);
+        });
+      } else {
+        return songs.reversed.toList();
       }
       return songs;
     } catch (e) {
@@ -3094,6 +3119,11 @@ class TidalService implements NetworkSourceService {
         ? TidalService.coverUrl(cover, size: 640)
         : null;
 
+    final createdStr =
+        (rawTrackJson['created'] as String?) ??
+        (trackJson['created'] as String?);
+    final dateAdded = createdStr != null ? DateTime.tryParse(createdStr) : null;
+
     return Song(
       id: 'tidal_${server.id}_$remoteId',
       title: (trackJson['title'] as String?) ?? 'Unknown Track',
@@ -3115,6 +3145,7 @@ class TidalService implements NetworkSourceService {
       sourceType: NetworkProtocol.tidal,
       remoteId: remoteId,
       remoteServerId: server.id,
+      dateAdded: dateAdded,
     );
   }
 }
