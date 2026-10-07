@@ -899,9 +899,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
         children: [
-          // 1. Liked Songs (TIDAL favorites) — pinned at the very top.
-          _buildLikedSongsSection(),
-          // 2. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
+          // 1. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
           feedAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
@@ -1058,8 +1056,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                       color: AppColors.textSecondary,
                     ),
                     tooltip: 'Refresh Playlists',
-                    onPressed: () =>
-                        ref.refresh(tidalUserPlaylistsProvider.future),
+                    onPressed: () {
+                      ref.refresh(tidalUserPlaylistsProvider.future);
+                      ref.refresh(tidalLikedSongsProvider.future);
+                    },
                   ),
                 ],
               ),
@@ -1085,84 +1085,95 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               ),
             ),
             data: (playlists) {
-              if (playlists.isEmpty) {
-                return Container(
-                  padding: EdgeInsets.all(
-                    context.scaleSize(AppConstants.spacingLg),
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.glassBackground,
-                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                    border: Border.all(color: AppColors.glassBorder),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'No playlists found in your TIDAL library.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 10,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _showCreatePlaylistDialog,
-                            icon: const Icon(
-                              LucideIcons.plus,
-                              size: 16,
-                              color: Color(0xFF00FFFF),
-                            ),
-                            label: const Text(
-                              'Create Playlist',
-                              style: TextStyle(color: Color(0xFF00FFFF)),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFF00FFFF)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppConstants.radiusSm,
-                                ),
-                              ),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _importPlaylistFromJson,
-                            icon: const Icon(
-                              LucideIcons.fileSpreadsheet,
-                              size: 16,
-                              color: Color(0xFF00FFFF),
-                            ),
-                            label: const Text(
-                              'Import JSON',
-                              style: TextStyle(color: Color(0xFF00FFFF)),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFF00FFFF)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppConstants.radiusSm,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              }
-
               // Column instead of shrinkWrap ListView: shrinkWrap already
               // defeats builder laziness (all items are laid out anyway),
               // so a Column avoids the nested Scrollable/Viewport overhead.
-              return Column(
-                children: [for (final pl in playlists) _buildPlaylistTile(pl)],
-              );
+              // Liked Songs is always pinned first, then user playlists.
+              final children = <Widget>[_buildLikedSongsTile()];
+              if (playlists.isEmpty) {
+                children.add(
+                  Container(
+                    padding: EdgeInsets.all(
+                      context.scaleSize(AppConstants.spacingLg),
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.glassBackground,
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusMd,
+                      ),
+                      border: Border.all(color: AppColors.glassBorder),
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'No playlists found in your TIDAL library.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 10,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _showCreatePlaylistDialog,
+                              icon: const Icon(
+                                LucideIcons.plus,
+                                size: 16,
+                                color: Color(0xFF00FFFF),
+                              ),
+                              label: const Text(
+                                'Create Playlist',
+                                style: TextStyle(color: Color(0xFF00FFFF)),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF00FFFF),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusSm,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: _importPlaylistFromJson,
+                              icon: const Icon(
+                                LucideIcons.fileSpreadsheet,
+                                size: 16,
+                                color: Color(0xFF00FFFF),
+                              ),
+                              label: const Text(
+                                'Import JSON',
+                                style: TextStyle(color: Color(0xFF00FFFF)),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF00FFFF),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusSm,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              } else {
+                for (final pl in playlists) {
+                  children.add(_buildPlaylistTile(pl));
+                }
+              }
+              return Column(children: children);
             },
           ),
           SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
@@ -1755,103 +1766,69 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     );
   }
 
-  /// "Liked Songs" — the user's TIDAL favorite tracks, pinned at the very top
-  /// of the Hub. Tapping opens the full collection.
-  Widget _buildLikedSongsSection() {
+  /// "Liked Songs" tile — pinned as the first item in My Playlists.
+  /// Opens the full TIDAL favorites collection.
+  Widget _buildLikedSongsTile() {
     final likedAsync = ref.watch(tidalLikedSongsProvider);
+    final size = context.scaleSize(52);
 
-    return likedAsync.when(
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (songs) {
-        if (songs.isEmpty) return const SizedBox.shrink();
-
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: context.scaleSize(AppConstants.spacingMd),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const TidalLikedSongsScreen(),
-                ),
-              );
-            },
-            child: Container(
-              padding: EdgeInsets.all(
-                context.scaleSize(AppConstants.spacingMd),
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.pinkAccent.withValues(alpha: 0.25),
-                    AppColors.surfaceLight.withValues(alpha: 0.7),
-                  ],
-                ),
-                border: Border.all(
-                  color: Colors.pinkAccent.withValues(alpha: 0.4),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: context.scaleSize(56),
-                    height: context.scaleSize(56),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusMd,
-                      ),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.pinkAccent, Colors.purpleAccent],
-                      ),
-                    ),
-                    child: Icon(
-                      LucideIcons.heart,
-                      color: Colors.white,
-                      size: context.scaleSize(28),
-                    ),
-                  ),
-                  SizedBox(width: context.scaleSize(AppConstants.spacingMd)),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Liked Songs',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${songs.length} loved tracks',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(
-                    LucideIcons.chevronRight,
-                    color: AppColors.textSecondary,
-                  ),
-                ],
-              ),
+    return RepaintBoundary(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        leading: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.pinkAccent, Colors.purpleAccent],
             ),
           ),
-        );
-      },
+          child: Icon(
+            LucideIcons.heart,
+            color: Colors.white,
+            size: context.scaleSize(24),
+          ),
+        ),
+        title: const Text(
+          'Liked Songs',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: likedAsync.when(
+          data: (songs) => Text(
+            '${songs.length} tracks',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          loading: () => const Text(
+            'Loading...',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          error: (_, __) => const Text(
+            'Could not load',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+        ),
+        trailing: const Icon(
+          LucideIcons.chevronRight,
+          color: AppColors.textSecondary,
+          size: 18,
+        ),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const TidalLikedSongsScreen()),
+          );
+        },
+      ),
     );
   }
 
