@@ -93,13 +93,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
 
     final enabled = ref.watch(searchFilterProvider);
-    final isAllEnabled =
-        enabled.length == SearchCategory.values.length;
+    final isAllEnabled = enabled.length == SearchCategory.values.length;
     final repoQuery = _debouncedQuery;
     final hasInput = _controller.text.trim().isNotEmpty;
     final hasQuery = repoQuery.isNotEmpty;
-    final resultsAsync =
-        hasQuery ? ref.watch(globalSearchResultsProvider(repoQuery)) : null;
+    final resultsAsync = hasQuery
+        ? ref.watch(globalSearchResultsProvider(repoQuery))
+        : null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -115,10 +115,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xBF1E1E1E),
-                      Color(0xD9141414),
-                    ],
+                    colors: [Color(0xBF1E1E1E), Color(0xD9141414)],
                   ),
                   borderRadius: BorderRadius.circular(AppConstants.radiusXl),
                   border: Border.all(color: AppColors.glassBorder),
@@ -347,13 +344,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (!enabled.contains(cat) || count == 0) return;
       final expanded = _isExpanded(cat);
       final showSeeAll = count > _previewLimit;
-      slivers.add(_SectionHeader(
-        category: cat,
-        count: count,
-        showSeeAll: showSeeAll,
-        expanded: expanded,
-        onToggle: () => _toggleExpanded(cat),
-      ));
+      slivers.add(
+        _SectionHeader(
+          category: cat,
+          count: count,
+          showSeeAll: showSeeAll,
+          expanded: expanded,
+          onToggle: () => _toggleExpanded(cat),
+        ),
+      );
       slivers.addAll(buildItems());
       if (showSeeAll && !expanded) {
         slivers.add(
@@ -563,7 +562,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (!mounted) return;
       await notifier.play(song, playlist: library);
     } else {
-      await notifier.play(song, playlist: playlist);
+      // Smart: play single track only. Search results are keyword matches,
+      // not musically related — queuing them is just random. TIDAL Radio
+      // autoplay takes over after the track (if enabled).
+      await notifier.play(song);
     }
   }
 
@@ -598,7 +600,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _openPlaylist(BuildContext context, dynamic playlist) {
     Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(builder: (_) => PlaylistDetailScreen(playlist: playlist)),
+      MaterialPageRoute(
+        builder: (_) => PlaylistDetailScreen(playlist: playlist),
+      ),
     );
   }
 }
@@ -666,7 +670,10 @@ class _SectionHeader extends StatelessWidget {
                 onTap: onToggle,
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
                   child: Text(
                     expanded ? 'Show less' : 'See all',
                     style: TextStyle(
@@ -950,7 +957,11 @@ class _FolderTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.glassBorder),
         ),
-        child: Icon(LucideIcons.folder, size: 22, color: AppColors.accent.withValues(alpha: 0.9)),
+        child: Icon(
+          LucideIcons.folder,
+          size: 22,
+          color: AppColors.accent.withValues(alpha: 0.9),
+        ),
       ),
       title: Text(
         name,
@@ -997,16 +1008,16 @@ class _PlaylistTile extends ConsumerWidget {
     Widget leading;
     if (songsState != null) {
       final ids = (playlist.songIds as List).cast<String>().toSet();
-      final playlistSongs =
-          songsState.songs.where((s) => ids.contains(s.id)).toList();
+      final playlistSongs = songsState.songs
+          .where((s) => ids.contains(s.id))
+          .toList();
       final songsWithArt = playlistSongs
           .where((s) => s.albumArt != null && s.albumArt!.isNotEmpty)
           .toList();
       final songsWithoutArt = playlistSongs
           .where((s) => s.albumArt == null || s.albumArt!.isEmpty)
           .toList();
-      final coverSongs =
-          [...songsWithArt, ...songsWithoutArt].take(4).toList();
+      final coverSongs = [...songsWithArt, ...songsWithoutArt].take(4).toList();
       if (coverSongs.isEmpty) {
         leading = Container(
           width: 48,

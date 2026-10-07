@@ -61,7 +61,10 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   }
 
   void _playSong(Song song, List<Song> playlist) {
-    PlayerService().play(song, playlist: playlist);
+    // Smart: play single track only. Search results are keyword matches,
+    // not musically related — queuing them is just random. TIDAL Radio
+    // autoplay takes over after the track (if enabled).
+    PlayerService().play(song);
     NavigationHelper.navigateToFullPlayer(
       context,
       heroTag: 'tidal_search_song_${song.id}',
@@ -90,8 +93,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final playlistId =
         playlist['uuid']?.toString() ?? playlist['id']?.toString();
     if (playlistId == null) return;
-    final imageUrl =
-        TidalService.extractPlaylistCover(playlist, size: 640);
+    final imageUrl = TidalService.extractPlaylistCover(playlist, size: 640);
     NavigationHelper.pushFade(
       context,
       (_) => TidalPlaylistScreen(
@@ -413,69 +415,69 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                 : const FlickArtworkPlaceholder(),
           ),
         ),
-      title: Text(
-        song.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
+        title: Text(
+          song.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      ),
-      subtitle: Row(
-        children: [
-          if (song.sampleRate != null && song.sampleRate! > 48000)
-            Container(
-              margin: const EdgeInsets.only(right: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: const Color(0x33E5A93C),
-                borderRadius: BorderRadius.circular(3),
+        subtitle: Row(
+          children: [
+            if (song.sampleRate != null && song.sampleRate! > 48000)
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0x33E5A93C),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: const Text(
+                  '24-BIT',
+                  style: TextStyle(
+                    color: Color(0xFFE5A93C),
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              child: const Text(
-                '24-BIT',
-                style: TextStyle(
-                  color: Color(0xFFE5A93C),
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
+            Expanded(
+              child: Text(
+                [song.artist, if (song.album != null) song.album!].join(' • '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
                 ),
               ),
             ),
-          Expanded(
-            child: Text(
-              [song.artist, if (song.album != null) song.album!].join(' • '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              formatDuration(song.duration),
               style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12,
               ),
             ),
-          ),
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            formatDuration(song.duration),
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
+            IconButton(
+              icon: const Icon(
+                LucideIcons.ellipsisVertical,
+                size: 18,
+                color: AppColors.textSecondary,
+              ),
+              onPressed: () => SongActionsBottomSheet.show(context, song),
             ),
-          ),
-          IconButton(
-            icon: const Icon(
-              LucideIcons.ellipsisVertical,
-              size: 18,
-              color: AppColors.textSecondary,
-            ),
-            onPressed: () => SongActionsBottomSheet.show(context, song),
-          ),
-        ],
-      ),
-      onTap: () => _playSong(song, playlist),
+          ],
+        ),
+        onTap: () => _playSong(song, playlist),
       ),
     );
   }
@@ -751,10 +753,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TidalPlaylistCoverWidget(
-              playlist: playlist,
-              size: cardWidth,
-            ),
+            TidalPlaylistCoverWidget(playlist: playlist, size: cardWidth),
             const SizedBox(height: 6),
             Text(
               title,
@@ -789,10 +788,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         return RepaintBoundary(
           child: ListTile(
             onTap: () => _openPlaylist(pl),
-            leading: TidalPlaylistCoverWidget(
-              playlist: pl,
-              size: size,
-            ),
+            leading: TidalPlaylistCoverWidget(playlist: pl, size: size),
             title: Text(
               title,
               style: const TextStyle(

@@ -80,7 +80,8 @@ class InterfaceSettingsScreen extends ConsumerWidget {
               ToggleSetting(
                 icon: LucideIcons.keyboard,
                 title: 'Auto-Focus Search',
-                subtitle: 'Automatically open keyboard when switching to search',
+                subtitle:
+                    'Automatically open keyboard when switching to search',
                 value: appPreferences.autoFocusSearch,
                 onChanged: (value) {
                   ref
@@ -116,7 +117,8 @@ class InterfaceSettingsScreen extends ConsumerWidget {
               ActionButton(
                 icon: LucideIcons.trash2,
                 title: 'Reset Streak Data',
-                subtitle: 'Clear the counter and any unlocked streak milestones',
+                subtitle:
+                    'Clear the counter and any unlocked streak milestones',
                 onTap: () => _confirmResetStreak(context),
               ),
               const SettingsDivider(),
@@ -194,8 +196,8 @@ class InterfaceSettingsScreen extends ConsumerWidget {
             children: [
               SelectionSetting(
                 icon: LucideIcons.listMusic,
-                title: 'Search Results',
-                subtitle: 'Continue through the search results',
+                title: 'Single Track',
+                subtitle: 'Play the tapped track, continue with TIDAL Radio',
                 selected: appPreferences.searchPlaybackMode == 'results',
                 onTap: () {
                   ref
@@ -219,8 +221,7 @@ class InterfaceSettingsScreen extends ConsumerWidget {
               SelectionSetting(
                 icon: LucideIcons.listPlus,
                 title: 'Active Queue',
-                subtitle:
-                    'Insert into the current queue, fall back to results',
+                subtitle: 'Insert into the current queue, fall back to results',
                 selected: appPreferences.searchPlaybackMode == 'queue',
                 onTap: () {
                   ref
