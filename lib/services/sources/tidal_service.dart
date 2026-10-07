@@ -2600,7 +2600,8 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Get track credits (writers, composers, producers, etc.) from TIDAL.
-  /// Returns a list of {type, name} maps.
+  /// Returns a list of {type, name} maps, one per contributor.
+  /// API shape: items[].{creditType, contributors[].{name}}
   Future<List<Map<String, String>>> getTrackCredits(
     NetworkServerEntity server,
     String trackId,
@@ -2612,10 +2613,16 @@ class TidalService implements NetworkSourceService {
       final credits = <Map<String, String>>[];
       for (final it in items) {
         if (it is Map<String, dynamic>) {
-          final type = it['type'] as String? ?? 'Contributor';
-          final name = it['name'] as String? ?? '';
-          if (name.isNotEmpty) {
-            credits.add({'type': type, 'name': name});
+          final type = it['creditType'] as String? ?? 'Contributor';
+          final contributors = it['contributors'] as List<dynamic>?;
+          if (contributors == null) continue;
+          for (final c in contributors) {
+            if (c is Map<String, dynamic>) {
+              final name = c['name'] as String? ?? '';
+              if (name.isNotEmpty) {
+                credits.add({'type': type, 'name': name});
+              }
+            }
           }
         }
       }
