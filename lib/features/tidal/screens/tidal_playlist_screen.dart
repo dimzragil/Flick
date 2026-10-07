@@ -351,8 +351,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final song = tracks[index];
                       final trackNum = index + 1;
-                      final isHiRes =
-                          song.sampleRate != null && song.sampleRate! > 48000;
+                      final isHiRes = (song.bitDepth ?? 0) >= 24;
 
                       return ListTile(
                         dense: true,
@@ -392,11 +391,15 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                                   vertical: 1,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0x33E5A93C),
+                                  color: Colors.black,
                                   borderRadius: BorderRadius.circular(3),
+                                  border: Border.all(
+                                    color: const Color(0xFFE5A93C),
+                                    width: 0.75,
+                                  ),
                                 ),
                                 child: const Text(
-                                  '24-BIT',
+                                  'Hi-Res',
                                   style: TextStyle(
                                     color: Color(0xFFE5A93C),
                                     fontSize: 9,

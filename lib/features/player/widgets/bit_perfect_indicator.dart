@@ -17,7 +17,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Compact bit-perfect indicator capsule for the player file-info row.
 ///
-/// Shows HQ/SD with color-coded status based on the active audio path.
+/// Shows HR/CD/HQ with color-coded status based on the active audio path.
 /// Tapping opens a detailed bottom sheet with diagnostics.
 class BitPerfectIndicator extends ConsumerWidget {
   final Song song;
@@ -36,11 +36,23 @@ class BitPerfectIndicator extends ConsumerWidget {
     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
     final prefs = ref.watch(appPreferencesProvider);
 
-    final state = _resolveState(
+    var state = _resolveState(
       diagnostics,
       suppressVerified: prefs.replaceAlbumWithBitPerfectCapsule,
     );
     final label = _getSongQuality(song);
+    if (label == 'HR') {
+      // Hi-Res gets the gold-on-black Hi-Res Audio logo treatment,
+      // overriding the path-based capsule colors. The path icon is kept
+      // since it conveys a different dimension (audio path state).
+      state = _IndicatorState(
+        bgColor: Colors.black,
+        textColor: const Color(0xFFE5A93C),
+        borderColor: const Color(0xFFE5A93C),
+        glowColor: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+        icon: state.icon,
+      );
+    }
 
     return GestureDetector(
       onTap: onTap,
@@ -93,16 +105,15 @@ class BitPerfectIndicator extends ConsumerWidget {
   }
 
   static String _getSongQuality(Song song) {
-    if (song.isDsd) return 'HQ';
+    if (song.isDsd) return 'HR';
     final fileType = song.fileType.toUpperCase();
     const lossless = {'FLAC', 'WAV', 'ALAC', 'AIFF', 'APE', 'WV'};
-    if (lossless.contains(fileType)) return 'HQ';
-    if ((song.bitDepth ?? 0) >= 24) return 'HQ';
-    if ((song.sampleRate ?? 0) >= 88200) return 'HQ';
-    final res = song.resolution?.toLowerCase() ?? '';
-    final m = RegExp(r'(\d+)\s*kbps').firstMatch(res);
-    if (m != null && (int.tryParse(m.group(1)!) ?? 0) >= 320) return 'HQ';
-    return 'SD';
+    // Lossy of any bitrate is plain High Quality.
+    if (!lossless.contains(fileType)) return 'HQ';
+    // 24-bit and above is Hi-Res Audio regardless of sample rate.
+    if ((song.bitDepth ?? 0) >= 24) return 'HR';
+    // 16-bit lossless is CD quality.
+    return 'CD';
   }
 
   static _IndicatorState _resolveState(

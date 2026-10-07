@@ -316,8 +316,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                           ),
                           subtitle: Row(
                             children: [
-                              if (song.sampleRate != null &&
-                                  song.sampleRate! > 48000)
+                              if ((song.bitDepth ?? 0) >= 24)
                                 Container(
                                   margin: const EdgeInsets.only(right: 6),
                                   padding: const EdgeInsets.symmetric(
@@ -325,11 +324,15 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                                     vertical: 1,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0x33E5A93C),
+                                    color: Colors.black,
                                     borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(
+                                      color: const Color(0xFFE5A93C),
+                                      width: 0.75,
+                                    ),
                                   ),
                                   child: const Text(
-                                    '24-BIT',
+                                    'Hi-Res',
                                     style: TextStyle(
                                       color: Color(0xFFE5A93C),
                                       fontSize: 9,
