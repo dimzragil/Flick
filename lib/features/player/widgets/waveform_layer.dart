@@ -112,28 +112,30 @@ class _WaveformLayerState extends State<WaveformLayer>
                           ProgressBarStyle.line => LineSeekBar(
                             position: position,
                             duration: duration,
-                        appearProgress: t,
-                        onChanged: (newPos) {
-                          widget.positionNotifier.value = newPos;
-                          unawaited(widget.playerService.seek(newPos));
-                        },
-                      ),
-                      ProgressBarStyle.waveform => WaveformSeekBar(
-                        barCount: 60,
-                        position: position,
-                        bufferedPosition: bufferedPosition,
-                        duration: duration,
-                        appearProgress: t,
-                        cachedPeaks: _cachedPeaks,
-                        onChanged: (newPos) {
-                          widget.positionNotifier.value = newPos;
-                          unawaited(widget.playerService.seek(newPos));
-                        },
-                      ),
-                    };
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: RepaintBoundary(child: seekBar),
+                            appearProgress: t,
+                            onChanged: (newPos) {
+                              widget.positionNotifier.value = newPos;
+                              unawaited(widget.playerService.seek(newPos));
+                            },
+                          ),
+                          ProgressBarStyle.waveform => WaveformSeekBar(
+                            barCount: 60,
+                            position: position,
+                            bufferedPosition: bufferedPosition,
+                            duration: duration,
+                            appearProgress: t,
+                            cachedPeaks: _cachedPeaks,
+                            onChanged: (newPos) {
+                              widget.positionNotifier.value = newPos;
+                              unawaited(widget.playerService.seek(newPos));
+                            },
+                          ),
+                        };
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: RepaintBoundary(child: seekBar),
+                        );
+                      },
                     );
                   },
                 );
