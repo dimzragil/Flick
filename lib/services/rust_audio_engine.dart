@@ -118,17 +118,21 @@ class RustAudioEngine implements AudioEngine {
   }
 
   @override
-  Future<void> load(Song track, {bool forceRebuild = false}) async {
+  Future<void> load(
+    Song track, {
+    Duration? initialPosition,
+    bool forceRebuild = false,
+  }) async {
     await _safeEnsureInitialized();
     _attachListeners();
     _loadedTrack = track;
     _needsFreshPlay = true;
-    _pendingSeekPosition = Duration.zero;
+    _pendingSeekPosition = initialPosition ?? Duration.zero;
     _emit(
       _state.copyWith(
         currentTrack: track,
         isPlaying: false,
-        position: Duration.zero,
+        position: initialPosition ?? Duration.zero,
         bufferedPosition: Duration.zero,
         duration: track.duration,
       ),

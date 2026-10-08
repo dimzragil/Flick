@@ -125,11 +125,12 @@ class AudioEngineManager {
   }) async {
     final engine = _requireEngine();
     devLog('[Playback] load(${track.id})');
-    await engine.load(track, forceRebuild: forceRebuild);
+    await engine.load(
+      track,
+      initialPosition: initialPosition > Duration.zero ? initialPosition : null,
+      forceRebuild: forceRebuild,
+    );
     _engineHasLoadedTrack = true;
-    if (initialPosition > Duration.zero) {
-      await engine.seek(initialPosition);
-    }
     if (autoPlay) {
       devLog('[Playback] play()');
       await engine.play();

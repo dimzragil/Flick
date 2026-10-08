@@ -512,7 +512,7 @@ class AndroidAudioEngine implements AudioEngine {
         player.sequence.isNotEmpty &&
         !_loadedSingleTrackOnly) {
       devLog('[Playback] Android load(${track.id}) using existing playlist');
-      await player.seek(Duration.zero, index: index);
+      await player.seek(initialPosition ?? Duration.zero, index: index);
     } else if (shouldFastStartCurrentTrackOnly) {
       devLog(
         '[Playback] Android load(${track.id}) fast-starting current track',

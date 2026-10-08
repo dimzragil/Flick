@@ -4,7 +4,11 @@ import 'package:flick/models/song.dart';
 abstract class AudioEngine {
   Stream<PlaybackState> get playbackStateStream;
 
-  Future<void> load(Song track, {bool forceRebuild = false});
+  Future<void> load(
+    Song track, {
+    Duration? initialPosition,
+    bool forceRebuild = false,
+  });
   Future<void> play();
   Future<void> pause();
   Future<void> stop();

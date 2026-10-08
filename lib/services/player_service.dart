@@ -487,17 +487,26 @@ bool shouldThrottleSpeakerSinkRearm({
 /// speaker) is unchanged since the last evaluation. Such notifications are
 /// spurious — Android re-fires route listeners on focus/gain events without
 /// any actual route switch — so a sink rearm would only inject an audible
-/// gap for no benefit.
-/// Conservative: with no previously evaluated signature (null) we cannot
-/// prove the change is spurious, so this returns false and the rearm
-/// proceeds (a brief gap beats permanent HAL-wedge silence).
+/// Pure decision helper for Gate 1 in [_rearmSpeakerSinkIfNeeded].
+///
+/// Returns true when [previousRouteSignature] is identical to
+/// [currentRouteSignature], proving the platform fired a spurious
+/// notification without any actual routing change. Also returns true
+/// when [previousRouteSignature] is null or 'unknown' (fresh session
+/// initialization), establishing [currentRouteSignature] as the initial
+/// baseline without triggering an unwarranted teardown of a cleanly started stream.
+///
+/// Returns false when the route signature actually transitioned between
+/// distinct audio endpoints (e.g. bluetooth/wired -> speaker).
 @visibleForTesting
 bool shouldSkipSpeakerSinkRearmForSpuriousRoute({
   required String? previousRouteSignature,
   required String currentRouteSignature,
 }) {
-  return previousRouteSignature != null &&
-      previousRouteSignature == currentRouteSignature;
+  if (previousRouteSignature == null || previousRouteSignature == 'unknown') {
+    return true;
+  }
+  return previousRouteSignature == currentRouteSignature;
 }
 
 /// True when the app was backgrounded for less than [threshold] before
@@ -562,6 +571,10 @@ class PlayerService {
       onSwitchEngine: _handleEngineSwitch,
       isPlaybackActive: () => isPlayingNotifier.value,
     );
+    if (Platform.isAndroid) {
+      _lastEvaluatedAudioRouteSignature =
+          AndroidAudioDeviceService.instance.deviceInfoNotifier.value.routeSummary;
+    }
     _bindPlaybackState();
     _init();
   }
@@ -1443,6 +1456,7 @@ class PlayerService {
         previousRouteSignature: _lastEvaluatedAudioRouteSignature,
         currentRouteSignature: routeSignature,
       )) {
+        _lastEvaluatedAudioRouteSignature = routeSignature;
         _debugLog(
           '[Playback] Skipping speaker sink rearm: spurious route change '
           '(route=$routeSignature)',
@@ -1458,6 +1472,12 @@ class PlayerService {
     if (reason == 'app resumed') {
       final backgroundedAt = _appBackgroundedAt;
       _appBackgroundedAt = null;
+      if (isPlayingNotifier.value) {
+        _debugLog(
+          '[Playback] Skipping speaker sink rearm: app resumed while actively playing',
+        );
+        return;
+      }
       if (shouldSkipSpeakerSinkRearmForTrivialBackground(
         backgroundedAt: backgroundedAt,
         now: now,
@@ -1465,7 +1485,7 @@ class PlayerService {
       )) {
         _debugLog(
           '[Playback] Skipping speaker sink rearm: trivial backgrounding '
-          '(${now.difference(backgroundedAt!).inMilliseconds}ms)',
+          '(${backgroundedAt != null ? now.difference(backgroundedAt).inMilliseconds : -1}ms)',
         );
         return;
       }
@@ -1498,13 +1518,23 @@ class PlayerService {
     _lastSpeakerSinkRearmTime = now;
     _debugLog('[Playback] Rearming speaker sink: reason=$reason');
 
+    final capturedPosition = await _captureCurrentPlaybackPosition(
+      song: currentSongNotifier.value,
+    );
+
     await _enqueuePlaybackRequest(() async {
       try {
         if (!isPlayingNotifier.value ||
             currentEngineType != AudioEngineType.normalAndroid) {
           return;
         }
-        await engine.rearmSink();
+        await engine.rearmSink(
+          targetPosition: capturedPosition > Duration.zero
+              ? capturedPosition
+              : (positionNotifier.value > Duration.zero
+                  ? positionNotifier.value
+                  : null),
+        );
       } catch (e, stack) {
         _debugLog('[Playback] Rearm speaker sink failed: $e\n$stack');
       } finally {
@@ -2081,6 +2111,10 @@ class PlayerService {
       }
 
       _playbackManager.publishIdleState(_sessionManager.selectedMode);
+      if (Platform.isAndroid) {
+        _lastEvaluatedAudioRouteSignature ??=
+            AndroidAudioDeviceService.instance.deviceInfoNotifier.value.routeSummary;
+      }
       _audioInitialized = true;
       await _refreshAudioOutputDiagnostics(reason: 'audio initialized');
     } finally {
@@ -3806,7 +3840,11 @@ class PlayerService {
   Future<void> _retryFailedTrackOnce() async {
     try {
       _debugLog('[Playback] retrying failed track once with a fresh resolve');
-      await _playSongAtCurrentIndex(forceRebuild: true);
+      final capturedPos = await _captureCurrentPlaybackPosition();
+      await _playSongAtCurrentIndex(
+        forceRebuild: true,
+        initialPosition: capturedPos > Duration.zero ? capturedPos : null,
+      );
     } catch (e) {
       _debugLog('[Playback] retry of failed track failed: $e; advancing');
       // Advance here only if no second error callback arrived: if the engine
@@ -5187,6 +5225,7 @@ class PlayerService {
     List<Song>? playlist,
     int? generation,
     bool forceRebuild = false,
+    Duration? initialPosition,
   }) async {
     if (generation != null && generation != _playbackGeneration) {
       _debugLog('[PlayerService] superseded before starting _playInternal');
@@ -5202,7 +5241,15 @@ class PlayerService {
 
       _positionSaveTimer?.cancel();
       clearAbRepeat();
-      _positionTracker.onTrackStart(song.id);
+      if (initialPosition != null && initialPosition > Duration.zero) {
+        _positionTracker.captureCurrentPosition(
+          songId: song.id,
+          candidates: [initialPosition],
+        );
+        positionNotifier.value = initialPosition;
+      } else {
+        _positionTracker.onTrackStart(song.id);
+      }
 
       if (playlist != null) {
         final sourcePlaylist = wrapAroundQueueNotifier.value
@@ -5304,7 +5351,11 @@ class PlayerService {
           await _refreshReplayGainForSong(song, pushSpawnDefault: true);
         }
         await _runWithSuppressedSequenceStateUpdates(() async {
-          await _playbackManager.playTrack(song, forceRebuild: forceRebuild);
+          await _playbackManager.playTrack(
+            song,
+            initialPosition: initialPosition ?? Duration.zero,
+            forceRebuild: forceRebuild,
+          );
         });
         if (!_usingRustBackend) {
           unawaited(_applyReplayGainForSystemTier(song));
@@ -5356,6 +5407,7 @@ class PlayerService {
   Future<void> _playSongAtCurrentIndex({
     int? generation,
     bool forceRebuild = false,
+    Duration? initialPosition,
   }) async {
     final song = _songAtCurrentIndex();
     if (song == null) {
@@ -5364,7 +5416,12 @@ class PlayerService {
     final gen = generation ?? ++_playbackGeneration;
     currentSongNotifier.value = song;
     if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
-    await _playInternal(song, generation: gen, forceRebuild: forceRebuild);
+    await _playInternal(
+      song,
+      generation: gen,
+      forceRebuild: forceRebuild,
+      initialPosition: initialPosition,
+    );
   }
 
   Future<void> _queueNextTrackForGapless() async {

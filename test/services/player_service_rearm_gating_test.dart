@@ -51,14 +51,27 @@ void main() {
     });
 
     test(
-      'rearm fires when no previous signature was ever evaluated (cannot prove spurious)',
+      'skips rearm when no previous signature was evaluated yet (baseline route initialization)',
       () {
         expect(
           shouldSkipSpeakerSinkRearmForSpuriousRoute(
             previousRouteSignature: null,
             currentRouteSignature: '23053RN02A',
           ),
-          isFalse,
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'skips rearm when previous signature was unknown placeholder',
+      () {
+        expect(
+          shouldSkipSpeakerSinkRearmForSpuriousRoute(
+            previousRouteSignature: 'unknown',
+            currentRouteSignature: '23053RN02A',
+          ),
+          isTrue,
         );
       },
     );
