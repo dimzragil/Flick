@@ -467,6 +467,7 @@ class TidalStreamSession {
   bool _pumpRunning = false;
   bool _pumpFailed = false;
   Completer<void>? _needMoreCompleter;
+  final List<Completer<void>> _waitingWorkers = [];
   final List<int> _segmentStartOffsets = [];
 
   static const int _bufferAheadLimit = 3;
@@ -640,17 +641,15 @@ class TidalStreamSession {
 
           // Window-limited prefetch for background sessions; the actively
           // playing session flips _aggressivePrefetch and downloads everything.
+          // Each waiting worker registers its own completer so all workers
+          // wake when more data is needed.
           if (!_aggressivePrefetch &&
               nextIndexToFetch > _lastRequestedSegment + _bufferAheadLimit) {
-            _needMoreCompleter ??= Completer<void>();
-            final waiter = _needMoreCompleter!.future;
-            await waiter;
-            // Clear so next waiter creates a fresh completer. Safe because
-            // each worker holds its own future reference.
-            if (_needMoreCompleter != null &&
-                _needMoreCompleter!.isCompleted) {
-              _needMoreCompleter = null;
-            }
+            final waiter = Completer<void>();
+            _waitingWorkers.add(waiter);
+            _needMoreCompleter = waiter;
+            await waiter.future;
+            _waitingWorkers.remove(waiter);
             if (_isCancelled || _isFinished || _pumpFailed || hasError) break;
             continue;
           }
@@ -733,6 +732,16 @@ class TidalStreamSession {
     }
     if (seg > _lastRequestedSegment) {
       _lastRequestedSegment = seg;
+    }
+    // If ExoPlayer is actively reading beyond the initial window, this is
+    // the playing track, not a background prefetch. Flip to aggressive mode
+    // to ensure download keeps up with playback.
+    if (!_aggressivePrefetch && seg > _bufferAheadLimit) {
+      _aggressivePrefetch = true;
+    }
+    // Wake all waiting workers (parallel pump may have multiple).
+    for (final w in _waitingWorkers) {
+      if (!w.isCompleted) w.complete();
     }
     if (_needMoreCompleter != null && !_needMoreCompleter!.isCompleted) {
       _needMoreCompleter!.complete();
@@ -1046,6 +1055,9 @@ class TidalStreamSession {
     if (_isCancelled) return;
     _isCancelled = true;
     _notifyWaiters();
+    for (final w in _waitingWorkers) {
+      if (!w.isCompleted) w.complete();
+    }
     if (_needMoreCompleter != null && !_needMoreCompleter!.isCompleted) {
       _needMoreCompleter!.complete();
     }
