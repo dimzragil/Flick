@@ -1404,7 +1404,7 @@ class PlayerService {
       _debugLog(
         '[Engine] Foreground: restoring ${AudioEngineType.usbDacExperimental.logLabel}',
       );
-      final capturedPosition = _captureCurrentPlaybackPosition();
+      final capturedPosition = await _captureCurrentPlaybackPosition();
       await _enqueuePlaybackRequest(() async {
         try {
           await _resumeInternal();
@@ -1983,7 +1983,7 @@ class PlayerService {
   Future<void> setAudioEnginePreference(
     AudioEnginePreference preference,
   ) async {
-    _captureCurrentPlaybackPosition();
+    unawaited(_captureCurrentPlaybackPosition());
     await _preferencesService.setAudioEnginePreference(preference);
     await initAudio();
     await _sessionManager.syncRouteSelection(
@@ -2010,7 +2010,7 @@ class PlayerService {
       await initAudio();
       return true;
     }
-    final capturedPosition = _captureCurrentPlaybackPosition(song: song);
+    final capturedPosition = await _captureCurrentPlaybackPosition(song: song);
     await _enqueuePlaybackRequest(() async {
       try {
         await _resumeInternal();
@@ -2247,7 +2247,7 @@ class PlayerService {
     // (e.g. by a route change or by the system). Re-activate it before
     // attempting to resume the Rust engine.
     await _activateAudioSessionForRustEngine();
-    final capturedPosition = _captureCurrentPlaybackPosition();
+    final capturedPosition = await _captureCurrentPlaybackPosition();
     try {
       await _resumeInternal();
     } catch (e, stackTrace) {
@@ -4761,7 +4761,7 @@ class PlayerService {
     // ALWAYS fully dispose the outgoing engine before initializing the new one.
     // This prevents USB "Resource busy" from overlapping sessions.
     if (from != to || from == null) {
-      _captureCurrentPlaybackPosition();
+      unawaited(_captureCurrentPlaybackPosition());
       if (_rustEngine != null) {
         _debugLog('[Engine] Full dispose of Rust engine before ${to.logLabel}');
         await _disposeUsbEngine();
@@ -4860,7 +4860,7 @@ class PlayerService {
     _restoredPosition = Duration.zero;
   }
 
-  Duration _captureCurrentPlaybackPosition({Song? song}) {
+  Future<Duration> _captureCurrentPlaybackPosition({Song? song}) async {
     final targetSong =
         song ?? currentSongNotifier.value ?? _songAtCurrentIndex();
     final targetSongId = targetSong?.id;
@@ -4872,7 +4872,7 @@ class PlayerService {
       } catch (_) {}
     }
 
-    return _positionTracker.captureCurrentPosition(
+    final captured = _positionTracker.captureCurrentPosition(
       songId: targetSongId,
       candidates: [
         positionNotifier.value,
@@ -4881,6 +4881,36 @@ class PlayerService {
         ?justAudioPos,
       ],
     );
+
+    // If all live sources report zero but playback was active, the position
+    // was lost (e.g., engine torn down before first position update).
+    // Fall back to the last persisted position for this song.
+    if (captured == Duration.zero &&
+        targetSongId != null &&
+        isPlayingNotifier.value) {
+      try {
+        final lastPlayed = await _lastPlayedService.getLastPlayed();
+        if (lastPlayed != null &&
+            lastPlayed.song.id == targetSongId &&
+            lastPlayed.position > Duration.zero) {
+          _debugLog(
+            '[Position] Recovered from persisted store: '
+            '${lastPlayed.position.inSeconds}s for ${targetSongId}',
+          );
+          _positionTracker.recordPosition(
+            songId: targetSongId,
+            position: lastPlayed.position,
+          );
+          return lastPlayed.position;
+        }
+      } catch (_) {}
+      _debugLog(
+        '[Position] WARNING: position lost for $targetSongId '
+        '(all sources zero, no persisted fallback)',
+      );
+    }
+
+    return captured;
   }
 
   @visibleForTesting
@@ -5590,7 +5620,7 @@ class PlayerService {
     }
 
     _debugLog('[Playback] resume() called');
-    final outgoingPosition = _captureCurrentPlaybackPosition(song: song);
+    final outgoingPosition = await _captureCurrentPlaybackPosition(song: song);
     // Use the cached route selection maintained by the session manager's device
     // listener rather than doing another blocking device probe on resume.
     final desiredEngine = _sessionManager.selectedMode;
@@ -5892,7 +5922,7 @@ class PlayerService {
         );
         return;
       }
-      final capturedPosition = _captureCurrentPlaybackPosition();
+      final capturedPosition = await _captureCurrentPlaybackPosition();
       try {
         if (shouldPlay) {
           await _resumeInternal();
