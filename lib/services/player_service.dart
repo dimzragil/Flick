@@ -394,6 +394,82 @@ bool shouldExecuteTogglePlayPause({
 }
 
 @visibleForTesting
+Duration calculateResumePosition({
+  required Duration capturedPosition,
+  required Duration currentPosition,
+  Duration? restoredPosition,
+  Duration Function()? restoredPositionProvider,
+}) {
+  if (capturedPosition > Duration.zero) {
+    return capturedPosition;
+  }
+  if (currentPosition > Duration.zero) {
+    return currentPosition;
+  }
+  if (restoredPositionProvider != null) {
+    return restoredPositionProvider();
+  }
+  return restoredPosition ?? Duration.zero;
+}
+
+@visibleForTesting
+class PlaybackPositionTracker {
+  String? lastSongId;
+  Duration lastPosition = Duration.zero;
+
+  void recordPosition({required String? songId, required Duration position}) {
+    if (position > Duration.zero && songId != null) {
+      lastSongId = songId;
+      lastPosition = position;
+    }
+  }
+
+  void onSeek({required String? songId, required Duration position}) {
+    lastPosition = position;
+    if (songId != null) {
+      lastSongId = songId;
+    }
+  }
+
+  void onTrackStart(String songId) {
+    if (lastSongId != songId) {
+      lastSongId = songId;
+      lastPosition = Duration.zero;
+    }
+  }
+
+  void onSongFinished() {
+    lastPosition = Duration.zero;
+  }
+
+  Duration captureCurrentPosition({
+    String? songId,
+    List<Duration?> candidates = const [],
+  }) {
+    Duration bestCandidate = Duration.zero;
+    for (final c in candidates) {
+      if (c != null && c > bestCandidate) {
+        bestCandidate = c;
+      }
+    }
+
+    if (bestCandidate > Duration.zero) {
+      if (songId != null) {
+        lastSongId = songId;
+        lastPosition = bestCandidate;
+      }
+      return bestCandidate;
+    }
+
+    if (songId != null && lastSongId == songId && lastPosition > Duration.zero) {
+      return lastPosition;
+    }
+
+    return Duration.zero;
+  }
+}
+
+@visibleForTesting
 bool shouldThrottleSpeakerSinkRearm({
   required bool isQueued,
   required DateTime? lastRearmTime,
@@ -673,6 +749,7 @@ class PlayerService {
   String? _autoSyncGuardSongId;
   String? _restoredSongId;
   Duration _restoredPosition = Duration.zero;
+  final PlaybackPositionTracker _positionTracker = PlaybackPositionTracker();
   double _currentVolume = 1.0;
 
   /// Default volume for bit-perfect mode (25 %, safety level).
@@ -1327,6 +1404,7 @@ class PlayerService {
       _debugLog(
         '[Engine] Foreground: restoring ${AudioEngineType.usbDacExperimental.logLabel}',
       );
+      final capturedPosition = _captureCurrentPlaybackPosition();
       await _enqueuePlaybackRequest(() async {
         try {
           await _resumeInternal();
@@ -1334,7 +1412,9 @@ class PlayerService {
           final recovered = await _handleDirectUsbStartupRefusal(
             e,
             song: currentSongNotifier.value,
-            initialPosition: positionNotifier.value,
+            initialPosition: capturedPosition > Duration.zero
+                ? capturedPosition
+                : positionNotifier.value,
           );
           if (!recovered) rethrow;
         }
@@ -1903,6 +1983,7 @@ class PlayerService {
   Future<void> setAudioEnginePreference(
     AudioEnginePreference preference,
   ) async {
+    _captureCurrentPlaybackPosition();
     await _preferencesService.setAudioEnginePreference(preference);
     await initAudio();
     await _sessionManager.syncRouteSelection(
@@ -1929,6 +2010,7 @@ class PlayerService {
       await initAudio();
       return true;
     }
+    final capturedPosition = _captureCurrentPlaybackPosition(song: song);
     await _enqueuePlaybackRequest(() async {
       try {
         await _resumeInternal();
@@ -1936,7 +2018,9 @@ class PlayerService {
         await _handleDirectUsbStartupRefusal(
           e,
           song: song,
-          initialPosition: positionNotifier.value,
+          initialPosition: capturedPosition > Duration.zero
+              ? capturedPosition
+              : positionNotifier.value,
         );
       }
     }, label: 'retryExperimentalUsb');
@@ -2163,13 +2247,16 @@ class PlayerService {
     // (e.g. by a route change or by the system). Re-activate it before
     // attempting to resume the Rust engine.
     await _activateAudioSessionForRustEngine();
+    final capturedPosition = _captureCurrentPlaybackPosition();
     try {
       await _resumeInternal();
     } catch (e, stackTrace) {
       final recovered = await _handleDirectUsbStartupRefusal(
         e,
         song: currentSongNotifier.value,
-        initialPosition: positionNotifier.value,
+        initialPosition: capturedPosition > Duration.zero
+            ? capturedPosition
+            : positionNotifier.value,
       );
       if (recovered) {
         return;
@@ -3421,6 +3508,12 @@ class PlayerService {
       if (!_suppressPositionUpdatesFromEngine &&
           positionNotifier.value != state.position) {
         positionNotifier.value = state.position;
+        if (state.position > Duration.zero) {
+          _positionTracker.recordPosition(
+            songId: state.currentTrack?.id ?? currentSongNotifier.value?.id,
+            position: state.position,
+          );
+        }
         if (isAbRepeatActive) {
           checkAbRepeatBoundary(state.position);
         }
@@ -3730,6 +3823,7 @@ class PlayerService {
   }
 
   Future<void> _onSongFinishedInternal({String? endedPath}) async {
+    _positionTracker.onSongFinished();
     _debugLog(
       '_onSongFinished: loopMode=${loopModeNotifier.value}, currentIndex=$_currentIndex, playlistLength=${_playlist.length}, usingRustBackend=$_usingRustBackend, endedPath=$endedPath',
     );
@@ -4667,6 +4761,7 @@ class PlayerService {
     // ALWAYS fully dispose the outgoing engine before initializing the new one.
     // This prevents USB "Resource busy" from overlapping sessions.
     if (from != to || from == null) {
+      _captureCurrentPlaybackPosition();
       if (_rustEngine != null) {
         _debugLog('[Engine] Full dispose of Rust engine before ${to.logLabel}');
         await _disposeUsbEngine();
@@ -4764,6 +4859,33 @@ class PlayerService {
     _restoredSongId = null;
     _restoredPosition = Duration.zero;
   }
+
+  Duration _captureCurrentPlaybackPosition({Song? song}) {
+    final targetSong =
+        song ?? currentSongNotifier.value ?? _songAtCurrentIndex();
+    final targetSongId = targetSong?.id;
+
+    Duration? justAudioPos;
+    if (!_usingRustBackend && _justAudioPlayer != null) {
+      try {
+        justAudioPos = _justAudioPlayer?.position;
+      } catch (_) {}
+    }
+
+    return _positionTracker.captureCurrentPosition(
+      songId: targetSongId,
+      candidates: [
+        positionNotifier.value,
+        _playbackManager.latestState?.position,
+        if (_usingRustBackend) _rustAudioService.positionNotifier.value,
+        ?justAudioPos,
+      ],
+    );
+  }
+
+  @visibleForTesting
+  PlaybackPositionTracker get positionTrackerForTesting => _positionTracker;
+
 
   Future<AudioEngineType> _normalizeRequestedEngine(
     AudioEngineType desiredEngine, {
@@ -5052,6 +5174,7 @@ class PlayerService {
 
       _positionSaveTimer?.cancel();
       clearAbRepeat();
+      _positionTracker.onTrackStart(song.id);
 
       if (playlist != null) {
         final sourcePlaylist = wrapAroundQueueNotifier.value
@@ -5467,6 +5590,7 @@ class PlayerService {
     }
 
     _debugLog('[Playback] resume() called');
+    final outgoingPosition = _captureCurrentPlaybackPosition(song: song);
     // Use the cached route selection maintained by the session manager's device
     // listener rather than doing another blocking device probe on resume.
     final desiredEngine = _sessionManager.selectedMode;
@@ -5486,9 +5610,11 @@ class PlayerService {
     if (canResumeDirectly) {
       await _playbackManager.play();
     } else {
-      final resumePosition = positionNotifier.value > Duration.zero
-          ? positionNotifier.value
-          : _consumeRestoredPositionForSong(song);
+      final resumePosition = calculateResumePosition(
+        capturedPosition: outgoingPosition,
+        currentPosition: positionNotifier.value,
+        restoredPositionProvider: () => _consumeRestoredPositionForSong(song),
+      );
       await _prepareImmediatePlaybackAsset(song);
       await _runWithSuppressedSequenceStateUpdates(() async {
         await _playbackManager.playTrack(song, initialPosition: resumePosition);
@@ -5766,6 +5892,7 @@ class PlayerService {
         );
         return;
       }
+      final capturedPosition = _captureCurrentPlaybackPosition();
       try {
         if (shouldPlay) {
           await _resumeInternal();
@@ -5777,7 +5904,9 @@ class PlayerService {
         final recovered = await _handleDirectUsbStartupRefusal(
           e,
           song: currentSongNotifier.value,
-          initialPosition: positionNotifier.value,
+          initialPosition: capturedPosition > Duration.zero
+              ? capturedPosition
+              : positionNotifier.value,
         );
         if (recovered) {
           return;
@@ -5792,6 +5921,10 @@ class PlayerService {
       await _castingService.delegateSeek(position);
       return;
     }
+    _positionTracker.onSeek(
+      songId: currentSongNotifier.value?.id,
+      position: position,
+    );
     try {
       await _playbackManager.seek(position);
     } catch (e) {

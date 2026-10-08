@@ -541,6 +541,7 @@ class RustAudioService {
     _progressTimer = Timer.periodic(interval, (_) {
       _updateProgress();
     });
+    _updateProgress();
   }
 
   /// Stop progress updates.
