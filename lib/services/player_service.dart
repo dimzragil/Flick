@@ -781,6 +781,12 @@ class PlayerService {
   // Timer to periodically save position
   Timer? _positionSaveTimer;
 
+  // Last known good position, updated synchronously on every engine state
+  // update. Used as bulletproof fallback when all other position sources
+  // are zero during engine switches.
+  Duration _lastKnownPosition = Duration.zero;
+  String? _lastKnownPositionSongId;
+
   // Periodic health-check for hardware volume verification
   Timer? _hwVolumeHealthTimer;
 
@@ -3508,6 +3514,11 @@ class PlayerService {
       if (!_suppressPositionUpdatesFromEngine &&
           positionNotifier.value != state.position) {
         positionNotifier.value = state.position;
+        // Bulletproof cache: always update, even if position is zero.
+        // This ensures we have the most recent value during engine switches.
+        _lastKnownPosition = state.position;
+        _lastKnownPositionSongId =
+            state.currentTrack?.id ?? currentSongNotifier.value?.id;
         if (state.position > Duration.zero) {
           _positionTracker.recordPosition(
             songId: state.currentTrack?.id ?? currentSongNotifier.value?.id,
@@ -4881,6 +4892,20 @@ class PlayerService {
         ?justAudioPos,
       ],
     );
+
+    // If all live sources report zero but we have a cached position for
+    // this song, use it. This handles the case where the engine was torn
+    // down before reporting its final position.
+    if (captured == Duration.zero &&
+        targetSongId != null &&
+        _lastKnownPositionSongId == targetSongId &&
+        _lastKnownPosition > Duration.zero) {
+      _debugLog(
+        '[Position] Recovered from last-known cache: '
+        '${_lastKnownPosition.inSeconds}s for $targetSongId',
+      );
+      return _lastKnownPosition;
+    }
 
     // If all live sources report zero but playback was active, the position
     // was lost (e.g., engine torn down before first position update).
