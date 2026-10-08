@@ -143,9 +143,7 @@ class AndroidAudioEngine implements AudioEngine {
        _onTrackAdvanced = onTrackAdvanced;
 
   /// Default delay before background playlist prebuffering begins.
-  /// Keeps network I/O, Dart event loop, and ExoPlayer timeline quiet during
-  /// the critical Segment 0 -> 1 handoff (~7.29s) of the tapped track.
-  static const Duration defaultBackgroundFillDelay = Duration(seconds: 15);
+  static const Duration defaultBackgroundFillDelay = Duration(seconds: 2);
   final Duration backgroundFillDelay;
 
   final AndroidPlayerProvider _playerProvider;
@@ -393,10 +391,10 @@ class AndroidAudioEngine implements AudioEngine {
         just_audio.AudioSource src;
         try {
           // Prefetch policy: only the next track (N+1) gets a real prefetch
-          // (3 segments) so gapless transitions stay smooth. Tracks beyond
-          // that get deferred sessions: valid proxy URLs, zero network
-          // until actually needed (kicked by _onAndroidTrackAdvanced or
-          // started on-demand by the first handleRequest).
+          // so gapless transitions stay smooth. Tracks beyond that get
+          // deferred sessions: valid proxy URLs, zero network until
+          // actually needed (kicked by kickPrefetch or started on-demand by
+          // the first handleRequest).
           final isNextTrack = j == tappedIndex + 1;
           src = await _sourceBuilder(
             playlist[j],

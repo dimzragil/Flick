@@ -1135,6 +1135,7 @@ class TidalService implements NetworkSourceService {
       },
       client: _NonClosingClient(_client),
       onFinalized: (file) => _cache.evictIfOverCap(protect: file),
+      deferPump: deferPump,
     );
     return (
       url: streamUrl,

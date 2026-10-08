@@ -843,6 +843,91 @@ void main() {
       expect(requestedSegments.any((p) => p.contains('init')), isTrue);
       expect(requestedSegments.any((p) => p.contains('seg0')), isTrue);
     });
+
+    test(
+      'prepareBtsStream with deferPump: true creates valid session with zero initial download',
+      () async {
+        final targetPath = '${tempDir.path}/defer_bts.flac';
+        final btsBytes = List<int>.generate(400 * 1024, (i) => i % 256);
+        var networkCalls = 0;
+
+        final client = MockClient((request) async {
+          networkCalls++;
+          return http.Response.bytes(
+            btsBytes,
+            200,
+            headers: {'content-length': '${btsBytes.length}'},
+          );
+        });
+
+        final streamUrl = await TidalStreamProxy.instance.prepareBtsStream(
+          trackId: 'defer_bts_track',
+          sourceUrl: 'https://cdn.tidal.com/audio.flac',
+          targetPath: targetPath,
+          contentType: 'audio/flac',
+          client: client,
+          deferPump: true,
+        );
+
+        expect(streamUrl, contains('/tidal-bts/'));
+        // Verify zero network calls were made during preparation
+        expect(networkCalls, 0);
+
+        // First request to proxy must trigger download on-demand and include Content-Range & Content-Length
+        final httpClient = HttpClient();
+        final req = await httpClient.getUrl(Uri.parse(streamUrl));
+        req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+        final resp = await req.close();
+
+        expect(resp.statusCode, HttpStatus.partialContent);
+        expect(
+          resp.headers.value(HttpHeaders.contentRangeHeader),
+          'bytes 0-${btsBytes.length - 1}/${btsBytes.length}',
+        );
+        expect(
+          resp.headers.value(HttpHeaders.contentLengthHeader),
+          '${btsBytes.length}',
+        );
+
+        final received = await resp.expand((b) => b).toList();
+        expect(received.length, btsBytes.length);
+        expect(received, btsBytes);
+        expect(networkCalls, greaterThanOrEqualTo(1));
+        httpClient.close();
+      },
+    );
+
+    test('kickPrefetch triggers download for deferred BTS session', () async {
+      final targetPath = '${tempDir.path}/kick_bts.flac';
+      final btsBytes = List<int>.generate(100 * 1024, (i) => i % 256);
+      var downloadStarted = false;
+
+      final client = MockClient((request) async {
+        downloadStarted = true;
+        return http.Response.bytes(
+          btsBytes,
+          200,
+          headers: {'content-length': '${btsBytes.length}'},
+        );
+      });
+
+      await TidalStreamProxy.instance.prepareBtsStream(
+        trackId: 'kick_bts_track',
+        sourceUrl: 'https://cdn.tidal.com/audio.flac',
+        targetPath: targetPath,
+        contentType: 'audio/flac',
+        client: client,
+        deferPump: true,
+      );
+
+      expect(downloadStarted, isFalse);
+
+      // Kick prefetch for this BTS track
+      TidalStreamProxy.instance.kickPrefetch('kick_bts_track');
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(downloadStarted, isTrue);
+    });
   });
 }
 

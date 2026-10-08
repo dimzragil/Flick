@@ -185,6 +185,7 @@ class TidalStreamProxy {
     required String contentType,
     http.Client? client,
     Future<void> Function(File targetFile)? onFinalized,
+    bool deferPump = false,
   }) async {
     final serverPort = await ensureServer();
     final existing = _btsSessions.values
@@ -214,7 +215,7 @@ class TidalStreamProxy {
     );
     _btsSessions[token] = session;
     try {
-      await session.start();
+      await session.start(deferPump: deferPump);
       return 'http://127.0.0.1:$serverPort/tidal-bts/$token.${session.extension}';
     } catch (_) {
       session.cancel();
@@ -261,6 +262,12 @@ class TidalStreamProxy {
         .firstOrNull;
     if (session != null) {
       unawaited(session.ensureDownloadStarted());
+    }
+    final btsSession = _btsSessions.values
+        .where((s) => s.trackId == trackId && !s.isCancelled && !s.hasFailed)
+        .firstOrNull;
+    if (btsSession != null) {
+      unawaited(btsSession.ensureDownloadStarted());
     }
   }
 
@@ -1172,12 +1179,39 @@ class TidalBtsStreamSession {
     );
   }
 
-  Future<void> start() async {
+  bool _downloadBegan = false;
+  Future<void>? _beginDownloadFuture;
+
+  Future<void> start({bool deferPump = false}) async {
     final part = File('$targetPath.part');
     if (await part.exists()) {
-      await part.delete();
+      try {
+        await part.delete();
+      } catch (_) {}
     }
     _writer = await part.open(mode: FileMode.write);
+    if (deferPump) {
+      // Lazy session: the proxy URL is valid, but nothing is downloaded yet.
+      // Download starts on-demand in handleRequest or kickPrefetch.
+      _ready.complete();
+      return;
+    }
+    await _beginDownload(part);
+  }
+
+  /// Starts downloading the BTS stream on demand.
+  /// Idempotent: concurrent calls share one in-flight attempt.
+  Future<void> ensureDownloadStarted() async {
+    if (_downloadBegan || _cancelled || _failed) return;
+    final part = File('$targetPath.part');
+    _beginDownloadFuture ??= _beginDownload(part);
+    return _beginDownloadFuture;
+  }
+
+  Future<void> _beginDownload(File part) async {
+    if (_downloadBegan || _cancelled || _failed) return;
+    _downloadBegan = true;
+    _writer ??= await part.open(mode: FileMode.write);
     // Fire the tail prefetch FIRST, in parallel with the main request below.
     // A suffix range needs no prior knowledge of the total size, so both
     // requests pay TTFB concurrently instead of sequentially.
@@ -1199,7 +1233,9 @@ class TidalBtsStreamSession {
     // Wait for BOTH the head prebuffer and the tail prefetch. They download
     // in parallel, so the slower one dominates (~0ms added in practice), and
     // the probe's tail seek can never race the prefetch again.
-    await _ready.future.timeout(const Duration(seconds: 20));
+    if (!_ready.isCompleted) {
+      await _ready.future.timeout(const Duration(seconds: 20));
+    }
     try {
       await tailFuture.timeout(const Duration(seconds: 10));
     } on TimeoutException {
@@ -1323,6 +1359,15 @@ class TidalBtsStreamSession {
   }
 
   Future<void> handleRequest(HttpRequest req) async {
+    if (!_downloadBegan) {
+      try {
+        await ensureDownloadStarted();
+      } catch (_) {
+        req.response.statusCode = HttpStatus.serviceUnavailable;
+        await req.response.close();
+        return;
+      }
+    }
     final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
     final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(rangeHeader ?? '');
     final start = int.tryParse(match?.group(1) ?? '') ?? 0;
@@ -1457,11 +1502,13 @@ class TidalBtsStreamSession {
     req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
     req.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
 
-    if (_finished && _total != null) {
-      req.response.headers.set(
-        HttpHeaders.contentRangeHeader,
-        'bytes $start-${_total! - 1}/$_total',
-      );
+    if (_total != null) {
+      if (req.response.statusCode == HttpStatus.partialContent) {
+        req.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes $start-${_total! - 1}/$_total',
+        );
+      }
       req.response.headers.set(
         HttpHeaders.contentLengthHeader,
         '${_total! - start}',
