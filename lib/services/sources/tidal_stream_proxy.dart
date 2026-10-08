@@ -44,6 +44,18 @@ class TidalStreamProxy {
   final Map<String, CompletedStream> _completedFiles = {};
   final Random _rand = Random.secure();
 
+  /// Max completed-file entries before oldest-first eviction.
+  static const int _maxCompletedFiles = 200;
+
+  void _evictOldestCompletedIfNeeded() {
+    if (_completedFiles.length <= _maxCompletedFiles) return;
+    final toRemove = _completedFiles.length - _maxCompletedFiles;
+    final keys = _completedFiles.keys.take(toRemove).toList();
+    for (final key in keys) {
+      _completedFiles.remove(key);
+    }
+  }
+
   /// Port of the active loopback server, or null if not yet bound.
   int? get port => _server?.port;
 
@@ -57,6 +69,7 @@ class TidalStreamProxy {
       targetPath: session.targetPath,
       contentType: 'audio/mp4',
     );
+    _evictOldestCompletedIfNeeded();
   }
 
   void _onBtsSessionFinalized(TidalBtsStreamSession session) {
@@ -66,6 +79,7 @@ class TidalStreamProxy {
       targetPath: session.targetPath,
       contentType: session.contentType,
     );
+    _evictOldestCompletedIfNeeded();
   }
 
   /// Local URL for an in-progress or finished BTS session; never exposes the CDN URL.

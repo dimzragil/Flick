@@ -110,6 +110,21 @@ class TidalService implements NetworkSourceService {
   final Map<String, Set<void Function()>> _activeDownloads = {};
   final Map<String, Future<String>> _downloadInFlight = {};
 
+  /// Max entries for in-memory caches before oldest-first eviction.
+  /// Prevents unbounded growth during long listening sessions.
+  static const int _maxCacheEntries = 200;
+
+  /// Evicts oldest entries if [map] exceeds [_maxCacheEntries].
+  /// Maps preserve insertion order, so removing from the front evicts oldest.
+  static void _evictOldestIfNeeded(Map<String, dynamic> map) {
+    if (map.length <= _maxCacheEntries) return;
+    final toRemove = map.length - _maxCacheEntries;
+    final keys = map.keys.take(toRemove).toList();
+    for (final key in keys) {
+      map.remove(key);
+    }
+  }
+
   @visibleForTesting
   Map<String, Set<void Function()>> get activeDownloadsForTesting =>
       _activeDownloads;
@@ -1441,6 +1456,7 @@ class TidalService implements NetworkSourceService {
               bitrate: effectiveBandwidth,
             );
             _resolvedStreams[trackId] = res;
+            _evictOldestIfNeeded(_resolvedStreams);
             streamResolutionVersion.value++;
             return res;
           }
@@ -1495,6 +1511,7 @@ class TidalService implements NetworkSourceService {
                 : btsBitrate,
           );
           _resolvedStreams[trackId] = res;
+          _evictOldestIfNeeded(_resolvedStreams);
           streamResolutionVersion.value++;
           return res;
         }
@@ -3141,6 +3158,7 @@ class TidalService implements NetworkSourceService {
       };
       if (startTier != null) {
         _tierStartHintByTrackId[remoteId] = startTier;
+        _evictOldestIfNeeded(_tierStartHintByTrackId);
       }
     }
     final initialSampleRate = isHiRes ? 96000 : 44100;
