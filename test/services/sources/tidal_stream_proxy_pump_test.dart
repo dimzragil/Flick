@@ -16,7 +16,7 @@ void main() {
     });
 
     tearDown(() async {
-      await TidalStreamProxy.instance.stop();
+      TidalStreamProxy.instance.cancelAllSessions();
       if (await tempDir.exists()) {
         await tempDir.delete(recursive: true);
       }
@@ -62,7 +62,6 @@ void main() {
         dashInfo: dashInfo,
         targetPath: targetPath,
         client: client,
-        initialRetryDelay: Duration.zero,
       );
 
       // Trigger pump by requesting seg1 offset
@@ -117,7 +116,6 @@ void main() {
         dashInfo: dashInfo,
         targetPath: targetPath1,
         client: client,
-        initialRetryDelay: Duration.zero,
       );
 
       // Request beyond buffered range, pump fails all retries
@@ -134,7 +132,6 @@ void main() {
         dashInfo: dashInfo,
         targetPath: targetPath2,
         client: client,
-        initialRetryDelay: Duration.zero,
       );
 
       expect(streamUrl2, isNot(equals(streamUrl1)));
@@ -179,7 +176,6 @@ void main() {
         dashInfo: dashInfo,
         targetPath: targetPath,
         client: client,
-        initialRetryDelay: Duration.zero,
       );
 
       final httpClient = HttpClient();

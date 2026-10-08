@@ -14,9 +14,9 @@ import 'dash_manifest_parser.dart';
 /// and the first audio chunk (~800 KB) in ~300ms, and begins serving a local HTTP
 /// stream to [RustAudioEngine] immediately.
 ///
-/// Remaining media segments are fetched by a background worker pool and stitched
-/// sequentially to the cache file on disk, preserving bit-perfect FLAC audio
-/// quality with near-zero latency.
+/// Remaining media segments are fetched by a sequential segment pump and
+/// stitched sequentially to the cache file on disk, preserving bit-perfect
+/// FLAC audio quality with near-zero latency.
 /// Lightweight descriptor for a finalized track whose complete audio file is on disk.
 /// Holds minimal metadata (no segment lists or network clients) so loopback Range
 /// requests can continue to be served to ExoPlayer / Rust without keeping heavy sessions alive.
@@ -48,11 +48,7 @@ class TidalStreamProxy {
   int? get port => _server?.port;
 
   int get activeSessionCount => _sessions.length;
-  int get activeBtsSessionCount => _btsSessions.length;
   int get completedStreamCount => _completedFiles.length;
-  bool hasActiveSession(String token) => _sessions.containsKey(token);
-  bool hasActiveBtsSession(String token) => _btsSessions.containsKey(token);
-  bool hasCompletedStream(String token) => _completedFiles.containsKey(token);
 
   void _onSessionFinalized(TidalStreamSession session) {
     _sessions.remove(session.streamToken);
@@ -114,7 +110,6 @@ class TidalStreamProxy {
     required String targetPath,
     http.Client? client,
     Future<void> Function(File targetFile)? onFinalized,
-    Duration? initialRetryDelay,
     bool deferPump = false,
   }) async {
     final serverPort = await ensureServer();
@@ -153,7 +148,6 @@ class TidalStreamProxy {
       client: client ?? http.Client(),
       onFinalized: onFinalized,
       onSessionFinalized: _onSessionFinalized,
-      initialRetryDelay: initialRetryDelay ?? const Duration(milliseconds: 500),
     );
 
     _sessions[token] = session;
@@ -263,14 +257,6 @@ class TidalStreamProxy {
     _completedFiles.removeWhere((_, completed) => completed.trackId == trackId);
   }
 
-  /// Stop the server and clean up all sessions.
-  Future<void> stop() async {
-    cancelAllSessions();
-    final s = _server;
-    _server = null;
-    await s?.close(force: true);
-  }
-
   String _generateToken() {
     final bytes = List<int>.generate(16, (_) => _rand.nextInt(256));
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
@@ -303,7 +289,7 @@ class TidalStreamProxy {
       }
 
       final filename = segments[1];
-      final token = filename.replaceAll('.mp4', '');
+      final token = filename.substring(0, filename.lastIndexOf('.'));
       final session = _sessions[token];
       if (session != null) {
         await session.handleRequest(req);
@@ -365,7 +351,13 @@ class TidalStreamProxy {
           req.uri.pathSegments.isNotEmpty &&
           req.uri.pathSegments[0] == 'tidal-bts';
       final actualEnd = (isBts && start == 0)
-          ? min(end, min(fileLength - 1, 256 * 1024 - 1))
+          ? min(
+              end,
+              min(
+                fileLength - 1,
+                TidalBtsStreamSession.kInitialBufferBytes - 1,
+              ),
+            )
           : min(end, fileLength - 1);
       final lengthToRead = actualEnd - start + 1;
 
@@ -446,7 +438,6 @@ class TidalStreamSession {
     required this.client,
     this.onFinalized,
     this.onSessionFinalized,
-    this.initialRetryDelay = const Duration(milliseconds: 500),
   });
 
   final String streamToken;
@@ -456,7 +447,6 @@ class TidalStreamSession {
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
   final void Function(TidalStreamSession session)? onSessionFinalized;
-  final Duration initialRetryDelay;
 
   int _nextSegmentIndex = 1;
   int _lastRequestedSegment = 0;
@@ -486,7 +476,6 @@ class TidalStreamSession {
 
   bool get isCancelled => _isCancelled;
   bool get hasFailed => _pumpFailed;
-  bool get isHealthy => !_isCancelled && !_pumpFailed;
 
   /// Start the session: downloads init + segment 0 and unblocks playback (~300ms).
   Future<void> start({bool deferPump = false}) async {
@@ -602,7 +591,7 @@ class TidalStreamSession {
         http.Response? resp;
         var retryCount = 0;
         const maxRetries = 3;
-        var delay = initialRetryDelay;
+        var delay = const Duration(milliseconds: 500);
 
         while (retryCount <= maxRetries && !_isCancelled) {
           try {
@@ -1020,7 +1009,8 @@ class TidalStreamSession {
 
 /// Progressive local file proxy for a single, unsegmented BTS asset.
 class TidalBtsStreamSession {
-  static const int _initialBufferBytes = 256 * 1024;
+  static const int kInitialBufferBytes = 256 * 1024;
+  static const int _initialBufferBytes = kInitialBufferBytes;
 
   /// Tail prefetch size. Format probes (symphonia) seek to the last ~64KB of
   /// the file; prefetching the tail in parallel means those seeks are served
@@ -1046,7 +1036,6 @@ class TidalBtsStreamSession {
   bool _failed = false;
   bool get isCancelled => _cancelled;
   bool get hasFailed => _failed;
-  bool get isHealthy => !_cancelled && !_failed;
   int _written = 0;
   int? _total;
 

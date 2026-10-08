@@ -17,7 +17,7 @@ void main() {
     });
 
     tearDown(() async {
-      await TidalStreamProxy.instance.stop();
+      TidalStreamProxy.instance.cancelAllSessions();
       if (await tempDir.exists()) {
         await tempDir.delete(recursive: true);
       }

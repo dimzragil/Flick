@@ -1276,7 +1276,7 @@ class TidalService implements NetworkSourceService {
       if (isCancelled) throw TidalException('Download cancelled');
       sink.add(initResp.bodyBytes);
 
-      // 2. Download media segments in a pipelined worker pool (up to 8 concurrent workers)
+      // 2. Download media segments in a pipelined worker pool (up to 4 concurrent workers)
       final totalSegments = dashInfo.segmentUrls.length;
       final completedBuffers = <int, List<int>>{};
       var nextIndexToWrite = 0;
