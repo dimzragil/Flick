@@ -104,10 +104,14 @@ class _WaveformLayerState extends State<WaveformLayer>
                 return ValueListenableBuilder<Duration>(
                   valueListenable: widget.positionNotifier,
                   builder: (context, position, _) {
-                    final seekBar = switch (style) {
-                      ProgressBarStyle.line => LineSeekBar(
-                        position: position,
-                        duration: duration,
+                    return ValueListenableBuilder<Duration>(
+                      valueListenable:
+                          widget.playerService.bufferedPositionNotifier,
+                      builder: (context, bufferedPosition, _) {
+                        final seekBar = switch (style) {
+                          ProgressBarStyle.line => LineSeekBar(
+                            position: position,
+                            duration: duration,
                         appearProgress: t,
                         onChanged: (newPos) {
                           widget.positionNotifier.value = newPos;
@@ -117,6 +121,7 @@ class _WaveformLayerState extends State<WaveformLayer>
                       ProgressBarStyle.waveform => WaveformSeekBar(
                         barCount: 60,
                         position: position,
+                        bufferedPosition: bufferedPosition,
                         duration: duration,
                         appearProgress: t,
                         cachedPeaks: _cachedPeaks,

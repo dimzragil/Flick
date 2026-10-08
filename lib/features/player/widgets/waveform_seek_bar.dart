@@ -5,6 +5,7 @@ import 'package:flick/core/theme/app_colors.dart';
 
 class WaveformSeekBar extends StatefulWidget {
   final Duration position;
+  final Duration bufferedPosition;
   final Duration duration;
   final ValueChanged<Duration> onChanged;
   final ValueChanged<Duration>? onChangeEnd;
@@ -14,6 +15,7 @@ class WaveformSeekBar extends StatefulWidget {
   const WaveformSeekBar({
     super.key,
     required this.position,
+    this.bufferedPosition = Duration.zero,
     required this.duration,
     required this.onChanged,
     this.onChangeEnd,
@@ -252,9 +254,13 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
                     painter: _WaveformPainter(
                       waveformData: _waveformData,
                       position: _displayPosition,
+                      bufferedPosition: widget.bufferedPosition,
                       duration: widget.duration,
                       color: AppColors.textTertiary.withValues(alpha: 0.3),
                       activeColor: AppColors.accent,
+                      bufferedColor: AppColors.textTertiary.withValues(
+                        alpha: 0.65,
+                      ),
                       barCount: widget.barCount,
                       zoomFactor: _isFineScrubbing ? _fineScrubZoom : 1.0,
                       appearProgress: widget.appearProgress,
@@ -279,9 +285,11 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
 class _WaveformPainter extends CustomPainter {
   final List<double> waveformData;
   final Duration position;
+  final Duration bufferedPosition;
   final Duration duration;
   final Color color;
   final Color activeColor;
+  final Color bufferedColor;
   final int barCount;
   final double zoomFactor;
   final double appearProgress;
@@ -289,9 +297,11 @@ class _WaveformPainter extends CustomPainter {
   _WaveformPainter({
     required this.waveformData,
     required this.position,
+    required this.bufferedPosition,
     required this.duration,
     required this.color,
     required this.activeColor,
+    required this.bufferedColor,
     required this.barCount,
     required this.zoomFactor,
     required this.appearProgress,
@@ -321,6 +331,9 @@ class _WaveformPainter extends CustomPainter {
     final currentProgress = duration.inMilliseconds == 0
         ? 0.0
         : position.inMilliseconds / duration.inMilliseconds;
+    final bufferedProgress = duration.inMilliseconds == 0
+        ? 0.0
+        : bufferedPosition.inMilliseconds / duration.inMilliseconds;
     final visibleProgressWindow = 1 / zoomFactor;
     final startProgress = zoomFactor <= 1
         ? 0.0
@@ -351,8 +364,11 @@ class _WaveformPainter extends CustomPainter {
       if (distanceFromProgress >= transitionWidth) {
         // Fully played
         barColor = activeColor;
+      } else if (barProgress <= bufferedProgress) {
+        // Buffered but not yet played
+        barColor = bufferedColor;
       } else if (distanceFromProgress <= 0) {
-        // Not yet played
+        // Not yet played nor buffered
         barColor = color;
       } else {
         // In the transition zone - smoothly interpolate
@@ -376,6 +392,11 @@ class _WaveformPainter extends CustomPainter {
   bool shouldRepaint(_WaveformPainter oldDelegate) {
     // Only repaint if duration changed
     if (oldDelegate.duration != duration) {
+      return true;
+    }
+
+    // Repaint if buffered position changed significantly (which bar is buffered)
+    if (oldDelegate.bufferedPosition != bufferedPosition) {
       return true;
     }
 
