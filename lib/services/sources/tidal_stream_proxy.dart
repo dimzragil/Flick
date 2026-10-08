@@ -611,7 +611,10 @@ class TidalStreamSession {
           try {
             resp = await client
                 .get(Uri.parse(url))
-                .timeout(const Duration(seconds: 20));
+                .timeout(const Duration(seconds: 10));
+            // Check cancellation immediately after network returns, before
+            // processing. Ensures prompt abort on track switch.
+            if (_isCancelled || hasError) return null;
             if (resp.statusCode == 200) {
               return resp;
             }
