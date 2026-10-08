@@ -162,6 +162,7 @@ class TidalStreamProxy {
       client: client ?? http.Client(),
       onFinalized: onFinalized,
       onSessionFinalized: _onSessionFinalized,
+      onBecameAggressive: (t) => demoteAllExcept(t),
     );
 
     _sessions[token] = session;
@@ -237,6 +238,18 @@ class TidalStreamProxy {
     // prepareStream to re-download tracks on every skip (sustained network
     // churn + hot phone). Stale entries are harmless: serve paths verify
     // File.exists() before use.
+  }
+
+  /// Demote all sessions except the given token from aggressive prefetch
+  /// back to window-limited mode. Called when a new track becomes the
+  /// actively playing one, preventing multiple sessions from downloading
+  /// aggressively in parallel (network saturation on track switch).
+  void demoteAllExcept(String activeToken) {
+    for (final entry in _sessions.entries) {
+      if (entry.key != activeToken) {
+        entry.value.demote();
+      }
+    }
   }
 
   /// Starts the pump for a deferred (lazy) session, e.g. when it becomes the
@@ -452,6 +465,7 @@ class TidalStreamSession {
     required this.client,
     this.onFinalized,
     this.onSessionFinalized,
+    this.onBecameAggressive,
   });
 
   final String streamToken;
@@ -461,6 +475,7 @@ class TidalStreamSession {
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
   final void Function(TidalStreamSession session)? onSessionFinalized;
+  final void Function(String streamToken)? onBecameAggressive;
 
   int _nextSegmentIndex = 1;
   int _lastRequestedSegment = 0;
@@ -741,6 +756,7 @@ class TidalStreamSession {
     // to ensure download keeps up with playback.
     if (!_aggressivePrefetch && seg > _bufferAheadLimit) {
       _aggressivePrefetch = true;
+      onBecameAggressive?.call(streamToken);
     }
     // Wake all waiting workers (parallel pump may have multiple).
     for (final w in _waitingWorkers) {
@@ -870,8 +886,9 @@ class TidalStreamSession {
     // aggressively from here on. Background sessions never receive such
     // requests, so they stay window-limited and light on network.
     // Set BEFORE _wakePumpForByte so a sleeping pump doesn't go back to sleep.
-    if (!hasExplicitEnd) {
+    if (!hasExplicitEnd && !_aggressivePrefetch) {
       _aggressivePrefetch = true;
+      onBecameAggressive?.call(streamToken);
     }
 
     _wakePumpForByte(start);
@@ -1051,6 +1068,12 @@ class TidalStreamSession {
     try {
       await req.response.close();
     } catch (_) {}
+  }
+
+  /// Demote from aggressive prefetch back to window-limited mode.
+  /// Called when another track becomes the actively playing one.
+  void demote() {
+    _aggressivePrefetch = false;
   }
 
   /// Cancel the session, stop workers, and close file handles.
