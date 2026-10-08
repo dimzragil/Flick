@@ -14,8 +14,8 @@ import 'dash_manifest_parser.dart';
 /// and the first audio chunk (~800 KB) in ~300ms, and begins serving a local HTTP
 /// stream to [RustAudioEngine] immediately.
 ///
-/// Remaining media segments are fetched by a 4-worker parallel pump and
-/// stitched in order to the cache file on disk, preserving bit-perfect
+/// Remaining media segments are fetched by a sequential segment pump and
+/// stitched sequentially to the cache file on disk, preserving bit-perfect
 /// FLAC audio quality with near-zero latency.
 /// Lightweight descriptor for a finalized track whose complete audio file is on disk.
 /// Holds minimal metadata (no segment lists or network clients) so loopback Range
@@ -162,7 +162,6 @@ class TidalStreamProxy {
       client: client ?? http.Client(),
       onFinalized: onFinalized,
       onSessionFinalized: _onSessionFinalized,
-      onBecameAggressive: (t) => demoteAllExcept(t),
     );
 
     _sessions[token] = session;
@@ -239,18 +238,6 @@ class TidalStreamProxy {
     // prepareStream to re-download tracks on every skip (sustained network
     // churn + hot phone). Stale entries are harmless: serve paths verify
     // File.exists() before use.
-  }
-
-  /// Demote all sessions except the given token from aggressive prefetch
-  /// back to window-limited mode. Called when a new track becomes the
-  /// actively playing one, preventing multiple sessions from downloading
-  /// aggressively in parallel (network saturation on track switch).
-  void demoteAllExcept(String activeToken) {
-    for (final entry in _sessions.entries) {
-      if (entry.key != activeToken) {
-        entry.value.demote();
-      }
-    }
   }
 
   /// Starts the pump for a deferred (lazy) session, e.g. when it becomes the
@@ -472,7 +459,6 @@ class TidalStreamSession {
     required this.client,
     this.onFinalized,
     this.onSessionFinalized,
-    this.onBecameAggressive,
   });
 
   final String streamToken;
@@ -482,14 +468,12 @@ class TidalStreamSession {
   final http.Client client;
   final Future<void> Function(File targetFile)? onFinalized;
   final void Function(TidalStreamSession session)? onSessionFinalized;
-  final void Function(String streamToken)? onBecameAggressive;
 
   int _nextSegmentIndex = 1;
   int _lastRequestedSegment = 0;
   bool _pumpRunning = false;
   bool _pumpFailed = false;
   Completer<void>? _needMoreCompleter;
-  final List<Completer<void>> _waitingWorkers = [];
   final List<int> _segmentStartOffsets = [];
 
   static const int _bufferAheadLimit = 3;
@@ -609,126 +593,80 @@ class TidalStreamSession {
     _pumpRunning = true;
 
     try {
-      // Parallel worker pool for segment fetching (ported from
-      // _downloadAndAssembleDash). 4 concurrent workers overcome
-      // per-connection throttling. Completed segments are buffered and
-      // written in strict order so progressive readers see a contiguous
-      // byte stream.
-      const workerCount = 4;
-      final totalSegments = dashInfo.segmentUrls.length;
+      while (!_isCancelled &&
+          !_isFinished &&
+          !_pumpFailed &&
+          _nextSegmentIndex < dashInfo.segmentUrls.length) {
+        // Window-limited prefetch for background sessions; the actively
+        // playing session flips _aggressivePrefetch and downloads everything.
+        if (!_aggressivePrefetch &&
+            _nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
+          _needMoreCompleter = Completer<void>();
+          await _needMoreCompleter!.future;
+          if (_isCancelled || _isFinished || _pumpFailed) break;
+        }
 
-      var nextIndexToFetch = _nextSegmentIndex;
-      var nextIndexToWrite = _nextSegmentIndex;
-      final completedBuffers = <int, List<int>>{};
-      var hasError = false;
+        final myIndex = _nextSegmentIndex;
+        final myUrl = dashInfo.segmentUrls[myIndex];
 
-      Future<http.Response?> fetchSegmentWithRetry(int index) async {
-        final url = dashInfo.segmentUrls[index];
         http.Response? resp;
         var retryCount = 0;
         const maxRetries = 3;
         var delay = const Duration(milliseconds: 500);
 
-        while (retryCount <= maxRetries && !_isCancelled && !hasError) {
+        while (retryCount <= maxRetries && !_isCancelled) {
           try {
             resp = await client
-                .get(Uri.parse(url))
-                .timeout(const Duration(seconds: 10));
-            // Check cancellation immediately after network returns, before
-            // processing. Ensures prompt abort on track switch.
-            if (_isCancelled || hasError) return null;
+                .get(Uri.parse(myUrl))
+                .timeout(const Duration(seconds: 20));
             if (resp.statusCode == 200) {
-              return resp;
+              break;
             }
             devLog(
-              '[TidalStreamProxy] Segment $index fetch attempt $retryCount failed HTTP ${resp.statusCode}',
+              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount failed HTTP ${resp.statusCode}',
             );
           } catch (e) {
             devLog(
-              '[TidalStreamProxy] Segment $index fetch attempt $retryCount error: $e',
+              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount error: $e',
             );
           }
 
           retryCount++;
-          if (retryCount <= maxRetries && !_isCancelled && !hasError) {
+          if (retryCount <= maxRetries && !_isCancelled) {
             if (delay > Duration.zero) {
               await Future<void>.delayed(delay);
             }
             delay *= 2;
           }
         }
-        return null;
-      }
 
-      Future<void> worker() async {
-        while (!hasError && !_isCancelled && !_isFinished && !_pumpFailed) {
-          int myIndex;
-
-          // Window-limited prefetch for background sessions; the actively
-          // playing session flips _aggressivePrefetch and downloads everything.
-          // Each waiting worker registers its own completer so all workers
-          // wake when more data is needed.
-          if (!_aggressivePrefetch &&
-              nextIndexToFetch > _lastRequestedSegment + _bufferAheadLimit) {
-            final waiter = Completer<void>();
-            _waitingWorkers.add(waiter);
-            _needMoreCompleter = waiter;
-            await waiter.future;
-            _waitingWorkers.remove(waiter);
-            if (_isCancelled || _isFinished || _pumpFailed || hasError) break;
-            continue;
-          }
-
-          if (nextIndexToFetch >= totalSegments) break;
-          myIndex = nextIndexToFetch++;
-
-          final resp = await fetchSegmentWithRetry(myIndex);
-          if (resp == null || resp.statusCode != 200) {
-            devLog(
-              '[TidalStreamProxy] Segment $myIndex fetch failed permanently',
-            );
-            hasError = true;
-            _pumpFailed = true;
-            _notifyWaiters();
-            try {
-              client.close();
-            } catch (_) {}
-            break;
-          }
-          if (_isCancelled || hasError) break;
-
-          completedBuffers[myIndex] = resp.bodyBytes;
-
-          // Write out contiguous segments in exact order.
-          while (completedBuffers.containsKey(nextIndexToWrite)) {
-            final data = completedBuffers.remove(nextIndexToWrite)!;
-            if (_writeRaf != null && !_isCancelled && !hasError) {
-              await _writeRaf!.writeFrom(data);
-              await _writeRaf!.flush();
-              _bytesWritten += data.length;
-              _segmentStartOffsets.add(_bytesWritten);
-              _notifyWaiters();
-            }
-            nextIndexToWrite++;
-            _nextSegmentIndex = nextIndexToWrite;
-          }
+        if (resp == null || resp.statusCode != 200) {
+          devLog(
+            '[TidalStreamProxy] Segment $myIndex fetch failed permanently after $retryCount attempts',
+          );
+          _pumpFailed = true;
+          _notifyWaiters();
+          try {
+            client.close();
+          } catch (_) {}
+          break;
         }
-      }
+        if (_isCancelled) break;
 
-      final concurrency = totalSegments - _nextSegmentIndex < workerCount
-          ? totalSegments - _nextSegmentIndex
-          : workerCount;
-      if (concurrency > 0) {
-        await Future.wait(List.generate(concurrency, (_) => worker()));
-      }
+        if (_writeRaf != null && !_isCancelled) {
+          await _writeRaf!.writeFrom(resp.bodyBytes);
+          await _writeRaf!.flush();
+          _bytesWritten += resp.bodyBytes.length;
+          _segmentStartOffsets.add(_bytesWritten);
+          _notifyWaiters();
+        }
 
-      if (hasError) {
-        _pumpFailed = true;
+        _nextSegmentIndex++;
       }
 
       if (!_isCancelled &&
           !_pumpFailed &&
-          nextIndexToWrite >= totalSegments) {
+          _nextSegmentIndex >= dashInfo.segmentUrls.length) {
         await _finalizeDownload();
       }
     } catch (e) {
@@ -757,17 +695,6 @@ class TidalStreamSession {
     }
     if (seg > _lastRequestedSegment) {
       _lastRequestedSegment = seg;
-    }
-    // If ExoPlayer is actively reading beyond the initial window, this is
-    // the playing track, not a background prefetch. Flip to aggressive mode
-    // to ensure download keeps up with playback.
-    if (!_aggressivePrefetch && seg > _bufferAheadLimit) {
-      _aggressivePrefetch = true;
-      onBecameAggressive?.call(streamToken);
-    }
-    // Wake all waiting workers (parallel pump may have multiple).
-    for (final w in _waitingWorkers) {
-      if (!w.isCompleted) w.complete();
     }
     if (_needMoreCompleter != null && !_needMoreCompleter!.isCompleted) {
       _needMoreCompleter!.complete();
@@ -893,9 +820,8 @@ class TidalStreamSession {
     // aggressively from here on. Background sessions never receive such
     // requests, so they stay window-limited and light on network.
     // Set BEFORE _wakePumpForByte so a sleeping pump doesn't go back to sleep.
-    if (!hasExplicitEnd && !_aggressivePrefetch) {
+    if (!hasExplicitEnd) {
       _aggressivePrefetch = true;
-      onBecameAggressive?.call(streamToken);
     }
 
     _wakePumpForByte(start);
@@ -1077,20 +1003,11 @@ class TidalStreamSession {
     } catch (_) {}
   }
 
-  /// Demote from aggressive prefetch back to window-limited mode.
-  /// Called when another track becomes the actively playing one.
-  void demote() {
-    _aggressivePrefetch = false;
-  }
-
   /// Cancel the session, stop workers, and close file handles.
   void cancel() {
     if (_isCancelled) return;
     _isCancelled = true;
     _notifyWaiters();
-    for (final w in _waitingWorkers) {
-      if (!w.isCompleted) w.complete();
-    }
     if (_needMoreCompleter != null && !_needMoreCompleter!.isCompleted) {
       _needMoreCompleter!.complete();
     }
