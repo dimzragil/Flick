@@ -14,8 +14,8 @@ import 'dash_manifest_parser.dart';
 /// and the first audio chunk (~800 KB) in ~300ms, and begins serving a local HTTP
 /// stream to [RustAudioEngine] immediately.
 ///
-/// Remaining media segments are fetched by a sequential segment pump and
-/// stitched sequentially to the cache file on disk, preserving bit-perfect
+/// Remaining media segments are fetched by a 4-worker parallel pump and
+/// stitched in order to the cache file on disk, preserving bit-perfect
 /// FLAC audio quality with near-zero latency.
 /// Lightweight descriptor for a finalized track whose complete audio file is on disk.
 /// Holds minimal metadata (no segment lists or network clients) so loopback Range
@@ -586,80 +586,125 @@ class TidalStreamSession {
     _pumpRunning = true;
 
     try {
-      while (!_isCancelled &&
-          !_isFinished &&
-          !_pumpFailed &&
-          _nextSegmentIndex < dashInfo.segmentUrls.length) {
-        // Window-limited prefetch for background sessions; the actively
-        // playing session flips _aggressivePrefetch and downloads everything.
-        if (!_aggressivePrefetch &&
-            _nextSegmentIndex > _lastRequestedSegment + _bufferAheadLimit) {
-          _needMoreCompleter = Completer<void>();
-          await _needMoreCompleter!.future;
-          if (_isCancelled || _isFinished || _pumpFailed) break;
-        }
+      // Parallel worker pool for segment fetching (ported from
+      // _downloadAndAssembleDash). 4 concurrent workers overcome
+      // per-connection throttling. Completed segments are buffered and
+      // written in strict order so progressive readers see a contiguous
+      // byte stream.
+      const workerCount = 4;
+      final totalSegments = dashInfo.segmentUrls.length;
 
-        final myIndex = _nextSegmentIndex;
-        final myUrl = dashInfo.segmentUrls[myIndex];
+      var nextIndexToFetch = _nextSegmentIndex;
+      var nextIndexToWrite = _nextSegmentIndex;
+      final completedBuffers = <int, List<int>>{};
+      var hasError = false;
 
+      Future<http.Response?> fetchSegmentWithRetry(int index) async {
+        final url = dashInfo.segmentUrls[index];
         http.Response? resp;
         var retryCount = 0;
         const maxRetries = 3;
         var delay = const Duration(milliseconds: 500);
 
-        while (retryCount <= maxRetries && !_isCancelled) {
+        while (retryCount <= maxRetries && !_isCancelled && !hasError) {
           try {
             resp = await client
-                .get(Uri.parse(myUrl))
+                .get(Uri.parse(url))
                 .timeout(const Duration(seconds: 20));
             if (resp.statusCode == 200) {
-              break;
+              return resp;
             }
             devLog(
-              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount failed HTTP ${resp.statusCode}',
+              '[TidalStreamProxy] Segment $index fetch attempt $retryCount failed HTTP ${resp.statusCode}',
             );
           } catch (e) {
             devLog(
-              '[TidalStreamProxy] Segment $myIndex fetch attempt $retryCount error: $e',
+              '[TidalStreamProxy] Segment $index fetch attempt $retryCount error: $e',
             );
           }
 
           retryCount++;
-          if (retryCount <= maxRetries && !_isCancelled) {
+          if (retryCount <= maxRetries && !_isCancelled && !hasError) {
             if (delay > Duration.zero) {
               await Future<void>.delayed(delay);
             }
             delay *= 2;
           }
         }
+        return null;
+      }
 
-        if (resp == null || resp.statusCode != 200) {
-          devLog(
-            '[TidalStreamProxy] Segment $myIndex fetch failed permanently after $retryCount attempts',
-          );
-          _pumpFailed = true;
-          _notifyWaiters();
-          try {
-            client.close();
-          } catch (_) {}
-          break;
+      Future<void> worker() async {
+        while (!hasError && !_isCancelled && !_isFinished && !_pumpFailed) {
+          int myIndex;
+
+          // Window-limited prefetch for background sessions; the actively
+          // playing session flips _aggressivePrefetch and downloads everything.
+          if (!_aggressivePrefetch &&
+              nextIndexToFetch > _lastRequestedSegment + _bufferAheadLimit) {
+            _needMoreCompleter ??= Completer<void>();
+            final waiter = _needMoreCompleter!.future;
+            await waiter;
+            // Clear so next waiter creates a fresh completer. Safe because
+            // each worker holds its own future reference.
+            if (_needMoreCompleter != null &&
+                _needMoreCompleter!.isCompleted) {
+              _needMoreCompleter = null;
+            }
+            if (_isCancelled || _isFinished || _pumpFailed || hasError) break;
+            continue;
+          }
+
+          if (nextIndexToFetch >= totalSegments) break;
+          myIndex = nextIndexToFetch++;
+
+          final resp = await fetchSegmentWithRetry(myIndex);
+          if (resp == null || resp.statusCode != 200) {
+            devLog(
+              '[TidalStreamProxy] Segment $myIndex fetch failed permanently',
+            );
+            hasError = true;
+            _pumpFailed = true;
+            _notifyWaiters();
+            try {
+              client.close();
+            } catch (_) {}
+            break;
+          }
+          if (_isCancelled || hasError) break;
+
+          completedBuffers[myIndex] = resp.bodyBytes;
+
+          // Write out contiguous segments in exact order.
+          while (completedBuffers.containsKey(nextIndexToWrite)) {
+            final data = completedBuffers.remove(nextIndexToWrite)!;
+            if (_writeRaf != null && !_isCancelled && !hasError) {
+              await _writeRaf!.writeFrom(data);
+              await _writeRaf!.flush();
+              _bytesWritten += data.length;
+              _segmentStartOffsets.add(_bytesWritten);
+              _notifyWaiters();
+            }
+            nextIndexToWrite++;
+            _nextSegmentIndex = nextIndexToWrite;
+          }
         }
-        if (_isCancelled) break;
+      }
 
-        if (_writeRaf != null && !_isCancelled) {
-          await _writeRaf!.writeFrom(resp.bodyBytes);
-          await _writeRaf!.flush();
-          _bytesWritten += resp.bodyBytes.length;
-          _segmentStartOffsets.add(_bytesWritten);
-          _notifyWaiters();
-        }
+      final concurrency = totalSegments - _nextSegmentIndex < workerCount
+          ? totalSegments - _nextSegmentIndex
+          : workerCount;
+      if (concurrency > 0) {
+        await Future.wait(List.generate(concurrency, (_) => worker()));
+      }
 
-        _nextSegmentIndex++;
+      if (hasError) {
+        _pumpFailed = true;
       }
 
       if (!_isCancelled &&
           !_pumpFailed &&
-          _nextSegmentIndex >= dashInfo.segmentUrls.length) {
+          nextIndexToWrite >= totalSegments) {
         await _finalizeDownload();
       }
     } catch (e) {
