@@ -915,25 +915,28 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final cardWidth = context.scaleSize(110);
 
     return RepaintBoundary(
-      child: Container(
-        width: cardWidth,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TidalPlaylistCoverWidget(playlist: playlist, size: cardWidth),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+      child: GestureDetector(
+        onTap: () => _openPlaylist(playlist),
+        child: Container(
+          width: cardWidth,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TidalPlaylistCoverWidget(playlist: playlist, size: cardWidth),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
