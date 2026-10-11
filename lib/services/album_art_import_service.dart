@@ -4,9 +4,11 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/utils/string_sort_utils.dart';
+import '../core/utils/atomic_file.dart';
 import '../data/repositories/song_repository.dart';
 import '../models/song.dart';
 
@@ -116,9 +118,7 @@ class AlbumArtImportService {
 
     if (candidates.length < 12) {
       try {
-        candidates.addAll(
-          await _searchITunes(album: album, artist: artist),
-        );
+        candidates.addAll(await _searchITunes(album: album, artist: artist));
       } catch (error) {
         lastError ??= error;
       }
@@ -126,9 +126,7 @@ class AlbumArtImportService {
 
     if (candidates.length < 12) {
       try {
-        candidates.addAll(
-          await _searchDeezer(album: album, artist: artist),
-        );
+        candidates.addAll(await _searchDeezer(album: album, artist: artist));
       } catch (error) {
         lastError ??= error;
       }
@@ -182,6 +180,9 @@ class AlbumArtImportService {
       throw const AlbumArtImportException(
         'Selected file is not a supported image.',
       );
+    }
+    if (!_isDecodableImage(bytes)) {
+      throw const AlbumArtImportException('Image is corrupted or incomplete.');
     }
 
     final group = await _resolveAlbumGroup(song);
@@ -241,12 +242,13 @@ class AlbumArtImportService {
         'Selected file is not a supported image.',
       );
     }
+    if (!_isDecodableImage(bytes)) {
+      throw const AlbumArtImportException('Image is corrupted or incomplete.');
+    }
 
     final filePath = song.filePath;
     if (filePath == null || filePath.isEmpty) {
-      throw const AlbumArtImportException(
-        'Song has no file path.',
-      );
+      throw const AlbumArtImportException('Song has no file path.');
     }
 
     final file = await _writeCustomArtwork(filePath, bytes);
@@ -263,9 +265,7 @@ class AlbumArtImportService {
   Future<AlbumArtUpdateResult> removeCustomArtworkForSong(Song song) async {
     final filePath = song.filePath;
     if (filePath == null || filePath.isEmpty) {
-      throw const AlbumArtImportException(
-        'Song has no file path.',
-      );
+      throw const AlbumArtImportException('Song has no file path.');
     }
 
     final currentPath = song.albumArt;
@@ -419,8 +419,7 @@ class AlbumArtImportService {
         continue;
       }
 
-      final itunesArtist =
-          (result['artistName'] as String?)?.trim() ?? '';
+      final itunesArtist = (result['artistName'] as String?)?.trim() ?? '';
       final releaseDate = (result['releaseDate'] as String?)?.trim();
       final artworkUrl = (result['artworkUrl100'] as String?)?.trim();
       if (artworkUrl == null || artworkUrl.isEmpty) {
@@ -451,10 +450,7 @@ class AlbumArtImportService {
   }) async {
     final query = 'album:"$album" artist:"$artist"';
     final response = await _getJson(
-      Uri.https('api.deezer.com', '/search/album', {
-        'q': query,
-        'limit': '10',
-      }),
+      Uri.https('api.deezer.com', '/search/album', {'q': query, 'limit': '10'}),
     );
 
     final data = response['data'];
@@ -475,8 +471,8 @@ class AlbumArtImportService {
 
       final deezerArtist = item['artist'] is Map<String, dynamic>
           ? ((item['artist'] as Map<String, dynamic>)['name'] as String?)
-                  ?.trim() ??
-              ''
+                    ?.trim() ??
+                ''
           : '';
       final releaseDate = (item['release_date'] as String?)?.trim();
       final coverUrl = (item['cover_big'] as String?)?.trim();
@@ -626,7 +622,7 @@ class AlbumArtImportService {
     final file = File(
       '${artworkDirectory.path}${Platform.pathSeparator}$digest.cover',
     );
-    await file.writeAsBytes(bytes, flush: true);
+    await atomicWriteBytes(file, bytes);
     return file;
   }
 
@@ -735,6 +731,16 @@ class AlbumArtImportService {
       return albumArtist;
     }
     return song.artist.trim();
+  }
+
+  /// Returns true if [bytes] decode into a valid image. Catches truncated
+  /// downloads that pass magic-byte sniffing but fail to decode.
+  bool _isDecodableImage(Uint8List bytes) {
+    try {
+      return img.decodeImage(bytes) != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _looksLikeImage(Uint8List bytes) {

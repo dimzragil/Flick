@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/database.dart';
 import '../data/repositories/song_repository.dart';
+import '../core/utils/atomic_file.dart';
 import '../src/rust/api/scanner.dart' as rust_scanner;
 import 'music_folder_service.dart';
 import 'player_service.dart';
@@ -75,7 +76,7 @@ class AlbumArtService {
       }
 
       final bytes = await _normalizeArtworkBytes(raw);
-      await cachedFile.writeAsBytes(bytes, flush: true);
+      await atomicWriteBytes(cachedFile, bytes);
 
       await _persistArtworkPath(audioSourcePath, cachedFile.path);
       unawaited(_pruneIfNeeded(dir));
