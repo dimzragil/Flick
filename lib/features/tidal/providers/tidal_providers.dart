@@ -263,8 +263,13 @@ final tidalAlbumDetailsProvider =
         throw StateError('Tidal server not found');
       }
       final tidal = ref.read(tidalServiceProvider);
-      final album = await tidal.getAlbum(server, albumId);
-      final rawTracks = await tidal.getAlbumTracks(server, albumId);
+      // Fetch album metadata and tracks in parallel — they're independent.
+      final results = await Future.wait([
+        tidal.getAlbum(server, albumId),
+        tidal.getAlbumTracks(server, albumId),
+      ]);
+      final album = results[0] as Map<String, dynamic>;
+      final rawTracks = results[1] as List;
       final tracks = rawTracks.map((t) {
         final trackMap = Map<String, dynamic>.from(t);
         if (trackMap['album'] == null && album.isNotEmpty) {
@@ -286,8 +291,13 @@ final tidalPlaylistDetailsProvider =
         throw StateError('Tidal server not found');
       }
       final tidal = ref.read(tidalServiceProvider);
-      final playlist = await tidal.getPlaylist(server, playlistId);
-      final rawTracks = await tidal.getPlaylistTracks(server, playlistId);
+      // Fetch playlist metadata and tracks in parallel — they're independent.
+      final results = await Future.wait([
+        tidal.getPlaylist(server, playlistId),
+        tidal.getPlaylistTracks(server, playlistId),
+      ]);
+      final playlist = results[0] as Map<String, dynamic>;
+      final rawTracks = results[1] as List;
       final tracks = rawTracks
           .map((t) => TidalService.makeEphemeralSong(server, t))
           .toList();
