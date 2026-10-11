@@ -70,6 +70,10 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
     });
     await tidal.migrateServerToken(server);
 
+    // New account — drop stale optimistic favorite adjustments.
+    ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
+    ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
+
     state = AsyncValue.data(server);
     return server;
   }
@@ -83,6 +87,9 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
         await Database.networkServers.put(server);
       });
       await ref.read(tidalServiceProvider).forgetToken(server.id);
+      // Drop optimistic adjustments so they can't leak into another account.
+      ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
+      ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
       state = AsyncValue.data(server);
     }
   }
@@ -395,6 +402,11 @@ class TidalFavoriteTrackIdsOptimisticNotifier
       removed: {...state.removed, id},
     );
   }
+
+  /// Clears all optimistic adjustments (e.g. on sign-out / account switch).
+  void clear() {
+    state = (added: const <String>{}, removed: const <String>{});
+  }
 }
 
 final tidalFavoriteTrackIdsOptimisticProvider =
@@ -457,6 +469,11 @@ class TidalLikedSongsOptimisticNotifier
           .toList(),
       removed: {...state.removed, trackId},
     );
+  }
+
+  /// Clears all optimistic adjustments (e.g. on sign-out / account switch).
+  void clear() {
+    state = (added: const <Song>[], removed: const <String>{});
   }
 }
 
