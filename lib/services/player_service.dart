@@ -1868,16 +1868,30 @@ class PlayerService {
     return _playlistQueueEntryIds.indexOf(queueEntryId);
   }
 
+  /// Removes a song from [_originalPlaylist] by ID. Keeps the pre-shuffle
+  /// order in sync when songs are removed, so disabling shuffle doesn't
+  /// resurrect deleted songs.
+  void _removeFromOriginalPlaylist(Song song) {
+    _originalPlaylist.removeWhere((s) => s.id == song.id);
+  }
+
   Future<void> _removeQueueEntryById(int queueEntryId) async {
     final playlistIndex = _findPlaylistIndexForQueueEntry(queueEntryId);
+    final removedEntry = _queuedEntries
+        .where((entry) => entry.id == queueEntryId)
+        .firstOrNull;
     _queuedEntries.removeWhere((entry) => entry.id == queueEntryId);
     if (playlistIndex != -1) {
+      final removedSong = _playlist[playlistIndex];
       _playlist.removeAt(playlistIndex);
       _playlistQueueEntryIds.removeAt(playlistIndex);
+      _removeFromOriginalPlaylist(removedSong);
       if (playlistIndex < _currentIndex) {
         _setCurrentIndex(_currentIndex - 1);
       }
       _removeFromAudioSequence(playlistIndex);
+    } else if (removedEntry != null) {
+      _removeFromOriginalPlaylist(removedEntry.song);
     }
     _notifyQueueChanged();
     _notifyUpNextChanged();
@@ -6778,11 +6792,15 @@ class PlayerService {
     if (_playlist.isNotEmpty && _currentIndex >= 0) {
       final keepCount = (_currentIndex + 1).clamp(0, _playlist.length);
       if (keepCount < _playlist.length) {
+        final removed = _playlist.sublist(keepCount);
         _playlist.removeRange(keepCount, _playlist.length);
         _playlistQueueEntryIds.removeRange(
           keepCount,
           _playlistQueueEntryIds.length,
         );
+        for (final song in removed) {
+          _removeFromOriginalPlaylist(song);
+        }
       }
     }
 
@@ -6804,9 +6822,11 @@ class PlayerService {
       _notifyQueueChanged();
     }
 
+    final removedSong = _playlist[playlistIndex];
     _playlist.removeAt(playlistIndex);
     _playlistQueueEntryIds.removeAt(playlistIndex);
     _removeFromAudioSequence(playlistIndex);
+    _removeFromOriginalPlaylist(removedSong);
 
     _notifyUpNextChanged();
     if (_usingRustBackend || _audioSourceSequence == null) {
