@@ -11,8 +11,9 @@ class TidalSearchHistoryRepository {
   static const _maxItems = 20;
 
   /// Serializes recordPlay calls so concurrent plays can't read-modify-write
-  /// the same JSON and silently drop an entry.
-  Future<void> _pending = Future.value();
+  /// the same JSON and silently drop an entry. Static because call sites
+  /// create a new repository instance per call.
+  static Future<void> _pending = Future.value();
 
   /// Records a song played from search. Most recent first, deduplicated.
   Future<void> recordPlay(Song song) {
