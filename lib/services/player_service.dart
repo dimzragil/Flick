@@ -3593,6 +3593,10 @@ class PlayerService {
         }
         if (state.currentTrack != null) {
           _syncCurrentIndexToTrack(state.currentTrack!);
+          // Consume the queue entry if this track came from "Add to Queue".
+          // Idempotent: other advance paths (gapless, _playInternal) already
+          // call this, and re-calling with a nulled entry is a no-op.
+          _consumeQueueEntryAt(_currentIndex);
           _startReplayTracking(
             state.currentTrack!,
             initialPosition: state.position,
