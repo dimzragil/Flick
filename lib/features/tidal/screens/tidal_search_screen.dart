@@ -226,7 +226,9 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   }
 
   Widget _buildResultsView(TidalSearchResults results) {
-    if (results.isLoading) {
+    // First search: full-screen spinner. Refining a query keeps stale
+    // results visible with a thin loader instead of flashing the list away.
+    if (results.isLoading && results.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.accent),
       );
@@ -269,18 +271,30 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
       );
     }
 
+    final Widget content;
     switch (_selectedCategory) {
       case TidalSearchCategory.tracks:
-        return _buildTracksList(results.tracks);
+        content = _buildTracksList(results.tracks);
       case TidalSearchCategory.albums:
-        return _buildAlbumsGrid(results.albums);
+        content = _buildAlbumsGrid(results.albums);
       case TidalSearchCategory.artists:
-        return _buildArtistsList(results.artists);
+        content = _buildArtistsList(results.artists);
       case TidalSearchCategory.playlists:
-        return _buildPlaylistsList(results.playlists);
+        content = _buildPlaylistsList(results.playlists);
       case TidalSearchCategory.all:
-        return _buildAllResults(results);
+        content = _buildAllResults(results);
     }
+
+    // Query is being refined: keep stale results with a thin loading bar.
+    if (results.isLoading) {
+      return Column(
+        children: [
+          const LinearProgressIndicator(color: AppColors.accent),
+          Expanded(child: content),
+        ],
+      );
+    }
+    return content;
   }
 
   Widget _buildEmptyState() {
