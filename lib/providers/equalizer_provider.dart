@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -630,6 +631,7 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
 
   @override
   EqualizerState build() {
+    ref.onDispose(() => _persistDebounce?.cancel());
     final initialState = EqualizerState.initial();
     Future(() async {
       final saved = await _loadPersisted();
@@ -665,13 +667,21 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
     }
   }
 
+  /// Debounce timer for persisting: rapid changes (e.g. slider drags) only
+  /// write the final state, instead of racing concurrent futures where an
+  /// older snapshot could overwrite a newer one.
+  Timer? _persistDebounce;
+
   void _persist() {
-    final current = state;
-    Future(() async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_eqStateKey, jsonEncode(current.toJson()));
-      } catch (_) {}
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(milliseconds: 500), () {
+      final current = state;
+      Future(() async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_eqStateKey, jsonEncode(current.toJson()));
+        } catch (_) {}
+      });
     });
   }
 
