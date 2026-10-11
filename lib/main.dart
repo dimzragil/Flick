@@ -16,6 +16,7 @@ import 'package:flick/services/process_exit_diagnostics_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/core/navigation/root_navigator.dart';
 import 'package:flick/src/rust/api/logging.dart';
 
 Future<void> main() async {
@@ -71,6 +72,7 @@ void _subscribeRustLogs() {
 
 Future<void> _bootstrapAppAfterFirstFrame() async {
   unawaited(_setOptimalDisplayMode());
+  unawaited(_showDatabaseRecoveryNotice());
   unawaited(
     _requestNotificationPermission().catchError(
       (Object e) => devLog('Notification permission request failed: $e'),
@@ -99,6 +101,39 @@ Future<void> _setOptimalDisplayMode() async {
   } catch (e) {
     devLog('Display mode not supported: $e');
   }
+}
+
+/// Informs the user if the database was reset due to an incompatible format.
+/// The old file is kept as a backup (see Database.recoveredBackupPath) —
+/// never silently destroyed.
+Future<void> _showDatabaseRecoveryNotice() async {
+  final backupPath = Database.recoveredBackupPath;
+  if (backupPath == null) return;
+  // Clear so the notice shows only once per recovery.
+  Database.recoveredBackupPath = null;
+
+  final context = rootNavigatorKey.currentContext;
+  if (context == null) return;
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: const Text('Library was reset'),
+      content: const Text(
+        'The music database format changed and could not be opened, '
+        'so the library was started fresh. Your old database was kept '
+        'as a backup file instead of being deleted.\n\n'
+        'You may need to rescan your folders and sign in to TIDAL again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
 }
 
 Future<void> _requestNotificationPermission() async {

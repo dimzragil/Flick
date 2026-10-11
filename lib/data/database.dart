@@ -27,6 +27,11 @@ class Database {
 
   static Isar? _instance;
 
+  /// Path of the backed-up database file, set when [init] recovers from an
+  /// incompatible database format. Null during normal startup. The UI layer
+  /// checks this to inform the user that their library was reset.
+  static String? recoveredBackupPath;
+
   static Isar get instance {
     if (_instance == null) {
       throw StateError('Database not initialized. Call Database.init() first.');
@@ -56,7 +61,9 @@ class Database {
       );
     } on IsarError catch (e) {
       if (e.message.contains('MDBX_INCOMPATIBLE')) {
-        await _deleteDatabaseFiles(dir.path);
+        // Don't silently destroy user data: back the old file up instead of
+        // deleting it, and let the UI inform the user (see recoveredBackupPath).
+        recoveredBackupPath = await _backupDatabaseFiles(dir.path);
         await _clearFingerprintCache(dir.path);
         _instance = await Isar.open(
           schemas,
@@ -102,25 +109,36 @@ class Database {
     TidalTokenStore? tokenStore,
   }) => _migrateTidalTokens(tokenStore: tokenStore);
 
-  static Future<void> _deleteDatabaseFiles(String directory) async {
-    final paths = [
-      '$directory/$_databaseName.isar',
-      '$directory/$_databaseName.isar.lock',
-    ];
+  /// Backs up (renames, never deletes) the database files when the format is
+  /// incompatible. Returns the backup path of the main .isar file, or null
+  /// if there was nothing to back up.
+  static Future<String?> _backupDatabaseFiles(String directory) async {
+    String? backupPath;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-    for (final path in paths) {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
+    final dbFile = File('$directory/$_databaseName.isar');
+    if (await dbFile.exists()) {
+      backupPath = '$directory/$_databaseName.isar.backup_$timestamp';
+      await dbFile.rename(backupPath);
     }
 
-    // Defensive cleanup for older recovery code that treated the database file
-    // path as a directory.
+    // Lock file holds no user data — safe to drop.
+    final lockFile = File('$directory/$_databaseName.isar.lock');
+    if (await lockFile.exists()) {
+      await lockFile.delete();
+    }
+
+    // Defensive handling for older recovery code that treated the database
+    // file path as a directory.
     final legacyDirectory = Directory('$directory/$_databaseName.isar');
     if (await legacyDirectory.exists()) {
-      await legacyDirectory.delete(recursive: true);
+      await legacyDirectory.rename(
+        '$directory/$_databaseName.isar.backup_$timestamp',
+      );
+      backupPath ??= '$directory/$_databaseName.isar.backup_$timestamp';
     }
+
+    return backupPath;
   }
 
   static const String _fingerprintCacheDirName = 'flick_fingerprints';
