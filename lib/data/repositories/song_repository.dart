@@ -710,17 +710,4 @@ class SongRepository {
       await _isar.songAudioCacheEntitys.putAll(entities);
     });
   }
-
-  Future<void> deleteAudioCacheBySongIds(List<int> songIds) async {
-    if (songIds.isEmpty) return;
-    await _isar.writeTxn(() async {
-      await _isar.songAudioCacheEntitys.deleteAll(songIds);
-    });
-  }
-
-  Future<void> clearAllAudioCache() async {
-    await _isar.writeTxn(() async {
-      await _isar.songAudioCacheEntitys.clear();
-    });
-  }
 }
