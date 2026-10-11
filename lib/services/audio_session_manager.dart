@@ -59,6 +59,12 @@ class AudioSessionManager {
   Future<void>? _initializeInFlight;
   Future<void>? _routeSyncInFlight;
   VoidCallback? _deviceInfoListener;
+  // Serializes switchMode: two concurrent switches interleaved engine
+  // init/dispose (USB "Resource busy", permanently wrong mode). Callers wait
+  // for the in-flight switch, then re-evaluate against fresh state.
+  // No reentrancy: neither _onSwitchEngine nor _syncRouteSelection calls
+  // switchMode, so this cannot deadlock.
+  Future<void>? _switchInFlight;
   final Map<String, String> _exclusiveUnavailableUsbDeviceReasons =
       <String, String>{};
 
@@ -95,6 +101,34 @@ class AudioSessionManager {
   }
 
   Future<void> switchMode(
+    AudioEngineType mode, {
+    bool initializeNewEngine = false,
+    String reason = 'manual switch',
+  }) async {
+    final inFlight = _switchInFlight;
+    if (inFlight != null) {
+      _sessionLog(
+        '[Session] switchMode(${mode.logLabel}) waiting for in-flight switch '
+        '($reason)',
+      );
+      await inFlight;
+    }
+    final future = _switchModeInternal(
+      mode,
+      initializeNewEngine: initializeNewEngine,
+      reason: reason,
+    );
+    _switchInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_switchInFlight, future)) {
+        _switchInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _switchModeInternal(
     AudioEngineType mode, {
     bool initializeNewEngine = false,
     String reason = 'manual switch',
