@@ -815,6 +815,12 @@ class PlayerService {
   int _networkLoadingGen = 0;
   int _playbackGeneration = 0;
 
+  // Pending seek requested while the track was still loading. Bound to the
+  // loading generation so a track change discards it instead of seeking the
+  // new track to the old track's position.
+  Duration? _pendingSeekPosition;
+  int? _pendingSeekLoadingGen;
+
   // ponytail: guards the engine's position write during interactive seek
   // (vinyl spin). Local drag writes to positionNotifier stick; engine ticks
   // get re-enabled on endInteractiveSeek(). Upgrade path: per-source locks if
@@ -5424,6 +5430,23 @@ class PlayerService {
             forceRebuild: forceRebuild,
           );
         });
+        // Apply a seek that arrived while the track was loading. The
+        // generation guard drops it if the user moved to another track
+        // meanwhile.
+        final pendingSeek = _pendingSeekPosition;
+        final pendingGen = _pendingSeekLoadingGen;
+        _pendingSeekPosition = null;
+        _pendingSeekLoadingGen = null;
+        if (pendingSeek != null &&
+            pendingSeek > Duration.zero &&
+            pendingGen == _networkLoadingGen) {
+          _debugLog('[Playback] applying deferred seek: $pendingSeek');
+          try {
+            await _playbackManager.seek(pendingSeek);
+          } catch (e) {
+            _debugLog('Deferred seek failed: $e');
+          }
+        }
         if (!_usingRustBackend) {
           unawaited(_applyReplayGainForSystemTier(song));
         }
@@ -6085,22 +6108,40 @@ class PlayerService {
     }, label: 'togglePlayPause');
   }
 
-  Future<void> seek(Duration position) async {
+  Future<void> seek(Duration position) {
     if (_castingService.isActive) {
-      await _castingService.delegateSeek(position);
-      return;
+      return _castingService.delegateSeek(position);
     }
     _positionTracker.onSeek(
       songId: currentSongNotifier.value?.id,
       position: position,
     );
-    try {
-      await _playbackManager.seek(position);
-    } catch (e) {
-      _debugLog('Seek failed: $e');
-    }
+    // Optimistic UI: the slider stays where the user put it instead of
+    // jumping back while the seek is queued.
+    positionNotifier.value = position;
     unawaited(_savePosition(position: position));
     unawaited(_updateNotificationState());
+
+    // Serialized with load/play ops: a seek racing an in-flight load could
+    // otherwise be applied to the old track or overwritten when the load
+    // completes.
+    return _enqueuePlaybackRequest(() async {
+      // Track still loading: defer the seek until the load completes
+      // instead of silently discarding it.
+      if (isNetworkLoadingNotifier.value) {
+        _debugLog('[Playback] seek deferred until load completes: $position');
+        _pendingSeekPosition = position;
+        _pendingSeekLoadingGen = _networkLoadingGen;
+        return;
+      }
+      _pendingSeekPosition = null;
+      _pendingSeekLoadingGen = null;
+      try {
+        await _playbackManager.seek(position);
+      } catch (e) {
+        _debugLog('Seek failed: $e');
+      }
+    }, label: 'seek');
   }
 
   Future<void> next() {
