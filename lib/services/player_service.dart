@@ -6061,7 +6061,6 @@ class PlayerService {
     if (_playlist.isNotEmpty) {
       int? targetIndex;
       if (shuffleModeNotifier.value == ShuffleMode.random &&
-          !isShuffleNotifier.value &&
           _playlist.length > 1) {
         final rng = math.Random();
         do {
@@ -6121,7 +6120,6 @@ class PlayerService {
     );
 
     if (shuffleModeNotifier.value == ShuffleMode.random &&
-        !isShuffleNotifier.value &&
         _playlist.length > 1) {
       final rng = math.Random();
       int targetIndex;
