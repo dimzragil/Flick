@@ -3510,11 +3510,15 @@ class PlayerService {
           normalizedError.contains('audio engine output lost')) {
         final song = currentSongNotifier.value;
         final position = _lastPlaybackState?.position ?? Duration.zero;
+        final failedGen = _playbackGeneration;
+        final failedSongId = song?.id;
         unawaited(() async {
           final revived = await _handleDeadRustEngineFailure(
             StateError(message),
             song: song,
             initialPosition: position,
+            failedGen: failedGen,
+            failedSongId: failedSongId,
           );
           if (!revived) {
             await _refreshAudioOutputDiagnostics(
@@ -5428,6 +5432,8 @@ class PlayerService {
         e,
         song: song,
         initialPosition: Duration.zero,
+        failedGen: _playbackGeneration,
+        failedSongId: song.id,
       );
       if (rustRecovered) {
         return;
@@ -5939,6 +5945,8 @@ class PlayerService {
     Object error, {
     required Song? song,
     required Duration initialPosition,
+    int? failedGen,
+    String? failedSongId,
   }) async {
     if (!Platform.isAndroid || !_usingRustBackend) {
       return false;
@@ -5983,6 +5991,19 @@ class PlayerService {
       }
 
       if (song != null) {
+        // Don't replay a stale song: if the user moved on while recovery was
+        // in flight, the engine is revived but the new track's own playback
+        // request owns what plays next.
+        final superseded =
+            (failedGen != null && failedGen != _playbackGeneration) ||
+            (failedSongId != null &&
+                currentSongNotifier.value?.id != failedSongId);
+        if (superseded) {
+          _debugLog(
+            '[Engine] dead-rust recovery superseded: user moved to another track',
+          );
+          return true;
+        }
         await _prepareImmediatePlaybackAsset(song);
         await _runWithSuppressedSequenceStateUpdates(() async {
           await _playbackManager.playTrack(
