@@ -5380,7 +5380,10 @@ class PlayerService {
         if (song.isNetworkSource) {
           try {
             await RemoteSourceService.instance.resolveHttpPlayback(song);
-          } catch (_) {}
+          } catch (e) {
+            // Non-fatal: fall back to the song's existing metadata.
+            _debugLog('[PlayerService] resolveHttpPlayback failed: $e');
+          }
           if (generation != null && generation != _playbackGeneration) {
             _debugLog(
               '[PlayerService] superseded during network stream resolution',
