@@ -98,8 +98,10 @@ class LastPlayedService {
             song = restoredSong;
           }
         }
-      } on FormatException {
+      } catch (_) {
         // Older or damaged snapshots fall back to the local song database.
+        // Catches FormatException AND TypeError (e.g. schema mismatch in
+        // Song.fromJson) so a corrupt snapshot can never crash startup.
       }
     }
 
@@ -125,7 +127,7 @@ class LastPlayedService {
             restoredPlaylist = mapped;
           }
         }
-      } on FormatException {
+      } catch (_) {
         // Older or damaged snapshots fall back to the legacy ID list.
       }
     }
@@ -148,7 +150,7 @@ class LastPlayedService {
               restoredPlaylist = mapped;
             }
           }
-        } on FormatException {
+        } catch (_) {
           // Ignore invalid or stale playlist data.
         }
       }
