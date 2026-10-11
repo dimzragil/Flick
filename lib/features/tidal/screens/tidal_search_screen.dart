@@ -295,46 +295,47 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             vertical: context.scaleSize(AppConstants.spacingSm),
           ),
           children: [
-            // Static placeholder header
-            Center(
-              child: Padding(
-                padding: EdgeInsets.all(
-                  context.scaleSize(AppConstants.spacingLg),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      LucideIcons.waves,
-                      size: context.scaleSize(56),
-                      color: AppColors.textSecondary.withValues(alpha: 0.5),
-                    ),
-                    SizedBox(
-                      height: context.scaleSize(AppConstants.spacingMd),
-                    ),
-                    const Text(
-                      'Search TIDAL Catalog',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+            // Static placeholder header — only when no recent plays yet.
+            if (recent.isEmpty)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(
+                    context.scaleSize(AppConstants.spacingLg),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        LucideIcons.waves,
+                        size: context.scaleSize(56),
+                        color: AppColors.textSecondary.withValues(alpha: 0.5),
                       ),
-                    ),
-                    SizedBox(
-                      height: context.scaleSize(AppConstants.spacingXs),
-                    ),
-                    const Text(
-                      'Instant bit-perfect playback from millions of tracks.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
+                      SizedBox(
+                        height: context.scaleSize(AppConstants.spacingMd),
                       ),
-                    ),
-                  ],
+                      const Text(
+                        'Search TIDAL Catalog',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(
+                        height: context.scaleSize(AppConstants.spacingXs),
+                      ),
+                      const Text(
+                        'Instant bit-perfect playback from millions of tracks.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             // Recently played from search (Spotify-style)
             if (recent.isNotEmpty) ...[
               Padding(
