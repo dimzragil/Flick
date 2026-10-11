@@ -220,6 +220,14 @@ class SongRepository {
     return await _isar.songEntitys.where().findAll();
   }
 
+  /// Fetch song entities by their Isar IDs. Prefer this over
+  /// [getAllSongEntities] when only a subset is needed.
+  Future<List<SongEntity>> getSongEntitiesByIds(List<int> ids) async {
+    if (ids.isEmpty) return const [];
+    final results = await _isar.songEntitys.getAll(ids);
+    return results.whereType<SongEntity>().toList();
+  }
+
   /// Delete songs by their file paths.
   Future<void> deleteSongsByPath(List<String> paths) async {
     final uniquePaths = paths.where((path) => path.isNotEmpty).toSet();
@@ -318,8 +326,10 @@ class SongRepository {
   }
 
   Future<Set<String>> getReferencedAlbumArtPaths() async {
-    final paths =
-        await _isar.songEntitys.where().albumArtPathProperty().findAll();
+    final paths = await _isar.songEntitys
+        .where()
+        .albumArtPathProperty()
+        .findAll();
     return paths.whereType<String>().where((p) => p.isNotEmpty).toSet();
   }
 
@@ -549,8 +559,7 @@ class SongRepository {
       albumMap.putIfAbsent(albumName, () => []).add(song);
     }
     final sorted = <Song>[];
-    final albumNames = albumMap.keys.toList()
-      ..sort(compareCaseInsensitive);
+    final albumNames = albumMap.keys.toList()..sort(compareCaseInsensitive);
     for (final albumName in albumNames) {
       final albumSongs = albumMap[albumName]!;
       albumSongs.sort(SongRepository._compareAlbumSongs);

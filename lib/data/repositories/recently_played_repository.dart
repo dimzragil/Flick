@@ -249,8 +249,10 @@ class RecentlyPlayedRepository {
     if (entries.isEmpty) return {};
 
     // Get all song entities
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (var e in allSongEntities) e.id: e};
+    // Fetch only songs referenced by these entries, not the whole table.
+    final _songIds = entries.map((e) => e.songId).toSet().toList();
+    final _songEntities = await _songRepository.getSongEntitiesByIds(_songIds);
+    final songMap = {for (final e in _songEntities) e.id: e};
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -320,8 +322,10 @@ class RecentlyPlayedRepository {
 
     if (entries.isEmpty) return const [];
 
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (var e in allSongEntities) e.id: e};
+    // Fetch only songs referenced by these entries, not the whole table.
+    final _songIds = entries.map((e) => e.songId).toSet().toList();
+    final _songEntities = await _songRepository.getSongEntitiesByIds(_songIds);
+    final songMap = {for (final e in _songEntities) e.id: e};
 
     final result = <RecentlyPlayedEntry>[];
     for (final entry in entries) {
@@ -405,8 +409,10 @@ class RecentlyPlayedRepository {
     final entries = await _isar.recentlyPlayedEntitys.where().findAll();
     if (entries.isEmpty) return 0;
 
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (final e in allSongEntities) e.id: e};
+    // Fetch only songs referenced by these entries, not the whole table.
+    final _songIds = entries.map((e) => e.songId).toSet().toList();
+    final _songEntities = await _songRepository.getSongEntitiesByIds(_songIds);
+    final songMap = {for (final e in _songEntities) e.id: e};
 
     final artists = <String>{};
     for (final entry in entries) {
@@ -436,11 +442,16 @@ class RecentlyPlayedRepository {
 
     if (entries.isEmpty) return const [];
 
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (final entity in allSongEntities) entity.id: entity};
+    // Only fetch the songs that actually appear in the history instead of
+    // the whole songs table.
+    final uniqueSongIds = entries.map((e) => e.songId).toSet().toList();
+    final songEntities = await _songRepository.getSongEntitiesByIds(
+      uniqueSongIds,
+    );
+    final songMap = {for (final entity in songEntities) entity.id: entity};
 
     final playCounts = <String, int>{};
-    final songEntities = <String, SongEntity>{};
+    final matchedEntities = <String, SongEntity>{};
 
     for (final entry in entries) {
       final songEntity = songMap[entry.songId];
@@ -448,7 +459,7 @@ class RecentlyPlayedRepository {
       if (songEntity.artist != artistName) continue;
 
       final id = songEntity.id.toString();
-      songEntities[id] = songEntity;
+      matchedEntities[id] = songEntity;
       playCounts[id] = (playCounts[id] ?? 0) + 1;
     }
 
@@ -457,7 +468,7 @@ class RecentlyPlayedRepository {
 
     final result = <Song>[];
     for (final entry in sortedIds.take(limit)) {
-      final entity = songEntities[entry.key];
+      final entity = matchedEntities[entry.key];
       if (entity != null) {
         result.add(_entityToSong(entity));
       }
@@ -480,8 +491,10 @@ class RecentlyPlayedRepository {
 
     if (entries.isEmpty) return null;
 
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (final entity in allSongEntities) entity.id: entity};
+    // Fetch only songs referenced by these entries, not the whole table.
+    final _songIds = entries.map((e) => e.songId).toSet().toList();
+    final _songEntities = await _songRepository.getSongEntitiesByIds(_songIds);
+    final songMap = {for (final e in _songEntities) e.id: e};
 
     final playCounts = <String, int>{};
     final songEntities = <String, SongEntity>{};
@@ -529,8 +542,10 @@ class RecentlyPlayedRepository {
       return const [];
     }
 
-    final allSongEntities = await _songRepository.getAllSongEntities();
-    final songMap = {for (final entity in allSongEntities) entity.id: entity};
+    // Fetch only songs referenced by these entries, not the whole table.
+    final _songIds = entries.map((e) => e.songId).toSet().toList();
+    final _songEntities = await _songRepository.getSongEntitiesByIds(_songIds);
+    final songMap = {for (final e in _songEntities) e.id: e};
 
     final result = <RecentlyPlayedEntry>[];
     for (final entry in entries) {
