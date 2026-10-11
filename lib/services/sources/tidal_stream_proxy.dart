@@ -1217,18 +1217,30 @@ class TidalBtsStreamSession {
       // append mode (not write) so the in-progress head download is preserved;
       // setPosition moves the cursor to the tail offset.
       final tailWriter = await part.open(mode: FileMode.append);
+      var tailBytesWritten = 0;
       try {
         await tailWriter.setPosition(tailStart);
         await for (final chunk in tailResponse.stream) {
           if (_cancelled) break;
           await tailWriter.writeFrom(chunk);
+          tailBytesWritten += chunk.length;
         }
         await tailWriter.flush();
       } finally {
         await tailWriter.close();
       }
-      if (!_cancelled) {
+      // Only mark the tail ready if we actually received all of it: a
+      // truncated stream would otherwise serve a zero-filled region as audio.
+      final expectedTailBytes = (_total ?? 0) - tailStart;
+      if (!_cancelled &&
+          expectedTailBytes > 0 &&
+          tailBytesWritten >= expectedTailBytes) {
         _tailReadyStart = tailStart;
+      } else if (!_cancelled) {
+        devLog(
+          '[TidalStreamSession] tail prefetch incomplete '
+          '($tailBytesWritten/$expectedTailBytes bytes); not marking ready',
+        );
       }
     } catch (_) {
       // Best-effort; the sequential download still works without the tail.
