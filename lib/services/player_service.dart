@@ -3831,19 +3831,27 @@ class PlayerService {
       'trackFileType=${currentSongNotifier.value?.fileType} '
       'trackTitle=${currentSongNotifier.value?.title}',
     );
+    // Capture identity now: by the time the queued retry runs, the user may
+    // have moved to another track — acting on the new index would restart a
+    // healthy track from 0.
+    final failedGen = _playbackGeneration;
+    final failedSongId = currentSongNotifier.value?.id;
     if (_playbackErrorRecoveryInFlight) {
       // The one-shot retry below errored again: no more retries, advance
       // with the normal next() machinery (loop/shuffle aware).
       _playbackErrorRecoveryInFlight = false;
       _debugLog('[Playback] error recovery failed; advancing to next track');
       return _enqueuePlaybackRequest(
-        () => _nextInternal(targetAlreadySelected: false),
+        () => _nextInternal(
+          generation: failedGen,
+          targetAlreadySelected: false,
+        ),
         label: 'playbackErrorAdvance',
       );
     }
     _playbackErrorRecoveryInFlight = true;
     return _enqueuePlaybackRequest(
-      _retryFailedTrackOnce,
+      () => _retryFailedTrackOnce(failedGen, failedSongId),
       label: 'playbackErrorRetry',
     );
   }
@@ -3855,7 +3863,17 @@ class PlayerService {
   /// [_onPlaybackError] again (which flips the in-flight flag off and
   /// queues the advance) or as a load exception, both of which end in a
   /// single advance — never another retry.
-  Future<void> _retryFailedTrackOnce() async {
+  Future<void> _retryFailedTrackOnce(int failedGen, String? failedSongId) async {
+    // The user moved on while the retry was queued: don't restart the new
+    // (healthy) track from 0.
+    if (failedGen != _playbackGeneration ||
+        currentSongNotifier.value?.id != failedSongId) {
+      _debugLog(
+        '[Playback] error retry superseded: current track changed since the error',
+      );
+      _playbackErrorRecoveryInFlight = false;
+      return;
+    }
     try {
       _debugLog('[Playback] retrying failed track once with a fresh resolve');
       final capturedPos = await _captureCurrentPlaybackPosition();
@@ -3869,7 +3887,10 @@ class PlayerService {
       // fired another error while the retry was in flight, that callback
       // already queued the advance.
       if (_playbackErrorRecoveryInFlight) {
-        await _nextInternal(targetAlreadySelected: false);
+        await _nextInternal(
+          generation: _playbackGeneration,
+          targetAlreadySelected: false,
+        );
       }
     } finally {
       _playbackErrorRecoveryInFlight = false;
