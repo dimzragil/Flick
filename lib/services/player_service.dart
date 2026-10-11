@@ -1439,8 +1439,10 @@ class PlayerService {
   Future<void> _rearmSpeakerSinkIfNeeded({required String reason}) async {
     if (!Platform.isAndroid) return;
     if (currentEngineType != AudioEngineType.normalAndroid) return;
-    final engine = _androidAudioEngine;
-    if (engine == null) return;
+    // NOTE: the engine is intentionally NOT snapshotted here. It is resolved
+    // inside the queued action below: while this op waits in the playback
+    // queue, a route/engine switch may dispose and recreate the engine, and
+    // rearming a stale (disposed) instance would resurrect it -> double audio.
 
     final now = DateTime.now();
 
@@ -1495,7 +1497,7 @@ class PlayerService {
       _debugLog(
         '[Playback] Speaker sink rearm deferred (paused, marked for next play): reason=$reason',
       );
-      engine.markSinkNeedsRearm();
+      _androidAudioEngine?.markSinkNeedsRearm();
       return;
     }
 
@@ -1518,17 +1520,21 @@ class PlayerService {
     _lastSpeakerSinkRearmTime = now;
     _debugLog('[Playback] Rearming speaker sink: reason=$reason');
 
-    final capturedPosition = await _captureCurrentPlaybackPosition(
-      song: currentSongNotifier.value,
-    );
-
     await _enqueuePlaybackRequest(() async {
       try {
+        // Resolve the engine INSIDE the queue: it may have been disposed and
+        // recreated while this op waited. Guard on the live instance so a
+        // stale engine is never rearmed.
+        final liveEngine = _androidAudioEngine;
         if (!isPlayingNotifier.value ||
-            currentEngineType != AudioEngineType.normalAndroid) {
+            currentEngineType != AudioEngineType.normalAndroid ||
+            liveEngine == null) {
           return;
         }
-        await engine.rearmSink(
+        final capturedPosition = await _captureCurrentPlaybackPosition(
+          song: currentSongNotifier.value,
+        );
+        await liveEngine.rearmSink(
           targetPosition: capturedPosition > Duration.zero
               ? capturedPosition
               : (positionNotifier.value > Duration.zero
