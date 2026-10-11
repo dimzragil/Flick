@@ -258,53 +258,56 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen> {
                         SizedBox(
                           height: context.scaleSize(AppConstants.spacingMd),
                         ),
-                        // Action Buttons: Play All & Shuffle
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            FilledButton.icon(
-                              onPressed: () => _playAll(tracks),
-                              icon: const Icon(LucideIcons.play, size: 18),
-                              label: const Text('Play All'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.white.withValues(
-                                  alpha: 0.15,
-                                ),
-                                foregroundColor: Colors.white,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: context.scaleSize(
-                                    AppConstants.spacingLg,
+                        // Action Buttons: Play All & Shuffle — hidden when empty.
+                        if (tracks.isNotEmpty)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: () => _playAll(tracks),
+                                icon: const Icon(LucideIcons.play, size: 18),
+                                label: const Text('Play All'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(
+                                    alpha: 0.15,
                                   ),
-                                  vertical: context.scaleSize(
-                                    AppConstants.spacingSm,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            SizedBox(
-                              width: context.scaleSize(AppConstants.spacingMd),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _shuffleAll(tracks),
-                              icon: const Icon(LucideIcons.shuffle, size: 18),
-                              label: const Text('Shuffle'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.textPrimary,
-                                side: const BorderSide(
-                                  color: AppColors.glassBorder,
-                                ),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: context.scaleSize(
-                                    AppConstants.spacingLg,
-                                  ),
-                                  vertical: context.scaleSize(
-                                    AppConstants.spacingSm,
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: context.scaleSize(
+                                      AppConstants.spacingLg,
+                                    ),
+                                    vertical: context.scaleSize(
+                                      AppConstants.spacingSm,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
+                              SizedBox(
+                                width: context.scaleSize(
+                                  AppConstants.spacingMd,
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _shuffleAll(tracks),
+                                icon: const Icon(LucideIcons.shuffle, size: 18),
+                                label: const Text('Shuffle'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.textPrimary,
+                                  side: const BorderSide(
+                                    color: AppColors.glassBorder,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: context.scaleSize(
+                                      AppConstants.spacingLg,
+                                    ),
+                                    vertical: context.scaleSize(
+                                      AppConstants.spacingSm,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         SizedBox(
                           height: context.scaleSize(AppConstants.spacingLg),
                         ),

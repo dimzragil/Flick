@@ -302,48 +302,53 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                     ),
                   ),
                 ),
-                // Play & Shuffle
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: context.scaleSize(AppConstants.spacingMd),
-                      vertical: context.scaleSize(AppConstants.spacingMd),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () => _playAll(tracks),
-                            icon: const Icon(LucideIcons.play, size: 18),
-                            label: const Text('Play All'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Colors.white.withValues(
-                                alpha: 0.15,
+                // Play & Shuffle — hidden when there are no tracks to play.
+                if (tracks.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: context.scaleSize(AppConstants.spacingMd),
+                        vertical: context.scaleSize(AppConstants.spacingMd),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _playAll(tracks),
+                              icon: const Icon(LucideIcons.play, size: 18),
+                              label: const Text('Play All'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.white.withValues(
+                                  alpha: 0.15,
+                                ),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
                               ),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _shuffleAll(tracks),
-                            icon: const Icon(LucideIcons.shuffle, size: 18),
-                            label: const Text('Shuffle'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.textPrimary,
-                              side: const BorderSide(
-                                color: AppColors.glassBorder,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _shuffleAll(tracks),
+                              icon: const Icon(LucideIcons.shuffle, size: 18),
+                              label: const Text('Shuffle'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textPrimary,
+                                side: const BorderSide(
+                                  color: AppColors.glassBorder,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
                               ),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
                 // Tracklist
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
