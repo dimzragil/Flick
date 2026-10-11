@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -49,9 +50,26 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
 
   Future<void> _resolveAlbumArt() async {
     final song = widget.song;
-    if (song.albumArt != null && song.albumArt!.isNotEmpty && await File(song.albumArt!).exists()) {
+    if (song.albumArt != null &&
+        song.albumArt!.isNotEmpty &&
+        await File(song.albumArt!).exists()) {
       if (mounted) setState(() => _resolvedAlbumArt = song.albumArt);
       return;
+    }
+    // TIDAL (and other remote) artwork: URL → resolve to a local file via
+    // the image cache (no re-download if already cached), else download.
+    if (song.albumArt != null &&
+        (song.albumArt!.startsWith('http://') ||
+            song.albumArt!.startsWith('https://'))) {
+      try {
+        final file = await DefaultCacheManager().getSingleFile(song.albumArt!);
+        if (mounted && await file.exists()) {
+          setState(() => _resolvedAlbumArt = file.path);
+          return;
+        }
+      } catch (_) {
+        // Fall through to filePath resolution below.
+      }
     }
     if (song.filePath != null && song.filePath!.isNotEmpty) {
       final path = await AlbumArtService.instance.resolveArtworkPath(

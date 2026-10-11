@@ -12,6 +12,7 @@ import 'package:flick/providers/app_preferences_provider.dart';
 import 'package:flick/widgets/common/animated_album_art.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
+import 'package:flick/services/sources/tidal_service.dart';
 
 class AlbumArtBox extends ConsumerStatefulWidget {
   final Song song;
@@ -358,8 +359,13 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
         ),
       ),
     );
+    // Full player shows artwork large — upscale TIDAL covers to 1280
+    // for sharpness on high-density screens. Local files unaffected.
+    final artworkUrl = widget.song.albumArt != null
+        ? TidalService.upscaleCoverUrl(widget.song.albumArt!, 1280)
+        : null;
     final staticArt = CachedImageWidget(
-      imagePath: widget.song.albumArt,
+      imagePath: artworkUrl,
       audioSourcePath: widget.song.filePath,
       fit: BoxFit.cover,
       placeholder: placeholder,
@@ -371,7 +377,7 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
     final fallback = _isVinyl
         ? staticArt
         : AnimatedAlbumArt(
-            imagePath: widget.song.albumArt,
+            imagePath: artworkUrl,
             audioSourcePath: widget.song.filePath,
             placeholder: placeholder,
             errorWidget: placeholder,

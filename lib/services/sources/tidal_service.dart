@@ -987,6 +987,14 @@ class TidalService implements NetworkSourceService {
     return '$_coverHost/$path/${size}x$size.jpg';
   }
 
+  /// Upgrade a TIDAL cover URL to a larger size (e.g. 640 → 1280).
+  /// Returns the original URL if it doesn't match the expected pattern.
+  static String upscaleCoverUrl(String url, int size) {
+    final regex = RegExp(r'/\d+x\d+\.jpg$');
+    if (!regex.hasMatch(url)) return url;
+    return url.replaceFirst(regex, '/${size}x$size.jpg');
+  }
+
   /// Build a `resources.tidal.com` image URL for 3:2 landscape images (e.g. playlist `image`).
   /// Supported resolutions on Tidal CDN are 320x214, 480x320, 640x428, 750x500, 1080x720.
   static String wideCoverUrl(String coverUuid, {int width = 480}) {

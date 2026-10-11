@@ -137,7 +137,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen> {
                 'Unknown Artist';
             final coverUuid = album['cover'] as String?;
             final coverUrl = coverUuid != null
-                ? TidalService.coverUrl(coverUuid, size: 640)
+                ? TidalService.coverUrl(coverUuid, size: 1280)
                 : null;
             final quality = album['audioQuality'] as String?;
             final releaseDate = album['releaseDate'] as String?;
