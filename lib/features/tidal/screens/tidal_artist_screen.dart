@@ -213,7 +213,9 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                                 icon: const Icon(LucideIcons.play, size: 18),
                                 label: const Text('Play All'),
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.accent,
+                                  backgroundColor: Colors.white.withValues(
+                                    alpha: 0.15,
+                                  ),
                                   foregroundColor: Colors.white,
                                   padding: EdgeInsets.symmetric(
                                     horizontal: context.scaleSize(

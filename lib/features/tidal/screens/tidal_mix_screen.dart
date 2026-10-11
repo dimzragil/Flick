@@ -282,7 +282,9 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                             icon: const Icon(LucideIcons.play, size: 18),
                             label: const Text('Play All'),
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF00A2C7),
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.15,
+                              ),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),

@@ -967,7 +967,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                 },
                                 selectedColor: const Color(0x40FFFFFF),
                                 backgroundColor:
-                                    AppColors.glassBackgroundStrong,
+                                    const Color(0x40FFFFFF),
                                 labelStyle: TextStyle(
                                   color: isActive
                                       ? const Color(0xD9FFFFFF)

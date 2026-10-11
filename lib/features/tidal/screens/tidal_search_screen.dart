@@ -16,6 +16,7 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/glass_search_bar.dart';
 import '../providers/tidal_providers.dart';
+import '../../../data/repositories/tidal_search_history_repository.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_album_screen.dart';
 import 'tidal_artist_screen.dart';
@@ -66,6 +67,8 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     // not musically related — queuing them is just random. TIDAL Radio
     // autoplay takes over after the track (if enabled).
     PlayerService().play(song);
+    // Record for "Recently Played" in the empty search state.
+    TidalSearchHistoryRepository().recordPlay(song);
     NavigationHelper.navigateToFullPlayer(
       context,
       heroTag: 'tidal_search_song_${song.id}',
@@ -175,7 +178,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                         selected: isSelected,
                         onSelected: (_) =>
                             setState(() => _selectedCategory = cat),
-                        backgroundColor: AppColors.glassBackgroundStrong,
+                        backgroundColor: const Color(0x40FFFFFF),
                         selectedColor: const Color(0x33FFFFFF),
                         labelStyle: TextStyle(
                           color: isSelected
@@ -254,36 +257,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     }
 
     if (results.query.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingLg)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                LucideIcons.waves,
-                size: context.scaleSize(56),
-                color: AppColors.textSecondary.withValues(alpha: 0.5),
-              ),
-              SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-              const Text(
-                'Search TIDAL Catalog',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: context.scaleSize(AppConstants.spacingXs)),
-              const Text(
-                'Instant bit-perfect playback from millions of tracks.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildEmptyState();
     }
 
     if (results.isEmpty) {
@@ -307,6 +281,82 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
       case TidalSearchCategory.all:
         return _buildAllResults(results);
     }
+  }
+
+  Widget _buildEmptyState() {
+    return FutureBuilder<List<Song>>(
+      future: TidalSearchHistoryRepository().getRecent(),
+      builder: (context, snapshot) {
+        final recent = snapshot.data ?? [];
+
+        return ListView(
+          padding: EdgeInsets.symmetric(
+            horizontal: context.scaleSize(AppConstants.spacingMd),
+            vertical: context.scaleSize(AppConstants.spacingSm),
+          ),
+          children: [
+            // Static placeholder header
+            Center(
+              child: Padding(
+                padding: EdgeInsets.all(
+                  context.scaleSize(AppConstants.spacingLg),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      LucideIcons.waves,
+                      size: context.scaleSize(56),
+                      color: AppColors.textSecondary.withValues(alpha: 0.5),
+                    ),
+                    SizedBox(
+                      height: context.scaleSize(AppConstants.spacingMd),
+                    ),
+                    const Text(
+                      'Search TIDAL Catalog',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(
+                      height: context.scaleSize(AppConstants.spacingXs),
+                    ),
+                    const Text(
+                      'Instant bit-perfect playback from millions of tracks.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Recently played from search (Spotify-style)
+            if (recent.isNotEmpty) ...[
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: context.scaleSize(AppConstants.spacingSm),
+                  vertical: context.scaleSize(AppConstants.spacingXs),
+                ),
+                child: const Text(
+                  'Recently Played',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...recent.map((song) => _buildTrackTile(song, recent)),
+            ],
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildAllResults(TidalSearchResults results) {
