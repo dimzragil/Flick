@@ -601,6 +601,73 @@ class TidalService implements NetworkSourceService {
 
   // --- JSON API ----------------------------------------------------------
 
+  // Global API rate limiter: smooths request bursts so we don't trip TIDAL's
+  // server-side rate limiter. Every API call awaits [_throttle] first, which
+  // enforces a minimum gap between requests (serialized via [_throttleGate]
+  // so concurrent callers can't all slip through at once).
+  DateTime _lastApiCall = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _throttleGate = Future.value();
+  static const _minApiGap = Duration(milliseconds: 100);
+
+  Future<void> _throttle() {
+    final next = _throttleGate.then((_) async {
+      final elapsed = DateTime.now().difference(_lastApiCall);
+      if (elapsed < _minApiGap) {
+        await Future.delayed(_minApiGap - elapsed);
+      }
+      _lastApiCall = DateTime.now();
+    });
+    // Don't let one caller's error poison the gate for everyone else.
+    _throttleGate = next.catchError((_) {});
+    return next;
+  }
+
+  /// Parses a `Retry-After` header value (delta-seconds or HTTP date).
+  /// Returns [Duration.zero] when absent or unparsable. Capped at 120s so a
+  /// rogue header can't stall the app for minutes.
+  Duration _parseRetryAfter(String? value) {
+    if (value == null) return Duration.zero;
+    final seconds = int.tryParse(value.trim());
+    if (seconds != null) {
+      return Duration(seconds: seconds.clamp(0, 120));
+    }
+    try {
+      final diff = HttpDate.parse(
+        value.trim(),
+      ).difference(DateTime.now().toUtc());
+      if (diff.isNegative) return Duration.zero;
+      return diff > const Duration(seconds: 120)
+          ? const Duration(seconds: 120)
+          : diff;
+    } catch (_) {
+      return Duration.zero;
+    }
+  }
+
+  /// Sends an HTTP request, transparently retrying on 429 (rate limit).
+  /// Honors the server's `Retry-After` header when present, otherwise backs
+  /// off exponentially (1s, 2s, 4s). After [maxAttempts] the 429 response is
+  /// returned as-is so the caller can throw a proper exception.
+  Future<http.Response> _with429Retry(
+    String label,
+    Future<http.Response> Function() send, {
+    int maxAttempts = 4, // 1 initial + 3 retries
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      final response = await send();
+      if (response.statusCode != 429) return response;
+      if (attempt + 1 >= maxAttempts) return response;
+      final retryAfter = _parseRetryAfter(response.headers['retry-after']);
+      final backoff = Duration(seconds: 1 << attempt);
+      final delay = retryAfter > backoff ? retryAfter : backoff;
+      devLog(
+        '[Tidal] 429 $label — backing off ${delay.inSeconds}s '
+        '(attempt ${attempt + 1}/$maxAttempts)',
+      );
+      await Future.delayed(delay);
+    }
+  }
+
   Future<Map<String, dynamic>> _apiGet(
     NetworkServerEntity server,
     String path, {
@@ -611,18 +678,27 @@ class TidalService implements NetworkSourceService {
     final uri = Uri.parse(
       '$_apiBase$path',
     ).replace(queryParameters: {'countryCode': creds.countryCode, ...?query});
-    final response = await _client
-        .get(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${creds.accessToken}',
-            'Accept': 'application/json',
-          },
-        )
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'GET $path',
+      () => _client
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer ${creds.accessToken}',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiGet(server, path, query: query, retry: false);
+    }
+    if (response.statusCode == 429) {
+      throw TidalRateLimitedException(
+        _parseRetryAfter(response.headers['retry-after']).inSeconds,
+      );
     }
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for $path');
@@ -635,9 +711,13 @@ class TidalService implements NetworkSourceService {
     Map<String, String> fields, {
     bool raw = false,
   }) async {
-    final response = await _client
-        .post(Uri.parse(url), body: fields)
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'POST $url',
+      () => _client
+          .post(Uri.parse(url), body: fields)
+          .timeout(const Duration(seconds: 20)),
+    );
     final body = response.body;
     Map<String, dynamic>? parsed;
     if (body.isNotEmpty) {
@@ -671,19 +751,28 @@ class TidalService implements NetworkSourceService {
         ...?query,
       },
     );
-    final response = await _client
-        .get(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${creds.accessToken}',
-            'Accept': 'application/json',
-            'x-tidal-client-version': '2026.9.15',
-          },
-        )
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'GET v2$path',
+      () => _client
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer ${creds.accessToken}',
+              'Accept': 'application/json',
+              'x-tidal-client-version': '2026.9.15',
+            },
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiV2Get(server, path, query: query, retry: false);
+    }
+    if (response.statusCode == 429) {
+      throw TidalRateLimitedException(
+        _parseRetryAfter(response.headers['retry-after']).inSeconds,
+      );
     }
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for $path');
@@ -708,16 +797,20 @@ class TidalService implements NetworkSourceService {
     final uri = Uri.parse(
       url,
     ).replace(queryParameters: {'countryCode': creds.countryCode});
-    final response = await _client
-        .post(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${creds.accessToken}',
-            ...?headers,
-          },
-          body: fields,
-        )
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'POST $url',
+      () => _client
+          .post(
+            uri,
+            headers: {
+              'Authorization': 'Bearer ${creds.accessToken}',
+              ...?headers,
+            },
+            body: fields,
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiAuthPostForm(
@@ -741,16 +834,20 @@ class TidalService implements NetworkSourceService {
     final uri = Uri.parse(
       url,
     ).replace(queryParameters: {'countryCode': creds.countryCode});
-    final response = await _client
-        .post(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${creds.accessToken}',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'POST $url',
+      () => _client
+          .post(
+            uri,
+            headers: {
+              'Authorization': 'Bearer ${creds.accessToken}',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiAuthPostJson(server, url, body, retry: false);
@@ -767,9 +864,16 @@ class TidalService implements NetworkSourceService {
     final uri = Uri.parse(
       url,
     ).replace(queryParameters: {'countryCode': creds.countryCode});
-    final response = await _client
-        .delete(uri, headers: {'Authorization': 'Bearer ${creds.accessToken}'})
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'DELETE $url',
+      () => _client
+          .delete(
+            uri,
+            headers: {'Authorization': 'Bearer ${creds.accessToken}'},
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
       return _apiAuthDelete(server, url, retry: false);
@@ -785,15 +889,19 @@ class TidalService implements NetworkSourceService {
     final uri = Uri.parse(
       '$_apiBase/playlists/$playlistId',
     ).replace(queryParameters: {'countryCode': creds.countryCode});
-    final response = await _client
-        .get(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${creds.accessToken}',
-            'Accept': 'application/json',
-          },
-        )
-        .timeout(const Duration(seconds: 20));
+    await _throttle();
+    final response = await _with429Retry(
+      'GET /playlists/$playlistId',
+      () => _client
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer ${creds.accessToken}',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
     final etag = response.headers['etag'];
     Map<String, dynamic> parsed = {};
     if (response.body.isNotEmpty) {
@@ -3243,6 +3351,18 @@ class TidalException implements Exception {
   TidalException(this.message, {this.verificationUri});
   @override
   String toString() => message;
+}
+
+/// Thrown when TIDAL rate-limits us (HTTP 429) and all retries are exhausted.
+/// Callers should surface [message] directly — it already tells the user to
+/// wait a moment instead of looking like a connection failure.
+class TidalRateLimitedException extends TidalException {
+  TidalRateLimitedException([int? retryAfterSeconds])
+    : super(
+        retryAfterSeconds != null && retryAfterSeconds > 0
+            ? 'Too many TIDAL requests. Try again in ~$retryAfterSeconds seconds.'
+            : 'Too many TIDAL requests. Wait a moment and try again.',
+      );
 }
 
 /// Resolved stream metadata and endpoint details for a TIDAL track.
