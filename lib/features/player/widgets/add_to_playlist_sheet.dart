@@ -12,6 +12,7 @@ import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 import 'package:flick/widgets/common/flick_dialog.dart';
 import '../../tidal/providers/tidal_providers.dart';
 import '../../tidal/widgets/tidal_playlist_cover_widget.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 class AddToPlaylistSheet extends ConsumerStatefulWidget {
   final List<Song> songs;
@@ -100,7 +101,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _statusMessage = 'Error: $e';
+          _statusMessage = 'Error: ${friendlyErrorMessage(e)}';
         });
       }
     }
@@ -162,9 +163,13 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
       ),
     );
 
-    if (confirmed == true && titleController.text.trim().isNotEmpty) {
-      final name = titleController.text.trim();
-      final desc = descController.text.trim();
+    final title = titleController.text.trim();
+    final desc = descController.text.trim();
+    titleController.dispose();
+    descController.dispose();
+
+    if (confirmed == true && title.isNotEmpty) {
+      final name = title;
 
       setState(() {
         _isProcessing = true;
@@ -197,7 +202,7 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
         if (mounted) {
           setState(() {
             _isProcessing = false;
-            _statusMessage = 'Could not create playlist: $e';
+            _statusMessage = 'Could not create playlist: ${friendlyErrorMessage(e)}';
           });
         }
       }
