@@ -86,10 +86,17 @@ class PlaylistService {
     final jsonString = prefs.getString(_playlistsKey);
 
     if (jsonString != null) {
-      final List<dynamic> jsonList = json.decode(jsonString);
-      _playlists = jsonList
-          .map((item) => Playlist.fromJson(item as Map<String, dynamic>))
-          .toList();
+      try {
+        final List<dynamic> jsonList = json.decode(jsonString);
+        _playlists = jsonList
+            .map((item) => Playlist.fromJson(item as Map<String, dynamic>))
+            .toList();
+      } catch (_) {
+        // Corrupt persisted data: don't crash-loop forever. Reset to empty
+        // and drop the bad value so the feature self-heals.
+        _playlists = [];
+        await prefs.remove(_playlistsKey);
+      }
     }
 
     _isLoaded = true;
