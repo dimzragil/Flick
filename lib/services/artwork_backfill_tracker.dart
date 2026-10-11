@@ -49,8 +49,16 @@ class ArtworkBackfillTracker {
   /// Registers a backfill for [folderKey] and returns a token that must be
   /// passed to [finish] and [setProgress].
   Object begin(String folderKey) {
+    // Complete the stale entry so earlier awaiters are never left hanging,
+    // as documented on this class.
+    final stale = _entries[folderKey];
+    if (stale != null) {
+      stale.complete();
+      _perFolder.remove(folderKey);
+    }
     final entry = _ArtworkBackfillEntry();
     _entries[folderKey] = entry;
+    _recompute();
     return entry;
   }
 
