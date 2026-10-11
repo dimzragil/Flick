@@ -7040,9 +7040,19 @@ class PlayerService {
   void _ensurePositionSaveTimer() {
     _positionSaveTimer?.cancel();
     _positionSaveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _savePosition();
+      _savePositionOnly();
       _maybePrefetchNextNetworkSong();
     });
+  }
+
+  /// Lightweight position save for the periodic timer — writes only the
+  /// position key instead of re-encoding the full queue every 5 seconds.
+  Future<void> _savePositionOnly() async {
+    try {
+      await _lastPlayedService.savePositionOnly(positionNotifier.value);
+    } catch (e) {
+      _debugLog('Failed to save position: $e');
+    }
   }
 
   /// Last song id handed to [RemoteSourceService.prefetch]. Reset whenever the

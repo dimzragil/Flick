@@ -65,6 +65,13 @@ class LastPlayedService {
     await prefs.setString(_lastSongIdKey, song.id);
   }
 
+  /// Save only the playback position (lightweight, for periodic timer).
+  /// Does not rewrite song/playlist data.
+  Future<void> savePositionOnly(Duration position) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_lastPositionKey, position.inMilliseconds);
+  }
+
   /// Restore the last played song and position, preferring its JSON snapshot.
   Future<
     ({
