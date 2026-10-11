@@ -13,13 +13,31 @@ class FavoritesService {
   Set<String> _favoriteIds = {};
   bool _isLoaded = false;
 
+  /// In-flight load guard: concurrent callers await the same future instead
+  /// of each loading from prefs separately (which could lose a mutation).
+  Future<void>? _loadingFuture;
+
   FavoritesService({SongRepository? songRepository})
     : _songRepository = songRepository ?? SongRepository();
 
   /// Load favorites from SharedPreferences.
   Future<void> _ensureLoaded() async {
     if (_isLoaded) return;
+    final inFlight = _loadingFuture;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    final future = _loadFromPrefs();
+    _loadingFuture = future;
+    try {
+      await future;
+    } finally {
+      _loadingFuture = null;
+    }
+  }
 
+  Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final ids = prefs.getStringList(_favoritesKey) ?? [];
     _favoriteIds = ids.toSet();
