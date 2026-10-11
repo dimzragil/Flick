@@ -93,6 +93,9 @@ class _TidalImportPlaylistDialogState
 
   @override
   void dispose() {
+    // Signal the import loop to stop: without this, a force-dismissed dialog
+    // keeps firing API calls for a dead widget.
+    _isCancelled = true;
     _titleController.dispose();
     _descController.dispose();
     super.dispose();
@@ -186,6 +189,16 @@ class _TidalImportPlaylistDialogState
         throw StateError('Could not retrieve new TIDAL playlist ID.');
       }
 
+      // Cancelled between create and add: delete the orphan playlist so the
+      // user's TIDAL account isn't left with an empty shell.
+      if (_isCancelled || !mounted) {
+        await tidal.deletePlaylist(server, playlistId);
+        if (mounted) {
+          Navigator.of(context).pop(false);
+        }
+        return;
+      }
+
       // 3. Batch add matched tracks to playlist
       setState(() {
         _currentTrackText =
@@ -218,7 +231,11 @@ class _TidalImportPlaylistDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // Block the Android back button while importing: dismissing mid-import
+    // would orphan the TIDAL playlist or keep firing API calls.
+    return PopScope(
+      canPop: _step != _ImportStep.importing,
+      child: AlertDialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppConstants.radiusMd),
@@ -227,6 +244,7 @@ class _TidalImportPlaylistDialogState
       title: _buildTitle(),
       content: _buildContent(),
       actions: _buildActions(),
+      ),
     );
   }
 

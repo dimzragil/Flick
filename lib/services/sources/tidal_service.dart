@@ -2876,6 +2876,24 @@ class TidalService implements NetworkSourceService {
     throw TidalException('Failed to create TIDAL playlist "$title".');
   }
 
+  /// Delete a TIDAL playlist by its ID. Best-effort: returns true on success.
+  Future<bool> deletePlaylist(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
+    try {
+      final cc = _countryCode(server.token);
+      final url = cc.isNotEmpty
+          ? '$_openapiBase/playlists/$playlistId?countryCode=$cc'
+          : '$_openapiBase/playlists/$playlistId';
+      final res = await _apiAuthDelete(server, url);
+      return res.statusCode < 300;
+    } catch (e) {
+      devLog('[Tidal] deletePlaylist failed for $playlistId ($e)');
+      return false;
+    }
+  }
+
   /// Add a track to a TIDAL playlist using the required ETag header.
   Future<void> addTrackToPlaylist(
     NetworkServerEntity server, {
