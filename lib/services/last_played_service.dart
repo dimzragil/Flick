@@ -109,6 +109,21 @@ class LastPlayedService {
     if (song == null) {
       allSongs = await _repository.getAllSongs();
       song = allSongs.where((item) => item.id == songId).firstOrNull;
+    } else {
+      // The snapshot parsed, but a LOCAL file may have been deleted or moved
+      // since. Never restore a local song that no longer exists in the
+      // library. Network/ephemeral sources (TIDAL etc.) are not in Isar by
+      // design, so they skip this check. Fail open: if the library can't be
+      // read, don't block the restore.
+      if (!song.isNetworkSource) {
+        try {
+          allSongs = await _repository.getAllSongs();
+          final stillInLibrary = allSongs.any((item) => item.id == songId);
+          if (!stillInLibrary) return null;
+        } catch (_) {
+          // Library unreadable — allow the restore rather than blocking it.
+        }
+      }
     }
     if (song == null) return null;
 
