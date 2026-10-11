@@ -1861,11 +1861,38 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Get track items for a specific playlist by its [playlistId].
+  /// Paginates through all pages so long playlists aren't silently truncated
+  /// at the first page. The [limit]/[offset] params control page size and
+  /// start position.
   Future<List<Map<String, dynamic>>> getPlaylistTracks(
     NetworkServerEntity server,
     String playlistId, {
     int limit = 100,
     int offset = 0,
+  }) async {
+    final allItems = <Map<String, dynamic>>[];
+    var pageOffset = offset;
+    while (true) {
+      final page = await _getPlaylistTracksPage(
+        server,
+        playlistId,
+        limit: limit,
+        offset: pageOffset,
+      );
+      if (page.isEmpty) break;
+      allItems.addAll(page);
+      if (page.length < limit) break;
+      pageOffset += limit;
+    }
+    return allItems;
+  }
+
+  /// Fetches a single page of playlist tracks, trying /items then /tracks.
+  Future<List<Map<String, dynamic>>> _getPlaylistTracksPage(
+    NetworkServerEntity server,
+    String playlistId, {
+    required int limit,
+    required int offset,
   }) async {
     // Official TIDAL API uses /playlists/{id}/items (wrapping each entry in {"item": ..., "type": "track"}),
     // NOT /playlists/{id}/tracks.
