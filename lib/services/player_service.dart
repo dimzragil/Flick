@@ -3956,6 +3956,12 @@ class PlayerService {
     } catch (e) {
       _debugLog('Stop failed: $e');
     }
+    // The Rust/USB-DAC engine doesn't emit a state update on stop, so reset
+    // the notifiers explicitly — otherwise UI stays stuck on "playing".
+    if (isPlayingNotifier.value) {
+      isPlayingNotifier.value = false;
+    }
+    _updateNotificationState();
     await _refreshAudioOutputDiagnostics(reason: 'playback stopped');
     cancelSleepTimer();
   }
