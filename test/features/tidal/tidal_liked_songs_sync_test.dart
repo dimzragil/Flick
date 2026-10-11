@@ -203,8 +203,10 @@ void main() {
         expect(likedSongs.first.id, song.id);
         expect(likedSongs.first.title, 'Brand New Favorite');
 
-        // Allow background unawaited network dispatch to execute
-        await Future.delayed(const Duration(milliseconds: 50));
+        // Allow background unawaited network dispatch to execute.
+        // NOTE: TidalService enforces a 100ms minimum gap between API calls
+        // (rate-limit throttle), so 50ms is not enough for the POST to fire.
+        await Future.delayed(const Duration(milliseconds: 300));
 
         // TIDAL API was called with the numeric trackId
         expect(addedTrackIds.contains('999999'), isTrue);
