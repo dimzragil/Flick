@@ -178,8 +178,8 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                         selected: isSelected,
                         onSelected: (_) =>
                             setState(() => _selectedCategory = cat),
-                        backgroundColor: const Color(0x40FFFFFF),
-                        selectedColor: const Color(0x33FFFFFF),
+                        backgroundColor: const Color(0x66FFFFFF),
+                        selectedColor: const Color(0x66FFFFFF),
                         labelStyle: TextStyle(
                           color: isSelected
                               ? const Color(0xD9FFFFFF)

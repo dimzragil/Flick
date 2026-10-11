@@ -965,9 +965,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         : tab.slug;
                                   });
                                 },
-                                selectedColor: const Color(0x40FFFFFF),
+                                selectedColor: const Color(0x66FFFFFF),
                                 backgroundColor:
-                                    const Color(0x40FFFFFF),
+                                    const Color(0x66FFFFFF),
                                 labelStyle: TextStyle(
                                   color: isActive
                                       ? const Color(0xD9FFFFFF)
