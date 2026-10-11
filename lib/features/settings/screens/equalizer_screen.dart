@@ -28,6 +28,7 @@ import 'package:flick/widgets/common/rotary_knob.dart';
 import 'package:flick/widgets/equalizer/parametric_eq_graph.dart';
 import 'package:flick/widgets/equalizer/graphic_eq_graph.dart';
 import 'package:flick/widgets/equalizer/interactive_eq_graph.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 enum _PresetFileFormat { json, txt }
 
@@ -3720,7 +3721,7 @@ class _ConvolverSection extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load IR: $e')),
+          SnackBar(content: Text('Could not load IR: ${friendlyErrorMessage(e)}')),
         );
       }
     }

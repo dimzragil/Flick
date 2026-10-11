@@ -36,6 +36,7 @@ import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/surface_icon_button.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 enum _AlbumGridSortOption { name, artist, tracks }
 
@@ -1442,7 +1443,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
                     ),
                     error: (error, _) => Padding(
                       padding: const EdgeInsets.all(AppConstants.spacingXl),
-                      child: Text('Error loading playlists: $error'),
+                      child: Text('Error loading playlists: ${friendlyErrorMessage(error)}'),
                     ),
                     data: (state) => ListView(
                       shrinkWrap: true,

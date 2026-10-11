@@ -20,6 +20,7 @@ import 'package:flick/services/gallery_save_service.dart';
 import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 class ShareBottomSheet extends ConsumerStatefulWidget {
   final Song song;
@@ -154,7 +155,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
+          SnackBar(content: Text('Share failed: ${friendlyErrorMessage(e)}')),
         );
       }
     } finally {

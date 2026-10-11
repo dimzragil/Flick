@@ -18,6 +18,7 @@ import 'package:flick/widgets/common/surface_icon_button.dart';
 import 'package:flick/features/playlists/screens/playlist_detail_screen.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/providers/player_provider.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 class PlaylistsScreen extends ConsumerWidget {
   const PlaylistsScreen({super.key});
@@ -479,7 +480,7 @@ class PlaylistsScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Server playlist sync failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Server playlist sync failed: ${friendlyErrorMessage(e)}')));
     }
   }
 
@@ -504,7 +505,7 @@ class PlaylistsScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Import failed: ${friendlyErrorMessage(e)}')));
     }
   }
 
@@ -531,7 +532,7 @@ class PlaylistsScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Export failed: ${friendlyErrorMessage(e)}')));
     }
   }
 }

@@ -29,6 +29,7 @@ import 'tidal_mix_screen.dart';
 import 'tidal_playlist_screen.dart';
 import 'tidal_search_screen.dart';
 import 'tidal_liked_songs_screen.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 class TidalHubScreen extends ConsumerStatefulWidget {
   const TidalHubScreen({super.key});
@@ -656,7 +657,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to read JSON: $e'),
+            content: Text('Failed to read JSON: ${friendlyErrorMessage(e)}'),
             backgroundColor: Colors.redAccent,
           ),
         );

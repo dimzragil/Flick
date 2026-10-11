@@ -32,6 +32,7 @@ import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/vinyl_record.dart';
+import 'package:flick/core/utils/error_display.dart';
 
 class LibrarySettingsScreen extends ConsumerStatefulWidget {
   const LibrarySettingsScreen({super.key});
@@ -480,7 +481,7 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Failed to add folder: $e')));
+        ).showSnackBar(SnackBar(content: Text('Failed to add folder: ${friendlyErrorMessage(e)}')));
       }
     }
   }
@@ -493,7 +494,7 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Failed to remove folder: $e')));
+        ).showSnackBar(SnackBar(content: Text('Failed to remove folder: ${friendlyErrorMessage(e)}')));
       }
     }
   }
