@@ -1828,13 +1828,28 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Get track items for a specific album by its [albumId].
+  /// Paginates through all pages so long albums / DJ mixes aren't silently
+  /// truncated at the API's default page size.
   Future<List<Map<String, dynamic>>> getAlbumTracks(
     NetworkServerEntity server,
     String albumId,
   ) async {
-    final res = await _apiGet(server, '/albums/$albumId/tracks');
-    final items = (res['items'] as List<dynamic>?) ?? [];
-    return items.cast<Map<String, dynamic>>();
+    const pageSize = 100;
+    final allItems = <Map<String, dynamic>>[];
+    var offset = 0;
+    while (true) {
+      final res = await _apiGet(
+        server,
+        '/albums/$albumId/tracks',
+        query: {'limit': '$pageSize', 'offset': '$offset'},
+      );
+      final items = (res['items'] as List<dynamic>?) ?? [];
+      if (items.isEmpty) break;
+      allItems.addAll(items.cast<Map<String, dynamic>>());
+      if (items.length < pageSize) break;
+      offset += pageSize;
+    }
+    return allItems;
   }
 
   /// Get metadata for a specific playlist by its [playlistId].
