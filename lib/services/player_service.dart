@@ -1882,9 +1882,13 @@ class PlayerService {
 
   /// Removes a song from [_originalPlaylist] by ID. Keeps the pre-shuffle
   /// order in sync when songs are removed, so disabling shuffle doesn't
-  /// resurrect deleted songs.
+  /// resurrect deleted songs. Removes a SINGLE instance: playlists may
+  /// contain the same song twice, and removeWhere would delete both.
   void _removeFromOriginalPlaylist(Song song) {
-    _originalPlaylist.removeWhere((s) => s.id == song.id);
+    final idx = _originalPlaylist.indexWhere((s) => s.id == song.id);
+    if (idx != -1) {
+      _originalPlaylist.removeAt(idx);
+    }
   }
 
   Future<void> _removeQueueEntryById(int queueEntryId) async {
