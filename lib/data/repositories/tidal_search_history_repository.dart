@@ -10,8 +10,19 @@ class TidalSearchHistoryRepository {
   static const _key = 'tidal_search_recently_played';
   static const _maxItems = 20;
 
+  /// Serializes recordPlay calls so concurrent plays can't read-modify-write
+  /// the same JSON and silently drop an entry.
+  Future<void> _pending = Future.value();
+
   /// Records a song played from search. Most recent first, deduplicated.
-  Future<void> recordPlay(Song song) async {
+  Future<void> recordPlay(Song song) {
+    final task = _pending.then((_) => _recordPlayInternal(song));
+    // Keep the chain alive even if one write fails.
+    _pending = task.catchError((_) {});
+    return task;
+  }
+
+  Future<void> _recordPlayInternal(Song song) async {
     final prefs = await SharedPreferences.getInstance();
     final items = await getRecent();
 
