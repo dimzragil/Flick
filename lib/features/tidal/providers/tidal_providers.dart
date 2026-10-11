@@ -160,6 +160,10 @@ final tidalSearchProvider =
 class TidalSearchNotifier extends Notifier<TidalSearchResults> {
   Timer? _debounceTimer;
 
+  /// Generation counter: each new search invalidates in-flight older ones so
+  /// a slow response can't overwrite newer results.
+  int _searchGen = 0;
+
   @override
   TidalSearchResults build() {
     ref.onDispose(() {
@@ -183,15 +187,18 @@ class TidalSearchNotifier extends Notifier<TidalSearchResults> {
 
     state = state.copyWith(isLoading: true, query: query, error: null);
 
+    final gen = ++_searchGen;
     _debounceTimer = Timer(debounce, () {
-      performSearch(query);
+      performSearch(query, gen);
     });
   }
 
   /// Immediately perform catalog search without debouncing.
-  Future<void> performSearch(String query) async {
+  Future<void> performSearch(String query, [int? gen]) async {
+    final myGen = gen ?? ++_searchGen;
     final server = await ref.read(tidalServerProvider.future);
     if (server == null || server.token == null || server.token!.isEmpty) {
+      if (myGen != _searchGen) return;
       state = state.copyWith(isLoading: false, error: 'Tidal is not signed in');
       return;
     }
@@ -199,6 +206,9 @@ class TidalSearchNotifier extends Notifier<TidalSearchResults> {
     try {
       final tidal = ref.read(tidalServiceProvider);
       final raw = await tidal.searchCatalog(server, query);
+
+      // Stale response: a newer search has started since.
+      if (myGen != _searchGen) return;
 
       final rawTracks = (raw['tracks']?['items'] as List<dynamic>?) ?? const [];
       final rawAlbums = (raw['albums']?['items'] as List<dynamic>?) ?? const [];
@@ -224,6 +234,7 @@ class TidalSearchNotifier extends Notifier<TidalSearchResults> {
         query: query,
       );
     } catch (e) {
+      if (myGen != _searchGen) return;
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
@@ -231,6 +242,7 @@ class TidalSearchNotifier extends Notifier<TidalSearchResults> {
   /// Clear the current search results and any pending search timer.
   void clear() {
     _debounceTimer?.cancel();
+    _searchGen++; // invalidate any in-flight search
     state = TidalSearchResults.empty;
   }
 }
