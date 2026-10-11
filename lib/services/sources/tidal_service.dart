@@ -1918,7 +1918,9 @@ class TidalService implements NetworkSourceService {
         return rawList.whereType<Map<String, dynamic>>().toList();
       } catch (e2) {
         devLog('[Tidal] /playlists/$playlistId/tracks failed ($e2)');
-        return [];
+        // Don't swallow: let the provider surface an honest error state
+        // instead of showing a misleading "0 tracks".
+        throw StateError('Failed to load playlist tracks: $e2');
       }
     }
   }
