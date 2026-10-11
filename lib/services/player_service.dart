@@ -2228,7 +2228,12 @@ class PlayerService {
       }
       if (isPlayingNotifier.value) {
         _wasPlayingBeforeAudioInterruption = true;
-        unawaited(_pauseInternal());
+        // Route through the serialized playback queue so the pause can't race
+        // an in-flight play/next operation (which previously could resume
+        // playback mid-call).
+        unawaited(
+          _enqueuePlaybackRequest(_pauseInternal, label: 'interruptionPause'),
+        );
       }
       return;
     }
@@ -2248,7 +2253,14 @@ class PlayerService {
     switch (event.type) {
       case AudioInterruptionType.pause:
       case AudioInterruptionType.duck:
-        unawaited(_resumeAfterAudioInterruption());
+        // Serialized for the same reason as the pause above: the resume
+        // (which may switch engines) must not overlap in-flight operations.
+        unawaited(
+          _enqueuePlaybackRequest(
+            _resumeAfterAudioInterruption,
+            label: 'interruptionResume',
+          ),
+        );
       case AudioInterruptionType.unknown:
         // Permanent focus loss (e.g. another app started long-form playback).
         // Stay paused and let the user explicitly resume.
