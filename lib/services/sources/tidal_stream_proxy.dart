@@ -805,10 +805,25 @@ class TidalStreamSession {
     if (rangeHeader != null) {
       final match = RegExp(r'bytes=(\d*)-(\d*)').firstMatch(rangeHeader);
       if (match != null) {
-        if (match.group(1)?.isNotEmpty == true) {
+        final startEmpty = match.group(1)?.isEmpty ?? true;
+        final endPresent = match.group(2)?.isNotEmpty ?? false;
+        if (startEmpty && endPresent) {
+          // Suffix range (bytes=-N): we can't serve the tail of a download
+          // whose total length is unknown. Refuse honestly (416) instead of
+          // serving the wrong bytes as 206.
+          devLog('[TidalStreamSession] rejecting suffix range: $rangeHeader');
+          req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+          req.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes */${_isFinished ? _bytesWritten : '*'}',
+          );
+          await req.response.close();
+          return;
+        }
+        if (!startEmpty) {
           start = int.parse(match.group(1)!);
         }
-        if (match.group(2)?.isNotEmpty == true) {
+        if (endPresent) {
           end = int.parse(match.group(2)!);
           hasExplicitEnd = true;
         }
