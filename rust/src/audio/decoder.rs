@@ -521,6 +521,11 @@ fn decode_thread(
         track_id,
     } = probe_result;
 
+    // Decode-thread treatment: nice bump + efficiency-core affinity
+    // (thermal-aware, cf. UAPP's sched_setaffinity). Best-effort.
+    #[cfg(target_os = "android")]
+    crate::audio::thread_priority::apply_decode_thread_treatment();
+
     if let Some(position_secs) = start_position_secs {
         let target_secs = position_secs.max(0.0);
         if target_secs > 0.0 {

@@ -33,7 +33,14 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "android")]
 fn set_audio_thread_priority() -> Result<(), std::io::Error> {
-    crate::audio::thread_priority::raise_audio_render_priority()
+    let r = crate::audio::thread_priority::raise_audio_render_priority();
+    // Pin render threads to efficiency cores (thermal-aware placement,
+    // cf. UAPP's sched_setaffinity). Best-effort: failure only logs.
+    let cores = crate::audio::thread_priority::efficiency_cores();
+    if !cores.is_empty() {
+        let _ = crate::audio::thread_priority::set_thread_affinity(&cores);
+    }
+    r
 }
 
 const USB_CLASS_AUDIO: u8 = 0x01;

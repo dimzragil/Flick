@@ -262,6 +262,10 @@ impl AudioTrackDirectBackend {
         let handle = std::thread::Builder::new()
             .name("at-direct-render".to_string())
             .spawn(move || {
+                // Render-thread treatment: SCHED_FIFO + efficiency-core
+                // affinity (thermal-aware, cf. UAPP). Best-effort.
+                #[cfg(target_os = "android")]
+                crate::audio::thread_priority::apply_render_thread_treatment();
                 audiotrack_render_loop(track, callback_data, event_tx, sample_rate, channels, stop_clone);
             })
             .map_err(|e| format!("Failed to spawn AudioTrack render thread: {}", e))?;
