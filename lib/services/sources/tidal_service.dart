@@ -253,11 +253,22 @@ class TidalService implements NetworkSourceService {
   Future<String?> signIn({
     void Function(String verificationLink)? onVerificationLink,
   }) async {
-    final dev = await _postForm('$_authBase/device_authorization', {
-      'client_id': clientId,
-      'scope': _scope,
-    });
-    final deviceCode = dev['deviceCode'] as String?;
+    // auth.tidal.com can be slow from some networks: retry the initial
+    // request instead of failing the whole sign-in on one timeout.
+    Map<String, dynamic>? dev;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        dev = await _postForm('$_authBase/device_authorization', {
+          'client_id': clientId,
+          'scope': _scope,
+        }).timeout(const Duration(seconds: 30));
+        break;
+      } on TimeoutException catch (e) {
+        devLog('[Tidal] device_authorization attempt ${attempt + 1}/3 timed out');
+        if (attempt == 2) rethrow;
+      }
+    }
+    final deviceCode = dev!['deviceCode'] as String?;
     final rawUri =
         (dev['verificationUriComplete'] as String?) ??
         (dev['verificationUri'] as String?);
@@ -299,13 +310,20 @@ class TidalService implements NetworkSourceService {
     var sleep = intervalSec;
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(Duration(seconds: sleep));
-      final tok = await _postForm('$_authBase/token', {
-        'client_id': clientId,
-        if (clientSecret.isNotEmpty) 'client_secret': clientSecret,
-        'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-        'device_code': deviceCode,
-        'scope': _scope,
-      }, raw: true);
+      // One flaky poll must not kill the whole sign-in: keep polling.
+      Map<String, dynamic> tok;
+      try {
+        tok = await _postForm('$_authBase/token', {
+          'client_id': clientId,
+          if (clientSecret.isNotEmpty) 'client_secret': clientSecret,
+          'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+          'device_code': deviceCode,
+          'scope': _scope,
+        }, raw: true);
+      } on TimeoutException {
+        devLog('[Tidal] token poll timed out, continuing...');
+        continue;
+      }
 
       final access = tok['access_token'] as String?;
       if (access != null) {
