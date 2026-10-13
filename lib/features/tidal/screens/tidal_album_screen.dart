@@ -136,8 +136,12 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen> {
                     as String? ??
                 'Unknown Artist';
             final coverUuid = album['cover'] as String?;
+            // Perf (2026-10-13): header displays at 180px; 320px is plenty
+            // for retina. 1280px was 7x oversize — wasted bandwidth, decode
+            // CPU, memory, and battery on scroll. (1280px preserved for
+            // share-card/fullscreen artwork elsewhere.)
             final coverUrl = coverUuid != null
-                ? TidalService.coverUrl(coverUuid, size: 1280)
+                ? TidalService.coverUrl(coverUuid, size: 320)
                 : null;
             final quality = album['audioQuality'] as String?;
             final releaseDate = album['releaseDate'] as String?;
