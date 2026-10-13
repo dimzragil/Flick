@@ -9,7 +9,7 @@
 //!
 //! - `engine`: Core audio engine managing the output stream and mixing
 //! - `decoder`: Background thread decoder using symphonia
-//! - `resampler`: Sample rate conversion using rubato
+//! - `resampler`: Sample rate conversion (SoX libsoxr primary, rubato fallback)
 //! - `crossfader`: Equal-power crossfade implementation
 //! - `source`: Audio source abstraction for gapless playback
 
