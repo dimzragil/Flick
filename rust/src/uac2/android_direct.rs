@@ -294,6 +294,28 @@ fn resolve_dac_settle_delay_ms(device: &AndroidDirectUsbDevice) -> u64 {
     ANDROID_USB_CLOCK_SETTLE_DELAY_MS_DEFAULT
 }
 
+/// Apply per-device format quirks from the unified `QUIRK_DATABASE` to a
+/// requested playback format, in place. Delegates to the host-testable
+/// [`crate::uac2::quirk::apply_format_quirks`].
+fn apply_device_format_quirks(
+    device: &AndroidDirectUsbDevice,
+    format: &mut AndroidDirectUsbPlaybackFormat,
+) {
+    let quirks = crate::uac2::quirk::QUIRK_DATABASE.lookup(
+        device.vendor_id,
+        device.product_id,
+        &device.product_name,
+    );
+    let is_dsd = format.is_dop || format.dsd_transport != DsdTransportMode::None;
+    crate::uac2::quirk::apply_format_quirks(
+        &quirks,
+        &device.product_name,
+        &mut format.sample_rate,
+        &mut format.bit_depth,
+        is_dsd,
+    );
+}
+
 fn transport_container_preference_rank(
     candidate: &AndroidIsoStreamCandidate,
     playback_format: AndroidDirectUsbPlaybackFormat,
@@ -1921,6 +1943,10 @@ pub fn negotiate_android_direct_output_sample_rate(
                 }
             }
         }
+
+        // Per-device format quirks (rate caps, forced bit depth) apply to
+        // the final requested format, whichever path below consumes it.
+        apply_device_format_quirks(&state.device, &mut requested_format);
 
         if state.stream_active || USB_SESSION_ACTIVE.load(Ordering::SeqCst) {
             state.requested_playback_format = Some(requested_format);
