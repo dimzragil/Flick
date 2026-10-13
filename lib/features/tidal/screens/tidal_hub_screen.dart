@@ -947,6 +947,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                         height: 38,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
+                          // Perf (2026-10-13): reduced cacheExtent to limit
+                          // offscreen image decodes during scroll.
+                          // ignore: deprecated_member_use
+                          cacheExtent: 100,
                           itemCount: displayTabs.length,
                           itemBuilder: (context, index) {
                             final tab = displayTabs[index];
@@ -967,8 +971,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   });
                                 },
                                 selectedColor: const Color(0x66FFFFFF),
-                                backgroundColor:
-                                    const Color(0x66FFFFFF),
+                                backgroundColor: const Color(0x66FFFFFF),
                                 labelStyle: TextStyle(
                                   color: isActive
                                       ? const Color(0xD9FFFFFF)
@@ -1363,6 +1366,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           height: 205,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            // Perf (2026-10-13): reduced cacheExtent to limit
+            // offscreen image decodes during scroll.
+            // ignore: deprecated_member_use
+            cacheExtent: 100,
             itemCount: section.items.length,
             itemBuilder: (context, index) {
               final item = section.items[index];
@@ -1634,6 +1641,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           height: 124,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            // Perf (2026-10-13): reduced cacheExtent to limit
+            // offscreen image decodes during scroll.
+            // ignore: deprecated_member_use
+            cacheExtent: 100,
             itemCount: pairCount,
             itemBuilder: (context, colIndex) {
               final topIndex = colIndex * 2;
@@ -1850,6 +1861,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               height: 205,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
+                // Perf (2026-10-13): reduced cacheExtent to limit
+                // offscreen image decodes during scroll.
+                // ignore: deprecated_member_use
+                cacheExtent: 100,
                 itemCount: mixes.length,
                 itemBuilder: (context, index) {
                   final item = mixes[index];
