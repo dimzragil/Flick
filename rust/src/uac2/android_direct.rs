@@ -79,8 +79,15 @@ const UAC2_FEATURE_MUTE: u32 = 0x0003;
 const UAC1_FEATURE_VOLUME: u32 = 0x0002;
 const UAC1_FEATURE_MUTE: u32 = 0x0001;
 const ISO_TRANSFER_TIMEOUT_MS: u32 = 1000;
-const ANDROID_USB_BUFFER_CAPACITY_MS: usize = 200;
-const ANDROID_USB_BUFFER_TARGET_MS: usize = 100;
+// USB ring buffer sizing. The producer (decode) thread and the isochronous
+// consumer are decoupled by this ring; a larger buffer absorbs network and
+// scheduling jitter instead of turning it into audible underruns ("macet").
+// 1000 ms capacity / 500 ms target: at 192 kHz stereo f32 this is ~1.5 MiB —
+// cheap insurance. Latency is irrelevant for music playback. (Conceptually
+// mirrors UAPP's frame-based buffer configuration; previously 200/100 ms,
+// which underran on mobile-network jitter.)
+const ANDROID_USB_BUFFER_CAPACITY_MS: usize = 1000;
+const ANDROID_USB_BUFFER_TARGET_MS: usize = 500;
 const ANDROID_USB_RENDER_CHUNK_MS: usize = 10;
 const ANDROID_USB_RENDER_POLL_MS: u64 = 2;
 const ANDROID_USB_STABLE_TRANSFER_THRESHOLD: usize = 64;

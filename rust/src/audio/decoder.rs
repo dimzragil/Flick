@@ -5,7 +5,7 @@
 
 use crate::dev_eprintln;
 
-use crate::audio::http_source::HttpMediaSource;
+use crate::audio::http_source::PrefetchingMediaSource;
 use crate::audio::opus_decoder;
 use crate::audio::resampler::AudioResampler;
 use crate::audio::source::{AudioSource, SourceInfo, SourceProducer};
@@ -116,7 +116,10 @@ pub fn probe_file(path: &Path) -> Result<ProbeResult, DecoderError> {
 /// path (auth-bearing query string is ignored). No content-based fallback —
 /// reopening an HTTP stream is wasteful and remote URLs carry reliable
 /// extensions.
-pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeResult, DecoderError> {
+pub fn probe_http(
+    url: &str,
+    headers: HashMap<String, String>,
+) -> Result<ProbeResult, DecoderError> {
     let hint_ext = url_hint_ext(url);
     let format_opts = FormatOptions {
         enable_gapless: true,
@@ -129,7 +132,7 @@ pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeRe
         hint.with_extension(&hint_ext);
     }
 
-    let src = HttpMediaSource::new(url.to_string(), headers.clone());
+    let src = PrefetchingMediaSource::new(url.to_string(), headers.clone());
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
     let probed = symphonia::default::get_probe()
@@ -144,10 +147,7 @@ pub fn probe_http(url: &str, headers: HashMap<String, String>) -> Result<ProbeRe
 
 /// Apply sample rate from HTTP headers (e.g. `x-flick-sample-rate`) only when the probed rate
 /// is missing or implausible. Plausible probed rates from symphonia are authoritative and win.
-fn apply_header_sample_rate(
-    source_info: &mut SourceInfo,
-    headers: &HashMap<String, String>,
-) {
+fn apply_header_sample_rate(source_info: &mut SourceInfo, headers: &HashMap<String, String>) {
     let header_sample_rate = headers.iter().find_map(|(k, v)| {
         if k.eq_ignore_ascii_case("x-flick-sample-rate") {
             v.parse::<u32>().ok()
@@ -168,7 +168,8 @@ fn apply_header_sample_rate(
                 source_info.output_sample_rate = rate;
                 if source_info.duration_secs > 0.0 {
                     source_info.total_samples =
-                        (source_info.duration_secs * rate as f64 * source_info.channels as f64) as u64;
+                        (source_info.duration_secs * rate as f64 * source_info.channels as f64)
+                            as u64;
                 }
             } else if probed_rate != rate {
                 dev_eprintln!(
@@ -251,11 +252,7 @@ fn build_probe_result(
         if header_lies || codec_params.time_base.is_none() {
             n_frames as f64 / sample_rate as f64
         } else {
-            codec_params
-                .time_base
-                .unwrap()
-                .calc_time(n_frames)
-                .seconds as f64
+            codec_params.time_base.unwrap().calc_time(n_frames).seconds as f64
         }
     } else {
         0.0
@@ -271,7 +268,11 @@ fn build_probe_result(
         sample_rate,
         channels,
         duration_secs,
-        if is_opus { "OpusDecoder (custom)" } else { "symphonia default" },
+        if is_opus {
+            "OpusDecoder (custom)"
+        } else {
+            "symphonia default"
+        },
     );
 
     let source_info = SourceInfo {
