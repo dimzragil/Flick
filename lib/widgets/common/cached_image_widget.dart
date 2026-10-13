@@ -328,6 +328,9 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
+      // Perf (2026-10-13): low filter quality for faster decode during
+      // scroll, matching the network image path.
+      filterQuality: FilterQuality.low,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         if (wasSynchronouslyLoaded || frame != null) {
           return child;
@@ -404,6 +407,10 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       // Keep the previous instant swap (no fade) behavior.
       fadeInDuration: Duration.zero,
       fadeOutDuration: Duration.zero,
+      // Perf (2026-10-13): low filter quality for faster decode during
+      // scroll. Imperceptible for thumbnails, significantly less CPU/heat
+      // when many images decode simultaneously.
+      filterQuality: FilterQuality.low,
       memCacheWidth: _memCacheFor(widget.width, widget.thumbnailWidth),
       memCacheHeight: _memCacheFor(widget.height, widget.thumbnailHeight),
     );
