@@ -20,8 +20,9 @@ pub const DEFAULT_OUTPUT_SAMPLE_RATE: u32 = 48000;
 
 /// User preference for the resampling engine. When `true`, `AudioResampler`
 /// skips SoX entirely and uses the pure-Rust rubato backend. Set from Flutter
-/// via `set_resampler_prefer_rubato`. Default `false` (SoX preferred).
-static RESAMPLER_PREFER_RUBATO: AtomicBool = AtomicBool::new(false);
+/// via `set_resampler_prefer_rubato`. Default `true` (rubato) to match the
+/// Flutter-side default.
+static RESAMPLER_PREFER_RUBATO: AtomicBool = AtomicBool::new(true);
 
 /// Update the resampler backend preference. Takes effect on the next
 /// `AudioResampler` creation (does not interrupt in-flight resampling).
@@ -681,20 +682,22 @@ mod tests {
 
     #[test]
     fn test_soxr_is_default_backend() {
-        // SoX must initialise in the test environment; it is the primary engine.
+        // SoX must initialise in the test environment; it is the primary engine
+        // when the rubato preference is off.
         set_prefer_rubato(false);
         let resampler = AudioResampler::new(44100, 48000, 2, 1024).unwrap();
         assert_eq!(resampler.backend_name(), "soxr");
+        // Reset to default (rubato) so other tests are unaffected.
+        set_prefer_rubato(true);
     }
 
     #[test]
     fn test_prefer_rubato_flag_selects_rubato() {
         // User preference for rubato must skip SoX entirely.
+        // (Default is already rubato; this verifies explicit setting works.)
         set_prefer_rubato(true);
         let resampler = AudioResampler::new(44100, 48000, 2, 1024).unwrap();
         assert_eq!(resampler.backend_name(), "rubato");
-        // Reset to default so other tests are unaffected.
-        set_prefer_rubato(false);
     }
 
     #[test]
@@ -804,6 +807,8 @@ mod tests {
     fn test_soxr_stopband_rejection() {
         // 30 kHz tone at 96 kHz input is above the 48 kHz output Nyquist: a
         // proper resampler must push it (and its 18 kHz alias) below -120 dB.
+        // Force SoX for this test (default is now rubato).
+        set_prefer_rubato(false);
         let reference = resample_pure_tone(96_000, 48_000, 5_000.0);
         let stopband = resample_pure_tone(96_000, 48_000, 30_000.0);
 
