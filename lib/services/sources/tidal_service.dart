@@ -15,6 +15,7 @@ import '../../data/repositories/song_repository.dart';
 import '../../models/playback_context.dart';
 import '../../models/song.dart';
 import '../../models/sources/tidal_models.dart';
+import '../android_audio_device_service.dart';
 import '../library_scanner_service.dart' show ScanProgress;
 import '../network_cache_service.dart';
 import 'dash_manifest_parser.dart';
@@ -1520,6 +1521,26 @@ class TidalService implements NetworkSourceService {
     }
   }
 
+  /// Whether the current output path is bit-perfect (no forced resample).
+  ///
+  /// True on the USB DAC path and on non-Android (PC/DAP) where there is no
+  /// Android mixer in the chain. False for speaker/Bluetooth on Android,
+  /// where the mixer resamples everything anyway. When in doubt, returns
+  /// true so the quality-tier cascade keeps its current (full) behavior.
+  bool _isBitPerfectOutputPath() {
+    if (!Platform.isAndroid) return true;
+    try {
+      // Same device-route signal PlayerService uses for its engine choice.
+      return AndroidAudioDeviceService
+          .instance
+          .deviceInfoNotifier
+          .value
+          .hasUsbDac;
+    } catch (_) {
+      return true;
+    }
+  }
+
   /// Resolve a directly streamable CDN url or DASH track info.
   /// Uses a quality cascade (HI_RES_LOSSLESS -> HI_RES -> LOSSLESS -> HIGH)
   /// to play at maximum available quality.
@@ -1538,6 +1559,15 @@ class TidalService implements NetworkSourceService {
     if (hintedTier != null) {
       final hintedIndex = qualityTiers.indexOf(hintedTier);
       if (hintedIndex >= 0) tierIndex = hintedIndex;
+    }
+
+    // Output-aware tier start: on paths that will resample anyway
+    // (speaker/Bluetooth via the Android mixer), requesting the hi-res
+    // tiers wastes DASH manifest round-trips for data that ends up
+    // downsampled to 48kHz. Skip straight to LOSSLESS there; the
+    // bit-perfect USB DAC path keeps the full cascade.
+    if (!_isBitPerfectOutputPath() && tierIndex < 2) {
+      tierIndex = 2; // qualityTiers index of 'LOSSLESS'
     }
 
     for (var i = tierIndex; i < qualityTiers.length; i++) {
