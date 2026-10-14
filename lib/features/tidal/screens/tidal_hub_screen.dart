@@ -1004,7 +1004,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   ))
                     _buildShortcutGrid(sec),
 
-                  // Custom Mixes & Daily Discovery (from /v2/favorites/mixes)
+                  // Daily Discovery (from /v2/favorites/mixes, filtered to daily only)
                   if (_activeFeedSlug == 'static')
                     _buildCustomMixesSection(mixesAsync),
 
@@ -1837,7 +1837,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (mixes) {
-        if (mixes.isEmpty) return const SizedBox.shrink();
+        // Daily Discovery only: custom mixes are already shown in the home
+        // feed section below, so filter them out here to avoid duplication.
+        // Detect via mixType first, fall back to title match.
+        final dailyOnly = mixes.where((item) {
+          final mixType = (item.raw['mixType'] as String? ?? '').toUpperCase();
+          if (mixType.contains('DAILY')) return true;
+          return item.title.toLowerCase().contains('daily discovery');
+        }).toList();
+        if (dailyOnly.isEmpty) return const SizedBox.shrink();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1847,7 +1855,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 Icon(LucideIcons.sparkles, size: 18, color: Color(0xD9FFFFFF)),
                 SizedBox(width: 6),
                 Text(
-                  'Custom Mixes & Daily Discovery',
+                  'Daily Discovery',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 18,
@@ -1865,9 +1873,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 // offscreen image decodes during scroll.
                 // ignore: deprecated_member_use
                 cacheExtent: 100,
-                itemCount: mixes.length,
+                itemCount: dailyOnly.length,
                 itemBuilder: (context, index) {
-                  final item = mixes[index];
+                  final item = dailyOnly[index];
                   final effectiveImage =
                       (item.imageUrl != null && item.imageUrl!.isNotEmpty)
                       ? TidalService.resizedCoverUrl(item.imageUrl, 320)
