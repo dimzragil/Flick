@@ -37,18 +37,47 @@ Future<void> main() async {
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     AppLog.instance.add('$error\n$stack', source: LogSource.platform);
+    debugPrint('PlatformDispatcher.onError: $error\n$stack');
     return true;
   };
 
-  await RustLib.init();
-  _subscribeRustLogs();
-  unawaited(ProcessExitDiagnosticsService().reportPreviousExits());
+  try {
+    await RustLib.init();
+    _subscribeRustLogs();
+    unawaited(ProcessExitDiagnosticsService().reportPreviousExits());
 
-  await Database.init();
+    await Database.init();
 
-  final externalPlaybackHandled = await ExternalPlaybackService().initialize();
-  if (!externalPlaybackHandled) {
-    await _restoreLastPlayedSong();
+    final externalPlaybackHandled = await ExternalPlaybackService().initialize();
+    if (!externalPlaybackHandled) {
+      await _restoreLastPlayedSong();
+    }
+  } catch (error, stack) {
+    AppLog.instance.add('Startup error: $error\n$stack', source: LogSource.crash);
+    debugPrint('Startup initialization failed: $error\n$stack');
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: SingleChildScrollView(
+                child: Text(
+                  'Flick failed to start:\n\n$error\n\n$stack',
+                  style: const TextStyle(
+                    color: Colors.redAccent,
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
   }
 
   runZonedGuarded(() {
