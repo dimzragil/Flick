@@ -11,6 +11,9 @@ enum AudioEnginePreference { exoPlayer, rustOboe, isochronousUsb }
 
 enum DsdOutputMode { auto, forcePcm, forceDop, native }
 
+/// Resampling engine preference for the USB audio path.
+enum ResamplerPreference { sox, rubato }
+
 /// Per-device field-tuning override for native-DSD wire byte order (DSD_U32 packing).
 enum DsdByteOrderOverride { auto, littleEndian, bigEndian }
 
@@ -48,6 +51,11 @@ class Uac2PreferencesService {
   static const _keyGaplessPlaybackEnabled = 'gapless_playback_enabled';
   static const _keyDuckOnInterruption = 'duck_on_interruption_enabled';
   static const _keyDsdOutputMode = 'dsd_output_mode';
+  static const _keyResamplerPreference = 'uac2_resampler_preference';
+  static final ValueNotifier<ResamplerPreference> resamplerPreferenceNotifier =
+      ValueNotifier(ResamplerPreference.rubato);
+  static ResamplerPreference get resamplerPreferenceSync =>
+      resamplerPreferenceNotifier.value;
   static const _keyAutoSwitchDsdForVolume = 'auto_switch_dsd_for_volume';
   static const _keyDsdByteOrderOverride = 'dsd_byte_order_override';
   static const _keyDsdSubslotOverride = 'dsd_subslot_override';
@@ -582,6 +590,35 @@ class Uac2PreferencesService {
     } catch (e) {
       devLog('Failed to load DSD output mode: $e');
       return DsdOutputMode.auto;
+    }
+  }
+
+  /// Default is rubato (per user request).
+  Future<void> setResamplerPreference(ResamplerPreference pref) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyResamplerPreference, pref.name);
+      resamplerPreferenceNotifier.value = pref;
+    } catch (e) {
+      devLog('Failed to save resampler preference: $e');
+    }
+  }
+
+  Future<ResamplerPreference> getResamplerPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = prefs.getString(_keyResamplerPreference);
+      final pref = value == null
+          ? ResamplerPreference.rubato
+          : ResamplerPreference.values.firstWhere(
+              (e) => e.name == value,
+              orElse: () => ResamplerPreference.rubato,
+            );
+      resamplerPreferenceNotifier.value = pref;
+      return pref;
+    } catch (e) {
+      devLog('Failed to load resampler preference: $e');
+      return ResamplerPreference.rubato;
     }
   }
 

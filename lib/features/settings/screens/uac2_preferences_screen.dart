@@ -106,6 +106,8 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                             preferencesService,
                             tuning432HzAsync,
                           ),
+                          const SizedBox(height: AppConstants.spacingSm),
+                          _buildResamplerTile(context, preferencesService),
                           const SizedBox(height: AppConstants.spacingLg),
                           _buildSectionHeader(context, 'Advanced'),
                           _buildAdvancedOptions(
@@ -1593,6 +1595,132 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
       _awaiting432HzConfirm = false;
       return result;
     });
+  }
+
+  /// Resampler engine selector: SoX (top) vs rubato (bottom, default).
+  Widget _buildResamplerTile(
+    BuildContext context,
+    Uac2PreferencesService service,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: ValueListenableBuilder<ResamplerPreference>(
+        valueListenable: Uac2PreferencesService.resamplerPreferenceNotifier,
+        builder: (context, pref, _) => _buildNavigationTile(
+          context,
+          icon: LucideIcons.audioWaveform,
+          title: 'Resampler Engine',
+          subtitle: pref == ResamplerPreference.sox
+              ? 'SoX (libsoxr VHQ, 28-bit)'
+              : 'rubato (pure Rust)',
+          onTap: () => _showResamplerDialog(context, service, pref),
+        ),
+      ),
+    );
+  }
+
+  void _showResamplerDialog(
+    BuildContext context,
+    Uac2PreferencesService service,
+    ResamplerPreference current,
+  ) {
+    showFlickDialog<void>(
+      context: context,
+      barrierLabel: 'Resampler Engine',
+      builder: (dialogContext) => FlickDialog(
+        title: 'Resampler Engine',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildResamplerOptionTile(
+              dialogContext,
+              title: 'SoX',
+              subtitle: 'libsoxr VHQ (28-bit, 64-bit engine). Highest quality.',
+              selected: current == ResamplerPreference.sox,
+              onTap: () async {
+                await service.setResamplerPreference(ResamplerPreference.sox);
+                await rust_audio.setResamplerPreferRubato(preferRubato: false);
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              },
+            ),
+            const SizedBox(height: AppConstants.spacingSm),
+            _buildResamplerOptionTile(
+              dialogContext,
+              title: 'rubato',
+              subtitle: 'Pure Rust resampler. Lower CPU usage.',
+              selected: current == ResamplerPreference.rubato,
+              onTap: () async {
+                await service.setResamplerPreference(ResamplerPreference.rubato);
+                await rust_audio.setResamplerPreferRubato(preferRubato: true);
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResamplerOptionTile(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingMd,
+            vertical: AppConstants.spacingSm,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.accent.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+            border: Border.all(
+              color: selected ? AppColors.accent : AppColors.glassBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected)
+                Icon(LucideIcons.check, color: AppColors.accent, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildExperimentalWarning(BuildContext context) {

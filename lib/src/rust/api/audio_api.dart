@@ -36,6 +36,14 @@ Future<DsdOutputMode> effectiveDsdOutputModeForRate({
 Future<void> setDsdTrackRate({required int rate}) =>
     RustLib.instance.api.crateApiAudioApiSetDsdTrackRate(rate: rate);
 
+/// Set the resampler backend preference: `true` forces the pure-Rust rubato
+/// backend, `false` prefers SoX (libsoxr VHQ) with rubato as init-failure
+/// fallback. Takes effect on the next resampler creation.
+Future<void> setResamplerPreferRubato({required bool preferRubato}) => RustLib
+    .instance
+    .api
+    .crateApiAudioApiSetResamplerPreferRubato(preferRubato: preferRubato);
+
 Future<String?> lastDsdNativeFailure() =>
     RustLib.instance.api.crateApiAudioApiLastDsdNativeFailure();
 

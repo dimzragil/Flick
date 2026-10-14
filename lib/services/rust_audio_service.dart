@@ -107,6 +107,16 @@ class RustAudioService {
       } catch (e) {
         devLog('Failed to restore DSD output mode: $e');
       }
+      // Restore resampler backend preference (default: rubato).
+      try {
+        final pref = await Uac2PreferencesService().getResamplerPreference();
+        await rust_audio.setResamplerPreferRubato(
+          preferRubato: pref == ResamplerPreference.rubato,
+        );
+        devLog('Restored resampler preference: ${pref.name}');
+      } catch (e) {
+        devLog('Failed to restore resampler preference: $e');
+      }
       _initialized = true;
       devLog('Rust audio engine manager initialized');
 

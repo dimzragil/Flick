@@ -203,6 +203,13 @@ pub fn set_dsd_track_rate(rate: u32) {
     CURRENT_DSD_TRACK_RATE.store(rate, Ordering::Relaxed);
 }
 
+/// Set the resampler backend preference: `true` forces the pure-Rust rubato
+/// backend, `false` prefers SoX (libsoxr VHQ) with rubato as init-failure
+/// fallback. Takes effect on the next resampler creation.
+pub fn set_resampler_prefer_rubato(prefer_rubato: bool) {
+    crate::audio::resampler::set_prefer_rubato(prefer_rubato);
+}
+
 // Why the last native-DSD attempt fell back (SAS offload / ALSA reasons), so
 // diagnostics can say more than "native unavailable".
 static LAST_DSD_NATIVE_FAILURE: Lazy<Mutex<Option<String>>> =

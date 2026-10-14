@@ -11,11 +11,32 @@
 
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rubato::{FastFixedIn, PolynomialDegree, Resampler as RubatoResampler};
 
 /// Default system output sample rate (48kHz is standard for modern audio)
 pub const DEFAULT_OUTPUT_SAMPLE_RATE: u32 = 48000;
+
+/// User preference for the resampling engine. When `true`, `AudioResampler`
+/// skips SoX entirely and uses the pure-Rust rubato backend. Set from Flutter
+/// via `set_resampler_prefer_rubato`. Default `false` (SoX preferred).
+static RESAMPLER_PREFER_RUBATO: AtomicBool = AtomicBool::new(false);
+
+/// Update the resampler backend preference. Takes effect on the next
+/// `AudioResampler` creation (does not interrupt in-flight resampling).
+pub fn set_prefer_rubato(prefer: bool) {
+    RESAMPLER_PREFER_RUBATO.store(prefer, Ordering::Relaxed);
+    log::info!(
+        "[RESAMPLER] backend preference set to {}",
+        if prefer { "rubato" } else { "soxr" }
+    );
+}
+
+/// Current resampler backend preference.
+pub fn prefer_rubato() -> bool {
+    RESAMPLER_PREFER_RUBATO.load(Ordering::Relaxed)
+}
 
 // ---------------------------------------------------------------------------
 // SoX backend (libsoxr via soxr-sys)
@@ -388,6 +409,15 @@ impl AudioResampler {
 
         let backend = if input_rate == output_rate {
             Backend::Passthrough
+        } else if prefer_rubato() {
+            // User preference: skip SoX, use rubato directly.
+            log::info!("[RESAMPLER] using rubato backend (user preference)");
+            Backend::Rubato(RubatoCore::new(
+                input_rate,
+                output_rate,
+                channels,
+                chunk_size,
+            )?)
         } else {
             match SoxrCore::new(input_rate, output_rate, channels) {
                 Ok(core) => Backend::Soxr(core),
@@ -652,8 +682,19 @@ mod tests {
     #[test]
     fn test_soxr_is_default_backend() {
         // SoX must initialise in the test environment; it is the primary engine.
+        set_prefer_rubato(false);
         let resampler = AudioResampler::new(44100, 48000, 2, 1024).unwrap();
         assert_eq!(resampler.backend_name(), "soxr");
+    }
+
+    #[test]
+    fn test_prefer_rubato_flag_selects_rubato() {
+        // User preference for rubato must skip SoX entirely.
+        set_prefer_rubato(true);
+        let resampler = AudioResampler::new(44100, 48000, 2, 1024).unwrap();
+        assert_eq!(resampler.backend_name(), "rubato");
+        // Reset to default so other tests are unaffected.
+        set_prefer_rubato(false);
     }
 
     #[test]
