@@ -344,31 +344,39 @@ class TidalHomeItem {
       if (sm is Map && sm['url'] is String) return sm['url'] as String;
     }
 
-    // 5. Album / Playlist Cover UUID
+    // 5. Album / Playlist Cover UUID (or full URL for some content types)
     final square = data['squareImage'] ?? data['squareImageUuid'];
     if (square is String && square.isNotEmpty) {
-      return _buildTidalImageUrl(square, size: size);
+      final url = _tidalImageUrl(square, size: size);
+      if (url != null && url.isNotEmpty) return url;
     }
     final cover = data['cover'];
     if (cover is String && cover.isNotEmpty) {
-      return _buildTidalImageUrl(cover, size: size);
+      final url = _tidalImageUrl(cover, size: size);
+      if (url != null && url.isNotEmpty) return url;
     }
     final image = data['image'];
     if (image is String && image.isNotEmpty) {
-      return _buildTidalWideImageUrl(image, width: size > 160 ? 640 : 480);
+      final url = _tidalWideImageUrl(
+        image,
+        width: size > 160 ? 640 : 480,
+      );
+      if (url != null && url.isNotEmpty) return url;
     }
 
-    // 6. Artist picture UUID
+    // 6. Artist picture UUID (or full URL for some content types)
     final picture = data['picture'] ?? data['artworkId'];
     if (picture is String && picture.isNotEmpty) {
-      return _buildTidalImageUrl(picture, size: size);
+      final url = _tidalImageUrl(picture, size: size);
+      if (url != null && url.isNotEmpty) return url;
     }
 
     // 7. Nested album cover
     if (data['album'] is Map) {
       final albumCover = data['album']['cover'];
       if (albumCover is String && albumCover.isNotEmpty) {
-        return _buildTidalImageUrl(albumCover, size: size);
+        final url = _tidalImageUrl(albumCover, size: size);
+        if (url != null && url.isNotEmpty) return url;
       }
     }
 
@@ -379,7 +387,8 @@ class TidalHomeItem {
           data['artist']['squareImage'] ??
           data['artist']['artworkId'];
       if (artistPic is String && artistPic.isNotEmpty) {
-        return _buildTidalImageUrl(artistPic, size: size);
+        final url = _tidalImageUrl(artistPic, size: size);
+        if (url != null && url.isNotEmpty) return url;
       }
     }
 
@@ -398,6 +407,31 @@ class TidalHomeItem {
     }
 
     return null;
+  }
+
+  /// Resolves a TIDAL image field that may be either a UUID or a full URL.
+  /// UUIDs are built into a resources.tidal.com URL; existing URLs are
+  /// returned as-is so they are not mangled by the UUID builder (which
+  /// would produce a garbage URL that _usablePath later rejects, showing
+  /// the error widget). Downstream size rewriting (resizedCoverUrl) still
+  /// applies to returned URLs.
+  static String? _tidalImageUrl(String? value, {int size = 640}) {
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    final built = _buildTidalImageUrl(value, size: size);
+    return built.isEmpty ? null : built;
+  }
+
+  /// Wide-image variant of [_tidalImageUrl].
+  static String? _tidalWideImageUrl(String? value, {int width = 480}) {
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    final built = _buildTidalWideImageUrl(value, width: width);
+    return built.isEmpty ? null : built;
   }
 
   static String _buildTidalImageUrl(String uuid, {int size = 640}) {
