@@ -1005,7 +1005,7 @@ void main() {
 
       expect(song.id, 'tidal_9_9999');
       expect(song.title, 'Instant Crush');
-      expect(song.artist, 'Daft Punk');
+      expect(song.artist, 'Daft Punk, Julian Casablancas');
       expect(song.album, 'Random Access Memories');
       expect(song.albumArt, TidalService.coverUrl('abc-123', size: 640));
       expect(song.duration, const Duration(seconds: 337));

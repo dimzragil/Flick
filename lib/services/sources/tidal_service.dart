@@ -1031,6 +1031,20 @@ class TidalService implements NetworkSourceService {
     return response.bodyBytes;
   }
 
+  /// Joins all artist names with ', ' so collab tracks show every artist
+  /// instead of just the first. Returns null when there are no usable names
+  /// so callers can fall back to their own default.
+  static String? joinArtistNames(List<Map<String, dynamic>?>? artists) {
+    if (artists == null || artists.isEmpty) return null;
+    final names = artists
+        .map((a) => a?['name'] as String?)
+        .where((n) => n != null && n.isNotEmpty)
+        .cast<String>()
+        .toList();
+    if (names.isEmpty) return null;
+    return names.join(', ');
+  }
+
   /// Build a `resources.tidal.com` cover URL from a Tidal cover uuid.
   static String coverUrl(String coverUuid, {int size = 1280}) {
     if (coverUuid.isEmpty) return '';
@@ -1813,10 +1827,10 @@ class TidalService implements NetworkSourceService {
     return SongEntity()
       ..filePath = '${NetworkProtocol.tidal}://${server.id}/$remoteId'
       ..title = (t['title'] as String?) ?? 'Unknown'
-      ..artist = (artists != null && artists.isNotEmpty)
-          ? (artists.first?['name'] as String? ?? 'Unknown')
-          : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?) ??
-                'Unknown'
+      ..artist =
+          joinArtistNames(artists) ??
+          ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?) ??
+          'Unknown'
       ..album = (album?['title'] as String?)
       ..albumArtist =
           ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?)
@@ -3437,10 +3451,10 @@ class TidalService implements NetworkSourceService {
     return Song(
       id: 'tidal_${server.id}_$remoteId',
       title: (trackJson['title'] as String?) ?? 'Unknown Track',
-      artist: (artists != null && artists.isNotEmpty)
-          ? (artists.first?['name'] as String? ?? 'Unknown Artist')
-          : ((album?['artist'] as Map<String, dynamic>?)?['name'] as String? ??
-                'Unknown Artist'),
+      artist:
+          joinArtistNames(artists) ??
+          ((album?['artist'] as Map<String, dynamic>?)?['name'] as String?) ??
+          'Unknown Artist',
       album: album?['title'] as String?,
       albumArt: (coverUrl != null && coverUrl.isNotEmpty) ? coverUrl : null,
       duration: Duration(seconds: durationSec),
