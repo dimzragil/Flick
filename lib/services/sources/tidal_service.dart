@@ -41,6 +41,23 @@ import 'tidal_token_store.dart';
 ///
 /// Tidal rotates the web client credentials; update [clientId]/[clientSecret]
 /// if auth starts returning `invalid_client`.
+///
+/// Parses a TIDAL home-feed JSON body off the UI thread. Top-level so it can
+/// run in [compute]: home-feed payloads are large (dozens of sections,
+/// hundreds of nested items) and both `jsonDecode` and model construction
+/// would otherwise block the UI thread for hundreds of milliseconds.
+TidalHomeFeed parseTidalHomeFeedBody(String body) {
+  final decoded = jsonDecode(body);
+  if (decoded is! Map<String, dynamic>) return TidalHomeFeed.empty;
+  return TidalService._parseHomeFeed(decoded);
+}
+
+/// Batch variant of [parseTidalHomeFeedBody] so a single isolate can parse
+/// several payloads (used by the v1 fallback, which fetches 3 pages).
+List<TidalHomeFeed> parseTidalHomeFeedBodies(List<String> bodies) {
+  return [for (final body in bodies) parseTidalHomeFeedBody(body)];
+}
+
 class TidalService implements NetworkSourceService {
   TidalService._({
     http.Client? client,
@@ -686,7 +703,10 @@ class TidalService implements NetworkSourceService {
     }
   }
 
-  Future<Map<String, dynamic>> _apiGet(
+  /// Raw-body variant of [_apiGet]: returns the response body as a [String]
+  /// without JSON-decoding it, so large payloads can be parsed on a
+  /// background isolate via [compute] instead of blocking the UI thread.
+  Future<String> _apiGetRaw(
     NetworkServerEntity server,
     String path, {
     Map<String, String>? query,
@@ -711,7 +731,7 @@ class TidalService implements NetworkSourceService {
     );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
-      return _apiGet(server, path, query: query, retry: false);
+      return _apiGetRaw(server, path, query: query, retry: false);
     }
     if (response.statusCode == 429) {
       throw TidalRateLimitedException(
@@ -721,7 +741,17 @@ class TidalService implements NetworkSourceService {
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for $path');
     }
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return response.body;
+  }
+
+  Future<Map<String, dynamic>> _apiGet(
+    NetworkServerEntity server,
+    String path, {
+    Map<String, String>? query,
+    bool retry = true,
+  }) async {
+    final body = await _apiGetRaw(server, path, query: query, retry: retry);
+    return jsonDecode(body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> _postForm(
@@ -753,7 +783,10 @@ class TidalService implements NetworkSourceService {
     return parsed ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> _apiV2Get(
+  /// Raw-body variant of [_apiV2Get]: returns the response body as a [String]
+  /// without JSON-decoding it, so large payloads can be parsed on a
+  /// background isolate via [compute] instead of blocking the UI thread.
+  Future<String> _apiV2GetRaw(
     NetworkServerEntity server,
     String path, {
     Map<String, String>? query,
@@ -785,7 +818,7 @@ class TidalService implements NetworkSourceService {
     );
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
-      return _apiV2Get(server, path, query: query, retry: false);
+      return _apiV2GetRaw(server, path, query: query, retry: false);
     }
     if (response.statusCode == 429) {
       throw TidalRateLimitedException(
@@ -795,7 +828,17 @@ class TidalService implements NetworkSourceService {
     if (response.statusCode != 200) {
       throw TidalException('HTTP ${response.statusCode} for $path');
     }
-    final decoded = jsonDecode(response.body);
+    return response.body;
+  }
+
+  Future<Map<String, dynamic>> _apiV2Get(
+    NetworkServerEntity server,
+    String path, {
+    Map<String, String>? query,
+    bool retry = true,
+  }) async {
+    final body = await _apiV2GetRaw(server, path, query: query, retry: retry);
+    final decoded = jsonDecode(body);
     if (decoded is Map<String, dynamic>) {
       return decoded;
     } else if (decoded is List) {
@@ -2017,17 +2060,19 @@ class TidalService implements NetworkSourceService {
       query['cursor'] = cursor;
     }
 
-    Map<String, dynamic>? raw;
+    String? rawBody;
     try {
-      raw = await _apiV2Get(server, '/home/feed/$feedSlug', query: query);
+      rawBody = await _apiV2GetRaw(server, '/home/feed/$feedSlug', query: query);
     } catch (e) {
       devLog(
         '[Tidal] v2 home feed failed ($e), falling back to v1 multi-endpoints...',
       );
     }
 
-    if (raw != null) {
-      final feed = _parseHomeFeed(raw);
+    if (rawBody != null) {
+      // Parse off the UI thread: home-feed payloads are large and both
+      // jsonDecode and model construction would otherwise drop frames.
+      final feed = await compute(parseTidalHomeFeedBody, rawBody);
       if (feed.sections.isNotEmpty) {
         return feed;
       }
@@ -2053,57 +2098,73 @@ class TidalService implements NetworkSourceService {
       }
     }
 
-    // 1. User's personal mixes
-    try {
-      final mixJson = await _apiGet(
-        server,
-        '/pages/my_collection_my_mixes',
-        query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
-      );
-      addUniqueSections(_parseHomeFeed(mixJson).sections);
-    } catch (e) {
-      devLog('[Tidal] v1 pages/my_collection_my_mixes failed: $e');
+    // Fetch the three pages in parallel — they're independent. A null entry
+    // means that endpoint failed; one bad endpoint doesn't kill the others.
+    Future<String?> fetchPage(String path) async {
+      try {
+        return await _apiGetRaw(
+          server,
+          path,
+          query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
+        );
+      } catch (e) {
+        devLog('[Tidal] v1 $path failed: $e');
+        return null;
+      }
     }
 
-    // 2. For You (personalized recommendations)
-    try {
-      final forYouJson = await _apiGet(
-        server,
-        '/pages/for_you',
-        query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
-      );
-      addUniqueSections(_parseHomeFeed(forYouJson).sections);
-    } catch (e) {
-      devLog('[Tidal] v1 pages/for_you failed: $e');
+    final bodies = await Future.wait([
+      fetchPage('/pages/my_collection_my_mixes'),
+      fetchPage('/pages/for_you'),
+      fetchPage('/pages/home'),
+    ]);
+
+    // Parse all payloads off the UI thread in a single isolate call.
+    // Index 0 = mixes, 1 = for-you, 2 = home (home also provides tabs/cursor).
+    final validIndices = <int>[];
+    final validBodies = <String>[];
+    for (var i = 0; i < bodies.length; i++) {
+      final body = bodies[i];
+      if (body != null) {
+        validIndices.add(i);
+        validBodies.add(body);
+      }
+    }
+    final feedsByPage = <int, TidalHomeFeed>{};
+    if (validBodies.isNotEmpty) {
+      final parsed = await compute(parseTidalHomeFeedBodies, validBodies);
+      for (var j = 0; j < parsed.length; j++) {
+        feedsByPage[validIndices[j]] = parsed[j];
+      }
     }
 
-    // 3. Global Home (The Hits, New Tracks, New Albums, etc.)
-    try {
-      final homeJson = await _apiGet(
-        server,
-        '/pages/home',
-        query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
-      );
-      final homeFeed = _parseHomeFeed(homeJson);
+    final mixesFeed = feedsByPage[0];
+    if (mixesFeed != null) addUniqueSections(mixesFeed.sections);
+
+    final forYouFeed = feedsByPage[1];
+    if (forYouFeed != null) addUniqueSections(forYouFeed.sections);
+
+    final homeFeed = feedsByPage[2];
+    if (homeFeed != null) {
       addUniqueSections(homeFeed.sections);
       return TidalHomeFeed(
         tabs: homeFeed.tabs,
         sections: allSections,
         cursor: homeFeed.cursor,
       );
-    } catch (e) {
-      devLog('[Tidal] v1 pages/home failed: $e');
-      return TidalHomeFeed(
-        tabs: const [
-          TidalHomeTab(name: 'Suggested', type: 'STATIC', slug: 'static'),
-        ],
-        sections: allSections,
-      );
     }
+    return TidalHomeFeed(
+      tabs: const [
+        TidalHomeTab(name: 'Suggested', type: 'STATIC', slug: 'static'),
+      ],
+      sections: allSections,
+    );
   }
 
   /// Parses a home feed response, handling V2 and V1 module structures.
-  TidalHomeFeed _parseHomeFeed(Map<String, dynamic> json) {
+  /// Pure: only builds model objects from [json], no instance state, so it can
+  /// also run on a background isolate via [parseTidalHomeFeedBody].
+  static TidalHomeFeed _parseHomeFeed(Map<String, dynamic> json) {
     // 1. Vibes tabs
     final tabs = <TidalHomeTab>[];
     final header = json['header'] as Map<String, dynamic>?;
@@ -2381,12 +2442,12 @@ class TidalService implements NetworkSourceService {
 
     // Fallback: If v2 returned no items or failed, check /pages/my_collection_my_mixes
     try {
-      final pageRes = await _apiGet(
+      final pageBody = await _apiGetRaw(
         server,
         '/pages/my_collection_my_mixes',
         query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
       );
-      final pageFeed = _parseHomeFeed(pageRes);
+      final pageFeed = await compute(parseTidalHomeFeedBody, pageBody);
       for (final sec in pageFeed.sections) {
         for (final item in sec.items) {
           if (item.isMix || item.type.toUpperCase().contains('MIX')) {

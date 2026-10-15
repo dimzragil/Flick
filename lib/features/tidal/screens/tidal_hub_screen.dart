@@ -881,10 +881,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   Widget _buildLoggedInView() {
-    final feedAsync = ref.watch(tidalHomeFeedProvider(_activeFeedSlug));
-    final playlistsAsync = ref.watch(tidalUserPlaylistsProvider);
-    final mixesAsync = ref.watch(tidalFavoriteMixesProvider);
-
+    // Perf: each section below watches its own provider inside a scoped
+    // Consumer, so a provider update rebuilds only its section instead of
+    // the whole screen (previously 3 full-screen rebuilds fired in quick
+    // succession as feed/playlists/mixes resolved).
     return RefreshIndicator(
       color: const Color(0xD9FFFFFF),
       backgroundColor: AppColors.surface,
@@ -901,7 +901,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
         children: [
           // 1. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
-          feedAsync.when(
+          Consumer(
+            builder: (context, ref, _) {
+              final feedAsync =
+                  ref.watch(tidalHomeFeedProvider(_activeFeedSlug));
+              return feedAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
               child: Center(
@@ -1005,8 +1009,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     _buildShortcutGrid(sec),
 
                   // Daily Discovery (from /v2/favorites/mixes, filtered to daily only)
+                  // Scoped Consumer: mixes resolve independently of the feed.
                   if (_activeFeedSlug == 'static')
-                    _buildCustomMixesSection(mixesAsync),
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final mixesAsync =
+                            ref.watch(tidalFavoriteMixesProvider);
+                        return _buildCustomMixesSection(mixesAsync);
+                      },
+                    ),
 
                   // Adaptive Sections (Track list, Compact Grid for Recently played, or Carousel)
                   for (final sec in feed.sections.where(
@@ -1016,6 +1027,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 ],
               );
             },
+          );
+          },
           ),
 
           SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
@@ -1071,7 +1084,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
           SizedBox(height: context.scaleSize(AppConstants.spacingSm)),
 
-          playlistsAsync.when(
+          // Scoped Consumer: playlist updates rebuild only this section.
+          Consumer(
+            builder: (context, ref, _) {
+              final playlistsAsync =
+                  ref.watch(tidalUserPlaylistsProvider);
+              return playlistsAsync.when(
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
@@ -1179,7 +1197,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               }
               return Column(children: children);
             },
-          ),
+          );
+        },
+      ),
           SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
         ],
       ),
