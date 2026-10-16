@@ -7,7 +7,25 @@ import '../../../data/database.dart';
 import '../../../models/song.dart';
 import '../../../models/sources/tidal_models.dart';
 import '../../../services/sources/network_source_service.dart';
+import '../../../services/sources/tidal_api_cache.dart';
 import '../../../services/sources/tidal_service.dart';
+
+/// TTL caches for Hub data — reduces TIDAL API calls to stay clear of
+/// rate limits. Home feed changes more often than playlists.
+final _homeFeedCache = TtlCache<TidalHomeFeed>(ttl: const Duration(minutes: 15));
+final _playlistsCache =
+    TtlCache<List<Map<String, dynamic>>>(ttl: const Duration(minutes: 30));
+
+/// Clears the Hub TTL caches, forcing fresh API fetches on next read.
+/// Call this from manual retry/refresh actions so they actually hit the API.
+void invalidateTidalHubCache({String? feedSlug}) {
+  if (feedSlug != null) {
+    _homeFeedCache.invalidate(feedSlug);
+  } else {
+    _homeFeedCache.invalidateAll();
+  }
+  _playlistsCache.invalidateAll();
+}
 
 /// Provider for the singleton [TidalService] instance.
 final tidalServiceProvider = Provider<TidalService>((ref) {
@@ -255,8 +273,14 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
   if (server == null || server.token == null || server.token!.isEmpty) {
     return const [];
   }
+  // Serve from TTL cache when fresh — avoids re-hitting the API on every
+  // Hub visit and keeps us clear of TIDAL's rate limits.
+  final cached = _playlistsCache.get('user_playlists');
+  if (cached != null) return cached;
   final tidal = ref.read(tidalServiceProvider);
-  return tidal.getUserPlaylists(server);
+  final result = await tidal.getUserPlaylists(server);
+  _playlistsCache.set('user_playlists', result);
+  return result;
 });
 
 /// Fetches the user's custom mixes & daily discovery (My Mix 1..8, Daily Discovery).
@@ -377,8 +401,14 @@ final tidalHomeFeedProvider = FutureProvider.family<TidalHomeFeed, String>((
   if (server == null || server.token == null || server.token!.isEmpty) {
     return TidalHomeFeed.empty;
   }
+  // Serve from TTL cache when fresh — avoids re-hitting the API on every
+  // Hub visit and keeps us clear of TIDAL's rate limits.
+  final cached = _homeFeedCache.get(feedSlug);
+  if (cached != null) return cached;
   final tidal = ref.read(tidalServiceProvider);
-  return await tidal.getHomeFeed(server, feedSlug: feedSlug);
+  final result = await tidal.getHomeFeed(server, feedSlug: feedSlug);
+  _homeFeedCache.set(feedSlug, result);
+  return result;
 });
 
 /// Fetches details and tracks for a given TIDAL mix or radio station ID.

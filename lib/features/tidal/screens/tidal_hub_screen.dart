@@ -916,8 +916,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             error: (err, _) => TidalErrorWidget(
               error: err,
               contextLabel: 'Could not load TIDAL home feed',
-              onRetry: () =>
-                  ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug)),
+              onRetry: () {
+                invalidateTidalHubCache(feedSlug: _activeFeedSlug);
+                ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug));
+              },
             ),
             data: (feed) {
               // The default 'static' feed ("For You") is not exposed as a
@@ -1096,7 +1098,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             error: (err, _) => TidalErrorWidget(
               error: err,
               contextLabel: 'Could not load playlists',
-              onRetry: () => ref.invalidate(tidalUserPlaylistsProvider),
+              onRetry: () {
+                invalidateTidalHubCache();
+                ref.invalidate(tidalUserPlaylistsProvider);
+              },
             ),
             data: (playlists) {
               // Column instead of shrinkWrap ListView: shrinkWrap already
