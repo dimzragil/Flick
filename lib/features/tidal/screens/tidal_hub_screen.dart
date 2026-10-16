@@ -19,6 +19,7 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
+import '../widgets/tidal_error_widget.dart';
 import '../widgets/tidal_import_playlist_dialog.dart';
 import '../widgets/tidal_playlist_cover_widget.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
@@ -912,15 +913,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
               ),
             ),
-            error: (err, _) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Could not load TIDAL home feed: $err',
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
+            error: (err, _) => TidalErrorWidget(
+              error: err,
+              contextLabel: 'Could not load TIDAL home feed',
+              onRetry: () =>
+                  ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug)),
             ),
             data: (feed) {
               // The default 'static' feed ("For You") is not exposed as a
@@ -1096,15 +1093,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
               ),
             ),
-            error: (err, _) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Could not load playlists: $err',
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
+            error: (err, _) => TidalErrorWidget(
+              error: err,
+              contextLabel: 'Could not load playlists',
+              onRetry: () => ref.invalidate(tidalUserPlaylistsProvider),
             ),
             data: (playlists) {
               // Column instead of shrinkWrap ListView: shrinkWrap already
@@ -1833,9 +1825,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             'Loading...',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
-          error: (_, __) => const Text(
-            'Could not load',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          error: (err, _) => Text(
+            isTidalRateLimitError(err) ? 'Rate limited — try again soon' : 'Could not load',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
         ),
         trailing: const Icon(
