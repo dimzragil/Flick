@@ -3956,7 +3956,7 @@ class PlayerService {
     if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
       _debugLog('_onSongFinished: stopAfterCurrent, pausing');
       await _pauseInternal();
-      await seek(Duration.zero);
+      await _performSeek(Duration.zero);
       return;
     }
 
@@ -3977,7 +3977,7 @@ class PlayerService {
 
     if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
       await _pauseInternal();
-      await seek(Duration.zero);
+      await _performSeek(Duration.zero);
       return;
     }
 
@@ -6161,23 +6161,32 @@ class PlayerService {
     // Serialized with load/play ops: a seek racing an in-flight load could
     // otherwise be applied to the old track or overwritten when the load
     // completes.
-    return _enqueuePlaybackRequest(() async {
-      // Track still loading: defer the seek until the load completes
-      // instead of silently discarding it.
-      if (isNetworkLoadingNotifier.value) {
-        _debugLog('[Playback] seek deferred until load completes: $position');
-        _pendingSeekPosition = position;
-        _pendingSeekLoadingGen = _networkLoadingGen;
-        return;
-      }
-      _pendingSeekPosition = null;
-      _pendingSeekLoadingGen = null;
-      try {
-        await _playbackManager.seek(position);
-      } catch (e) {
-        _debugLog('Seek failed: $e');
-      }
-    }, label: 'seek');
+    return _enqueuePlaybackRequest(
+      () => _performSeek(position),
+      label: 'seek',
+    );
+  }
+
+  /// The actual seek work, without queueing. Called from the queued [seek]
+  /// wrapper above, and directly from [_previousInternal] which already runs
+  /// inside the queue (calling public [seek] there would enqueue behind
+  /// itself and deadlock).
+  Future<void> _performSeek(Duration position) async {
+    // Track still loading: defer the seek until the load completes
+    // instead of silently discarding it.
+    if (isNetworkLoadingNotifier.value) {
+      _debugLog('[Playback] seek deferred until load completes: $position');
+      _pendingSeekPosition = position;
+      _pendingSeekLoadingGen = _networkLoadingGen;
+      return;
+    }
+    _pendingSeekPosition = null;
+    _pendingSeekLoadingGen = null;
+    try {
+      await _playbackManager.seek(position);
+    } catch (e) {
+      _debugLog('Seek failed: $e');
+    }
   }
 
   Future<void> next() {
@@ -6364,7 +6373,10 @@ class PlayerService {
     }
 
     if (allowRestart && positionNotifier.value.inSeconds > 3) {
-      await seek(Duration.zero);
+      // Direct (non-queued) seek: we already run inside the playback queue.
+      // Calling public seek() here would enqueue behind ourselves and
+      // deadlock the queue forever.
+      await _performSeek(Duration.zero);
       return;
     }
 
@@ -6386,7 +6398,8 @@ class PlayerService {
       return;
     }
 
-    await seek(Duration.zero);
+    // Already inside the queue — direct seek, not the public seek().
+    await _performSeek(Duration.zero);
   }
 
   // ========== Carousel peek helpers (Poweramp-style swipe) ==========
@@ -7441,7 +7454,9 @@ class PlayerService {
       _debugLog('[Radio] queue end: no radio tracks available, stopping');
     }
     await _pauseInternal();
-    await seek(Duration.zero);
+    // Already inside the queue (called from queued _nextInternal /
+    // _onSongFinishedInternal) — direct seek, not the public seek().
+    await _performSeek(Duration.zero);
   }
 
   /// Fetches smart TIDAL Radio tracks seeded from [seed].
