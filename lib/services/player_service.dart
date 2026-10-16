@@ -747,6 +747,11 @@ class PlayerService {
   Future<void> _playRequestQueue = Future<void>.value();
   int _queueOpCounter = 0;
 
+  /// Watchdog timeout for a single queued playback action. Normal actions
+  /// (even TIDAL stream resolution) complete in seconds; anything beyond
+  /// this is hung and must not block the queue forever.
+  static const Duration _queueWatchdogTimeout = Duration(seconds: 30);
+
   /// Guards speaker-path playback-error recovery. While the one-shot retry
   /// of the failed track is in flight, a second error means the retry itself
   /// failed, so we advance instead of retrying again. Checked at
@@ -5270,9 +5275,33 @@ class PlayerService {
           );
           final sw = Stopwatch()..start();
           try {
-            await action();
+            // Watchdog: a hung action must never kill the queue forever.
+            // If the action doesn't complete within the timeout, log it
+            // loudly and detach the queue so subsequent next/previous taps
+            // keep working. The orphaned future is left alone; the
+            // generation guard in _playInternal prevents it from corrupting
+            // state if it eventually completes.
+            await action().timeout(
+              _queueWatchdogTimeout,
+              onTimeout: () {
+                _debugLog(
+                  '[Queue] [#$opId $opLabel] WATCHDOG: action hung for '
+                  '${_queueWatchdogTimeout.inSeconds}s — detaching queue. '
+                  'The hang is inside "$opLabel".',
+                );
+                throw _QueueWatchdogTimeout(opLabel);
+              },
+            );
           } catch (e, stack) {
             sw.stop();
+            if (e is _QueueWatchdogTimeout) {
+              // Swallowed deliberately: the queue survives, hung action orphaned.
+              _debugLog(
+                '[Queue] [#$opId $opLabel] queue detached from hung action '
+                '(wait: ${waitMs}ms). Next requests will proceed.',
+              );
+              return;
+            }
             _debugLog(
               '[Queue] [#$opId $opLabel] action error after ${sw.elapsedMilliseconds}ms (wait: ${waitMs}ms): $e\n$stack',
             );
@@ -7834,4 +7863,14 @@ class _ShuffleBoolNotifier extends ValueNotifier<bool> {
     _source.removeListener(_sync);
     super.dispose();
   }
+}
+
+/// Internal marker thrown by the queue watchdog when a playback action hangs
+/// past the queue watchdog timeout. Caught and swallowed inside
+/// [_enqueuePlaybackRequest] so the queue survives; never escapes.
+class _QueueWatchdogTimeout implements Exception {
+  final String label;
+  _QueueWatchdogTimeout(this.label);
+  @override
+  String toString() => 'QueueWatchdogTimeout($label)';
 }
