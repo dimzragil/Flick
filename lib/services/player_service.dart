@@ -6317,13 +6317,20 @@ class PlayerService {
     _debugLog('[PlayerService] previous() called (allowRestart=$allowRestart)');
     final gen = ++_playbackGeneration;
 
-    // Only cancel in-flight downloads when actually changing tracks. If this
-    // press will restart the current track (position > 3s), its proxy
-    // session must stay alive — cancelling it then seeking to zero makes
-    // ExoPlayer hit a 404 on the dead session ("Source error") and wedges
-    // the queue.
+    // Decide ONCE whether this press restarts the current track (>3s) or
+    // moves to the previous one. Reading positionNotifier multiple times
+    // across previous()/_previousInternal risks the two reads disagreeing
+    // (timer tick / seek in between): we'd skip cancelAllDownloads() but
+    // then change tracks anyway, leaving the old download to fight the new
+    // track's fresh proxy download for bandwidth -> stutter on uncached
+    // tracks. A single decision passed through eliminates the race.
     final willRestartCurrent =
         allowRestart && positionNotifier.value.inSeconds > 3;
+
+    // Only cancel in-flight downloads when actually changing tracks. If this
+    // press will restart the current track, its proxy session must stay
+    // alive — cancelling it then seeking to zero makes ExoPlayer hit a 404
+    // on the dead session ("Source error") and wedges the queue.
     if (!willRestartCurrent) {
       RemoteSourceService.instance.cancelAllDownloads();
     }
@@ -6333,7 +6340,7 @@ class PlayerService {
     }
 
     bool targetAlreadySelected = false;
-    if (!allowRestart || positionNotifier.value.inSeconds <= 3) {
+    if (!willRestartCurrent) {
       if (_currentIndex > 0) {
         _setCurrentIndex(_currentIndex - 1);
         targetAlreadySelected = true;
@@ -6353,6 +6360,7 @@ class PlayerService {
         allowRestart: allowRestart,
         generation: gen,
         targetAlreadySelected: targetAlreadySelected,
+        willRestartCurrent: willRestartCurrent,
       ),
       label: 'previous',
     );
@@ -6366,13 +6374,14 @@ class PlayerService {
     required bool allowRestart,
     int? generation,
     bool targetAlreadySelected = false,
+    bool willRestartCurrent = false,
   }) async {
     if (generation != null && generation != _playbackGeneration) {
       _debugLog('[PlayerService] _previousInternal superseded');
       return;
     }
     _debugLog(
-      '[PlayerService] _previousInternal() called, playlist.length=${_playlist.length}, currentIndex=$_currentIndex, allowRestart=$allowRestart',
+      '[PlayerService] _previousInternal() called, playlist.length=${_playlist.length}, currentIndex=$_currentIndex, allowRestart=$allowRestart, willRestartCurrent=$willRestartCurrent',
     );
     if (_playlist.isEmpty) {
       _debugLog(
@@ -6381,7 +6390,9 @@ class PlayerService {
       return;
     }
 
-    if (allowRestart && positionNotifier.value.inSeconds > 3) {
+    // Uses the single decision made in previous() — never re-reads position
+    // here, so the cancel/restart choices can't disagree (race).
+    if (willRestartCurrent) {
       // Direct (non-queued) seek: we already run inside the playback queue.
       // Calling public seek() here would enqueue behind ourselves and
       // deadlock the queue forever.
