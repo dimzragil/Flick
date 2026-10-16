@@ -13,6 +13,7 @@ import 'package:flick/services/permission_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/playback_cache_maintenance.dart';
 import 'package:flick/services/process_exit_diagnostics_service.dart';
+import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
@@ -100,6 +101,15 @@ void _subscribeRustLogs() {
 }
 
 Future<void> _bootstrapAppAfterFirstFrame() async {
+  // Eagerly hydrate the UAC2 notifiers (resampler engine, bit-perfect) so the
+  // settings UI reflects persisted values even if the Rust audio engine never
+  // initializes (speaker/Bluetooth playback skips Rust init entirely).
+  try {
+    await Uac2PreferencesService().getResamplerPreference();
+    await Uac2PreferencesService().getBitPerfectEnabled();
+  } catch (e) {
+    devLog('Failed to restore UAC2 audio preferences: $e');
+  }
   unawaited(_setOptimalDisplayMode());
   unawaited(_showDatabaseRecoveryNotice());
   unawaited(

@@ -1598,27 +1598,55 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
   }
 
   /// Resampler engine selector: SoX (top) vs rubato (bottom, default).
+  ///
+  /// Only relevant when resampling actually happens (non-bit-perfect
+  /// output); the selector is disabled while bit-perfect passthrough is
+  /// active because the stream is never resampled in that mode.
   Widget _buildResamplerTile(
     BuildContext context,
     Uac2PreferencesService service,
   ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        border: Border.all(color: AppColors.glassBorder),
-      ),
-      child: ValueListenableBuilder<ResamplerPreference>(
-        valueListenable: Uac2PreferencesService.resamplerPreferenceNotifier,
-        builder: (context, pref, _) => _buildNavigationTile(
-          context,
-          icon: LucideIcons.audioWaveform,
-          title: 'Resampler Engine',
-          subtitle: pref == ResamplerPreference.sox
-              ? 'SoX (libsoxr VHQ, 28-bit)'
-              : 'rubato (pure Rust)',
-          onTap: () => _showResamplerDialog(context, service, pref),
-        ),
+    return ValueListenableBuilder<bool>(
+      valueListenable: Uac2PreferencesService.bitPerfectNotifier,
+      builder: (context, bitPerfect, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: ValueListenableBuilder<ResamplerPreference>(
+              valueListenable: Uac2PreferencesService.resamplerPreferenceNotifier,
+              builder: (context, pref, _) => _buildNavigationTile(
+                context,
+                icon: LucideIcons.audioWaveform,
+                title: 'Resampler Engine',
+                subtitle: bitPerfect
+                    ? 'Disabled in bit-perfect mode'
+                    : pref == ResamplerPreference.sox
+                        ? 'SoX (libsoxr VHQ, 28-bit)'
+                        : 'rubato (pure Rust)',
+                onTap: () => _showResamplerDialog(context, service, pref),
+                isDisabled: bitPerfect,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppConstants.spacingXxs),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.spacingMd,
+            ),
+            child: Text(
+              'Only takes effect when resampling is active (non-bit-perfect '
+              'output). In bit-perfect USB DAC mode, no resampling occurs.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.adaptiveTextTertiary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

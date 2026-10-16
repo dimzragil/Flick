@@ -56,6 +56,9 @@ class Uac2PreferencesService {
       ValueNotifier(ResamplerPreference.rubato);
   static ResamplerPreference get resamplerPreferenceSync =>
       resamplerPreferenceNotifier.value;
+  static final ValueNotifier<bool> bitPerfectNotifier =
+      ValueNotifier<bool>(false);
+  static bool get bitPerfectSync => bitPerfectNotifier.value;
   static const _keyAutoSwitchDsdForVolume = 'auto_switch_dsd_for_volume';
   static const _keyDsdByteOrderOverride = 'dsd_byte_order_override';
   static const _keyDsdSubslotOverride = 'dsd_subslot_override';
@@ -182,6 +185,7 @@ class Uac2PreferencesService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyBitPerfectEnabled, enabled);
       await prefs.setBool(_keyExclusiveDacModeEnabled, enabled);
+      bitPerfectNotifier.value = enabled;
     } catch (e) {
       devLog('Failed to save bit-perfect mode setting: $e');
     }
@@ -190,10 +194,14 @@ class Uac2PreferencesService {
   Future<bool> getBitPerfectEnabled() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(_keyBitPerfectEnabled) ?? false;
+      final enabled = prefs.getBool(_keyBitPerfectEnabled) ?? false;
+      if (bitPerfectNotifier.value != enabled) {
+        bitPerfectNotifier.value = enabled;
+      }
+      return enabled;
     } catch (e) {
       devLog('Failed to load bit-perfect mode setting: $e');
-      return false;
+      return bitPerfectNotifier.value;
     }
   }
 
@@ -906,6 +914,7 @@ await prefs.remove(_keyAudioEnginePreference);
       dsdWireGroupingNotifier.value = DsdWireGrouping.auto;
       developerModeNotifier.value = false;
       killIsochronousUsbOnQuitNotifier.value = true;
+      bitPerfectNotifier.value = false;
       autoEngageUsbDacNotifier.value = true;
       tuning432HzNotifier.value = false;
       btLowLatencyModeNotifier.value = false;
