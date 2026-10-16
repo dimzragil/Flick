@@ -747,6 +747,11 @@ class PlayerService {
   Future<void> _playRequestQueue = Future<void>.value();
   int _queueOpCounter = 0;
 
+  /// Watchdog timeout for a single queued playback action. Normal actions
+  /// (even TIDAL stream resolution) complete in seconds; anything beyond
+  /// this is hung and must not block the queue forever.
+  static const Duration _queueWatchdogTimeout = Duration(seconds: 30);
+
   /// Guards speaker-path playback-error recovery. While the one-shot retry
   /// of the failed track is in flight, a second error means the retry itself
   /// failed, so we advance instead of retrying again. Checked at
@@ -3951,7 +3956,9 @@ class PlayerService {
     if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
       _debugLog('_onSongFinished: stopAfterCurrent, pausing');
       await _pauseInternal();
-      await seek(Duration.zero);
+      // Already inside the playback queue — direct seek, not the public
+      // seek() which would enqueue behind this running action and deadlock.
+      await _performSeek(Duration.zero);
       return;
     }
 
@@ -3972,7 +3979,9 @@ class PlayerService {
 
     if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
       await _pauseInternal();
-      await seek(Duration.zero);
+      // Already inside the playback queue — direct seek, not the public
+      // seek() which would enqueue behind this running action and deadlock.
+      await _performSeek(Duration.zero);
       return;
     }
 
@@ -5270,9 +5279,33 @@ class PlayerService {
           );
           final sw = Stopwatch()..start();
           try {
-            await action();
+            // Watchdog: a hung action must never kill the queue forever.
+            // If the action doesn't complete within the timeout, log it
+            // loudly and detach the queue so subsequent next/previous taps
+            // keep working. The orphaned future is left alone; the
+            // generation guard in _playInternal prevents it from corrupting
+            // state if it eventually completes.
+            await action().timeout(
+              _queueWatchdogTimeout,
+              onTimeout: () {
+                _debugLog(
+                  '[Queue] [#$opId $opLabel] WATCHDOG: action hung for '
+                  '${_queueWatchdogTimeout.inSeconds}s — detaching queue. '
+                  'The hang is inside "$opLabel".',
+                );
+                throw _QueueWatchdogTimeout(opLabel);
+              },
+            );
           } catch (e, stack) {
             sw.stop();
+            if (e is _QueueWatchdogTimeout) {
+              // Swallowed deliberately: the queue survives, hung action orphaned.
+              _debugLog(
+                '[Queue] [#$opId $opLabel] queue detached from hung action '
+                '(wait: ${waitMs}ms). Next requests will proceed.',
+              );
+              return;
+            }
             _debugLog(
               '[Queue] [#$opId $opLabel] action error after ${sw.elapsedMilliseconds}ms (wait: ${waitMs}ms): $e\n$stack',
             );
@@ -6132,23 +6165,32 @@ class PlayerService {
     // Serialized with load/play ops: a seek racing an in-flight load could
     // otherwise be applied to the old track or overwritten when the load
     // completes.
-    return _enqueuePlaybackRequest(() async {
-      // Track still loading: defer the seek until the load completes
-      // instead of silently discarding it.
-      if (isNetworkLoadingNotifier.value) {
-        _debugLog('[Playback] seek deferred until load completes: $position');
-        _pendingSeekPosition = position;
-        _pendingSeekLoadingGen = _networkLoadingGen;
-        return;
-      }
-      _pendingSeekPosition = null;
-      _pendingSeekLoadingGen = null;
-      try {
-        await _playbackManager.seek(position);
-      } catch (e) {
-        _debugLog('Seek failed: $e');
-      }
-    }, label: 'seek');
+    return _enqueuePlaybackRequest(
+      () => _performSeek(position),
+      label: 'seek',
+    );
+  }
+
+  /// The actual seek work, without queueing. Called from the queued [seek]
+  /// wrapper above, and directly from code that already runs inside the
+  /// playback queue — calling public [seek] from such code would enqueue
+  /// behind the currently-running action and deadlock the queue forever.
+  Future<void> _performSeek(Duration position) async {
+    // Track still loading: defer the seek until the load completes
+    // instead of silently discarding it.
+    if (isNetworkLoadingNotifier.value) {
+      _debugLog('[Playback] seek deferred until load completes: $position');
+      _pendingSeekPosition = position;
+      _pendingSeekLoadingGen = _networkLoadingGen;
+      return;
+    }
+    _pendingSeekPosition = null;
+    _pendingSeekLoadingGen = null;
+    try {
+      await _playbackManager.seek(position);
+    } catch (e) {
+      _debugLog('Seek failed: $e');
+    }
   }
 
   Future<void> next() {
@@ -6279,14 +6321,23 @@ class PlayerService {
     _debugLog('[PlayerService] previous() called (allowRestart=$allowRestart)');
     final gen = ++_playbackGeneration;
 
-    RemoteSourceService.instance.cancelAllDownloads();
+    // Pause immediately so the current song stops the instant the button is
+    // pressed. Everything else — proxy-session cancels, target selection,
+    // restart vs switch — is decided exactly once inside _previousInternal,
+    // at queue-execution time. Reading positionNotifier here AND there can
+    // disagree once the restart seek lands: a stale ">3s" read then skips
+    // session cancels for what turns out to be a track switch, leaving the
+    // old track's download racing the fresh one (stutter on uncached tracks).
     unawaited(_playbackManager.pause());
     if (_usingRustBackend) {
       unawaited(_rustAudioService.pause());
     }
 
+    // Carousel swipe (allowRestart=false) never restarts the current track:
+    // select the target eagerly so the UI reacts in 0ms, same as the old
+    // pre-queue logic. The button path keeps no state decisions up here.
     bool targetAlreadySelected = false;
-    if (!allowRestart || positionNotifier.value.inSeconds <= 3) {
+    if (!allowRestart) {
       if (_currentIndex > 0) {
         _setCurrentIndex(_currentIndex - 1);
         targetAlreadySelected = true;
@@ -6294,10 +6345,12 @@ class PlayerService {
         _setCurrentIndex(_playlist.length - 1);
         targetAlreadySelected = true;
       }
-      final song = _songAtCurrentIndex();
-      if (song != null) {
-        currentSongNotifier.value = song;
-        if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
+      if (targetAlreadySelected) {
+        final song = _songAtCurrentIndex();
+        if (song != null) {
+          currentSongNotifier.value = song;
+          if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
+        }
       }
     }
 
@@ -6334,10 +6387,49 @@ class PlayerService {
       return;
     }
 
-    if (allowRestart && positionNotifier.value.inSeconds > 3) {
-      await seek(Duration.zero);
+    // The single restart decision, made here at execution time (we already
+    // run inside the playback queue): position is read exactly once and the
+    // same value drives both the restart branch and the session-cancel below,
+    // so they can never disagree.
+    final willRestart =
+        allowRestart &&
+        !targetAlreadySelected &&
+        positionNotifier.value.inSeconds > 3;
+
+    if (willRestart) {
+      if (_castingService.isActive) {
+        // Casting session controls playback; keep its delegate behavior.
+        await _castingService.delegateSeek(Duration.zero);
+        return;
+      }
+      if (isNetworkLoadingNotifier.value) {
+        // A load for this track is still mid-flight (superseded op left the
+        // flag up): restart by reloading from zero instead of racing the
+        // engine with a seek.
+        await _playSongAtCurrentIndex(generation: generation);
+        return;
+      }
+      // Direct (non-queued) seek: calling public seek() here would enqueue
+      // behind this running action and deadlock the queue forever. The live
+      // proxy session stays untouched — seek-to-zero reads already-downloaded
+      // bytes from the session's part file.
+      await _performSeek(Duration.zero);
+      // previous() paused up front; resume so the restarted track actually
+      // plays instead of sitting paused at zero.
+      if (generation == null || generation == _playbackGeneration) {
+        try {
+          await _playbackManager.play();
+        } catch (e) {
+          _debugLog('[PlayerService] resume after previous-restart failed: $e');
+        }
+      }
       return;
     }
+
+    // Actually switching to another track: only NOW cancel in-flight proxy
+    // sessions, so the new track starts with a fresh session instead of
+    // fighting the old track's download for bandwidth.
+    RemoteSourceService.instance.cancelAllDownloads();
 
     if (targetAlreadySelected) {
       await _playSongAtCurrentIndex(generation: generation);
@@ -6345,8 +6437,7 @@ class PlayerService {
     }
 
     if (_currentIndex > 0) {
-      final targetIndex = _currentIndex - 1;
-      _setCurrentIndex(targetIndex);
+      _setCurrentIndex(_currentIndex - 1);
       await _playSongAtCurrentIndex(generation: generation);
       return;
     }
@@ -6357,7 +6448,20 @@ class PlayerService {
       return;
     }
 
-    await seek(Duration.zero);
+    // No previous track exists (index 0, no wrap-around): restart the current
+    // one. Same resume handling as the restart branch above.
+    if (_castingService.isActive) {
+      await _castingService.delegateSeek(Duration.zero);
+      return;
+    }
+    await _performSeek(Duration.zero);
+    if (generation == null || generation == _playbackGeneration) {
+      try {
+        await _playbackManager.play();
+      } catch (e) {
+        _debugLog('[PlayerService] resume after previous-restart failed: $e');
+      }
+    }
   }
 
   // ========== Carousel peek helpers (Poweramp-style swipe) ==========
@@ -7412,7 +7516,9 @@ class PlayerService {
       _debugLog('[Radio] queue end: no radio tracks available, stopping');
     }
     await _pauseInternal();
-    await seek(Duration.zero);
+    // Already inside the playback queue (queued _nextInternal /
+    // _onSongFinishedInternal) — direct seek, not the public seek().
+    await _performSeek(Duration.zero);
   }
 
   /// Fetches smart TIDAL Radio tracks seeded from [seed].
@@ -7834,4 +7940,14 @@ class _ShuffleBoolNotifier extends ValueNotifier<bool> {
     _source.removeListener(_sync);
     super.dispose();
   }
+}
+
+/// Internal marker thrown by the queue watchdog when a playback action hangs
+/// past the queue watchdog timeout. Caught and swallowed inside
+/// [_enqueuePlaybackRequest] so the queue survives; never escapes.
+class _QueueWatchdogTimeout implements Exception {
+  final String label;
+  _QueueWatchdogTimeout(this.label);
+  @override
+  String toString() => 'QueueWatchdogTimeout($label)';
 }
