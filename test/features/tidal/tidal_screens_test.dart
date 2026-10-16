@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:flick/features/tidal/screens/tidal_album_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_mix_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_playlist_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_search_screen.dart';
+import 'package:flick/features/tidal/widgets/tidal_shimmer.dart';
+import 'package:flick/features/tidal/widgets/tidal_tab_pill.dart';
 import 'package:flick/models/nav_bar_config.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/models/sources/tidal_models.dart';
@@ -23,6 +28,14 @@ class _MockTidalServerNotifier extends TidalServerNotifier {
   Future<NetworkServerEntity?> build() async {
     return _server;
   }
+}
+
+/// Keeps the search provider in its first-query loading state so the loading
+/// skeleton stays on screen for the duration of the test.
+class _MockSearchLoadingNotifier extends TidalSearchNotifier {
+  @override
+  TidalSearchResults build() =>
+      const TidalSearchResults(isLoading: true, query: 'test');
 }
 
 NetworkServerEntity _serverWithToken() => NetworkServerEntity()
@@ -299,6 +312,229 @@ void main() {
       expect(find.byType(TidalAlbumScreen), findsOneWidget);
     },
   );
+
+  testWidgets('TidalHubScreen shows shimmer skeletons while content loads', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          // Feed and playlists stay pending so the skeletons stay mounted.
+          // Never pumpAndSettle here: the shimmer repeats forever.
+          tidalHomeFeedProvider.overrideWith(
+            (ref, slug) => Completer<TidalHomeFeed>().future,
+          ),
+          tidalUserPlaylistsProvider.overrideWith(
+            (ref) => Completer<List<Map<String, dynamic>>>().future,
+          ),
+          tidalFavoriteMixesProvider.overrideWith(
+            (ref) => Completer<List<TidalHomeItem>>().future,
+          ),
+          tidalLikedSongsProvider.overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: TidalHubScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(TidalHubFeedSkeleton), findsOneWidget);
+    expect(find.byType(TidalListSkeleton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TidalHubScreen shimmers the Daily Discovery row while loading', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          // Feed resolved so the mixes section renders; its provider stays
+          // pending so the carousel skeleton stays mounted.
+          tidalHomeFeedProvider.overrideWith(
+            (ref, slug) async => TidalHomeFeed.empty,
+          ),
+          tidalUserPlaylistsProvider.overrideWith((ref) async => []),
+          tidalFavoriteMixesProvider.overrideWith(
+            (ref) => Completer<List<TidalHomeItem>>().future,
+          ),
+          tidalLikedSongsProvider.overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: TidalHubScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(TidalCarouselSkeleton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TidalSearchScreen shows the shimmer skeleton on first search', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalSearchProvider.overrideWith(_MockSearchLoadingNotifier.new),
+        ],
+        child: const MaterialApp(home: TidalSearchScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(TidalSearchSkeleton), findsOneWidget);
+    // Category pills still render after the AnimatedContainer swap.
+    expect(
+      find.byType(TidalTabPill),
+      findsNWidgets(TidalSearchCategory.values.length),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hub drill-in pushes a shared-axis route (300ms/250ms)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const albumItem = TidalHomeItem(
+      id: 'alb-55',
+      title: 'Shared Axis Album',
+      type: 'ALBUM',
+      imageUrl: 'https://example.com/cover.jpg',
+      raw: {'artifactId': 'alb-55', 'title': 'Shared Axis Album'},
+    );
+    const feed = TidalHomeFeed(
+      sections: [
+        TidalHomeSection(
+          title: 'Albums For You',
+          sectionType: 'HORIZONTAL_LIST',
+          items: [albumItem],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalHomeFeedProvider.overrideWith((ref, slug) async => feed),
+          tidalUserPlaylistsProvider.overrideWith((ref) async => []),
+          tidalFavoriteMixesProvider.overrideWith((ref) async => []),
+          tidalLikedSongsProvider.overrideWith((ref) async => []),
+          tidalAlbumDetailsProvider('alb-55').overrideWith(
+            (ref) async => (
+              album: {
+                'id': 'alb-55',
+                'title': 'Shared Axis Album',
+                'artist': {'name': 'Test Artist'},
+              },
+              tracks: const <Song>[],
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: TidalHubScreen()),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Shared Axis Album').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Mid-transition the destination is already mounted and the route runs
+    // the shared-axis timing.
+    expect(find.byType(TidalAlbumScreen), findsOneWidget);
+    final route = ModalRoute.of(tester.element(find.byType(TidalAlbumScreen)));
+    expect(route, isA<PageRouteBuilder<dynamic>>());
+    expect(route!.transitionDuration, const Duration(milliseconds: 300));
+    expect(route.reverseTransitionDuration, const Duration(milliseconds: 250));
+
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TidalAlbumScreen), findsOneWidget);
+  });
+
+  testWidgets('TidalMixScreen shows the banner skeleton while loading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalMixDetailsProvider.overrideWith(
+            (ref, mixId) => Completer<TidalMix>().future,
+          ),
+        ],
+        child: const MaterialApp(home: TidalMixScreen(mixId: 'mix-1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(TidalBannerBodySkeleton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TidalPlaylistScreen shows the banner skeleton while loading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalPlaylistDetailsProvider.overrideWith(
+            (ref, playlistId) =>
+                Completer<
+                      ({Map<String, dynamic> playlist, List<Song> tracks})
+                    >()
+                    .future,
+          ),
+        ],
+        child: const MaterialApp(home: TidalPlaylistScreen(playlistId: 'pl-1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(TidalBannerBodySkeleton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   group('NavBarButton.tidal and navigation', () {
     test('NavBarButton.tidal has correct properties', () {

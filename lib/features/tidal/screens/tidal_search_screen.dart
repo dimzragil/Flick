@@ -24,6 +24,8 @@ import 'tidal_playlist_screen.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
 import '../widgets/tidal_playlist_cover_widget.dart';
+import '../widgets/tidal_shimmer.dart';
+import '../widgets/tidal_tab_pill.dart';
 
 enum TidalSearchCategory {
   all('All'),
@@ -80,7 +82,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   void _openAlbum(Map<String, dynamic> album) {
     final albumId = album['id']?.toString();
     if (albumId == null) return;
-    NavigationHelper.pushFade(
+    NavigationHelper.pushSharedAxis(
       context,
       (_) => TidalAlbumScreen(albumId: albumId, initialAlbumData: album),
     );
@@ -89,7 +91,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   void _openArtist(Map<String, dynamic> artist) {
     final artistId = artist['id']?.toString();
     if (artistId == null) return;
-    NavigationHelper.pushFade(
+    NavigationHelper.pushSharedAxis(
       context,
       (_) => TidalArtistScreen(artistId: artistId, initialArtistData: artist),
     );
@@ -100,7 +102,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         playlist['uuid']?.toString() ?? playlist['id']?.toString();
     if (playlistId == null) return;
     final imageUrl = TidalService.extractPlaylistCover(playlist, size: 640);
-    NavigationHelper.pushFade(
+    NavigationHelper.pushSharedAxis(
       context,
       (_) => TidalPlaylistScreen(
         playlistId: playlistId,
@@ -175,34 +177,12 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                     final isSelected = _selectedCategory == cat;
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(cat.label),
+                      child: TidalTabPill(
+                        label: cat.label,
                         selected: isSelected,
-                        onSelected: (_) =>
-                            setState(() => _selectedCategory = cat),
-                        backgroundColor: const Color(0x66FFFFFF),
-                        selectedColor: const Color(0x66FFFFFF),
-                        labelStyle: TextStyle(
-                          color: isSelected
-                              ? const Color(0xD9FFFFFF)
-                              : AppColors.textPrimary,
-                          fontSize: 12,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.w500,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusRound,
-                          ),
-                          side: BorderSide(
-                            color: isSelected
-                                ? const Color(0xD9FFFFFF)
-                                : AppColors.glassBorder,
-                            width: 1,
-                          ),
-                        ),
-                        showCheckmark: false,
+                        onTap: () => setState(() => _selectedCategory = cat),
+                        fontSize: 12,
+                        borderRadius: AppConstants.radiusRound,
                       ),
                     );
                   }).toList(),
@@ -228,12 +208,11 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
   }
 
   Widget _buildResultsView(TidalSearchResults results) {
-    // First search: full-screen spinner. Refining a query keeps stale
-    // results visible with a thin loader instead of flashing the list away.
+    // First search: full-screen shimmer skeleton. Refining a query keeps
+    // stale results visible with a thin loader instead of flashing the list
+    // away.
     if (results.isLoading && results.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.accent),
-      );
+      return const TidalSearchSkeleton();
     }
 
     if (results.error != null) {

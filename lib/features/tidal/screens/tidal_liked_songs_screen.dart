@@ -14,6 +14,7 @@ import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
+import '../widgets/tidal_shimmer.dart';
 
 /// Full "Liked Songs" collection — the user's TIDAL favorite tracks.
 class TidalLikedSongsScreen extends ConsumerWidget {
@@ -70,8 +71,11 @@ class TidalLikedSongsScreen extends ConsumerWidget {
         backgroundColor: AppColors.surface,
         onRefresh: () => ref.refresh(tidalLikedSongsProvider.future),
         child: likedAsync.when(
-          loading: () => const Center(
-            child: CircularProgressIndicator(color: Colors.pinkAccent),
+          loading: () => Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: context.scaleSize(AppConstants.spacingMd),
+            ),
+            child: const TidalListSkeleton(rows: 8),
           ),
           error: (err, _) => Center(
             child: Padding(

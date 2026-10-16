@@ -15,6 +15,7 @@ import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
+import '../widgets/tidal_shimmer.dart';
 
 class TidalMixScreen extends ConsumerStatefulWidget {
   final String mixId;
@@ -102,9 +103,7 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                 style: const TextStyle(color: AppColors.textPrimary),
               ),
             ),
-            body: const Center(
-              child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
-            ),
+            body: const TidalBannerBodySkeleton(),
           ),
           error: (err, _) => Scaffold(
             backgroundColor: Colors.transparent,

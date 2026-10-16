@@ -404,9 +404,15 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
           child: widget.errorWidget ?? CachedImageWidget.defaultErrorWidget(),
         );
       },
-      // Keep the previous instant swap (no fade) behavior.
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
+      // Fade-in (Tier 2): 150ms ease-out when a frame decodes asynchronously.
+      // Synchronously loaded frames (in-memory cache hits, e.g. scrolling
+      // back to an image) skip the fade entirely, so fast scroll shows no
+      // flicker. The placeholder crossfades out over the same window so the
+      // swap never flashes the background behind the image.
+      fadeInDuration: const Duration(milliseconds: 150),
+      fadeInCurve: Curves.easeOut,
+      fadeOutDuration: const Duration(milliseconds: 150),
+      fadeOutCurve: Curves.easeOut,
       // Perf (2026-10-13): low filter quality for faster decode during
       // scroll. Imperceptible for thumbnails, significantly less CPU/heat
       // when many images decode simultaneously.

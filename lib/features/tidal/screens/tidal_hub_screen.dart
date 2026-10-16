@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:animations/animations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,8 @@ import '../widgets/staggered_entrance.dart';
 import '../widgets/tidal_error_widget.dart';
 import '../widgets/tidal_import_playlist_dialog.dart';
 import '../widgets/tidal_playlist_cover_widget.dart';
+import '../widgets/tidal_shimmer.dart';
+import '../widgets/tidal_tab_pill.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
 import '../../favorites/screens/favorites_screen.dart';
 import 'tidal_album_screen.dart';
@@ -122,7 +125,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   void _openSearch() {
-    NavigationHelper.pushFade(context, (_) => const TidalSearchScreen());
+    NavigationHelper.pushSharedAxis(
+      context,
+      (_) => const TidalSearchScreen(),
+      // Lateral move to a sibling top-level destination: horizontal axis.
+      transitionType: SharedAxisTransitionType.horizontal,
+    );
   }
 
   /// Hero tag for a hub cover, derived from the ID that the destination
@@ -165,7 +173,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isMix) {
       final mixId = item.raw['mixId']?.toString() ?? item.id;
       if (mixId.isNotEmpty) {
-        NavigationHelper.pushFade(
+        NavigationHelper.pushSharedAxis(
           context,
           (_) => TidalMixScreen(
             mixId: mixId,
@@ -185,7 +193,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           item.raw['artifactId']?.toString() ??
           item.id;
       if (plId.isNotEmpty) {
-        NavigationHelper.pushFade(
+        NavigationHelper.pushSharedAxis(
           context,
           (_) => TidalPlaylistScreen(
             playlistId: plId,
@@ -203,7 +211,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isAlbum) {
       final albId = item.raw['artifactId']?.toString() ?? item.id;
       if (albId.isNotEmpty) {
-        NavigationHelper.pushFade(
+        NavigationHelper.pushSharedAxis(
           context,
           (_) => TidalAlbumScreen(
             albumId: albId,
@@ -218,7 +226,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (item.isArtist) {
       final artId = item.raw['artifactId']?.toString() ?? item.id;
       if (artId.isNotEmpty) {
-        NavigationHelper.pushFade(
+        NavigationHelper.pushSharedAxis(
           context,
           (_) => TidalArtistScreen(
             artistId: artId,
@@ -237,7 +245,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
 
     // Ultimate fallback based on identifier shape
     if (item.id.contains('-') && item.id.length >= 32) {
-      NavigationHelper.pushFade(
+      NavigationHelper.pushSharedAxis(
         context,
         (_) => TidalPlaylistScreen(
           playlistId: item.id,
@@ -249,7 +257,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     }
 
     if (item.id.isNotEmpty && int.tryParse(item.id) != null) {
-      NavigationHelper.pushFade(
+      NavigationHelper.pushSharedAxis(
         context,
         (_) => TidalAlbumScreen(albumId: item.id, initialAlbumData: item.raw),
       );
@@ -366,7 +374,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     if (!context.mounted) return;
 
                     if (mixId != null && mixId.isNotEmpty) {
-                      NavigationHelper.pushFade(
+                      NavigationHelper.pushSharedAxis(
                         context,
                         (_) => TidalMixScreen(
                           mixId: mixId,
@@ -396,7 +404,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     final playlistId = pl['uuid']?.toString() ?? pl['id']?.toString();
     if (playlistId == null) return;
     final imageUrl = TidalService.extractPlaylistCover(pl, size: 640);
-    NavigationHelper.pushFade(
+    NavigationHelper.pushSharedAxis(
       context,
       (_) => TidalPlaylistScreen(
         playlistId: playlistId,
@@ -581,7 +589,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                   ),
                                 );
                                 if (plId != null && plId.isNotEmpty) {
-                                  NavigationHelper.pushFade(
+                                  NavigationHelper.pushSharedAxis(
                                     context,
                                     (_) => TidalPlaylistScreen(
                                       playlistId: plId,
@@ -948,12 +956,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               final feedAsync =
                   ref.watch(tidalHomeFeedProvider(_activeFeedSlug));
               return feedAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(40),
-              child: Center(
-                child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
-              ),
-            ),
+            loading: () => const TidalHubFeedSkeleton(),
             error: (err, _) => TidalErrorWidget(
               error: err,
               contextLabel: 'Could not load TIDAL home feed',
@@ -1008,10 +1011,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                             final isActive = tab.slug == _activeFeedSlug;
                             return Padding(
                               padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(tab.name),
+                              child: TidalTabPill(
+                                label: tab.name,
                                 selected: isActive,
-                                onSelected: (_) {
+                                onTap: () {
                                   // Tapping the active pill toggles back to
                                   // the default "For You" feed.
                                   setState(() {
@@ -1021,25 +1024,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                         : tab.slug;
                                   });
                                 },
-                                selectedColor: const Color(0x66FFFFFF),
-                                backgroundColor: const Color(0x66FFFFFF),
-                                labelStyle: TextStyle(
-                                  color: isActive
-                                      ? const Color(0xD9FFFFFF)
-                                      : AppColors.textPrimary,
-                                  fontWeight: isActive
-                                      ? FontWeight.bold
-                                      : FontWeight.w500,
-                                  fontSize: 13,
-                                ),
-                                side: BorderSide(
-                                  color: isActive
-                                      ? const Color(0xD9FFFFFF)
-                                      : AppColors.glassBorder,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(19),
-                                ),
                               ),
                             );
                           },
@@ -1167,11 +1151,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               final playlistsAsync =
                   ref.watch(tidalUserPlaylistsProvider);
               return playlistsAsync.when(
-            loading: () => const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(color: Color(0xD9FFFFFF)),
-              ),
+            loading: () => const TidalListSkeleton(
+              rows: 4,
+              thumbSize: 52,
+              trailingWidth: null,
             ),
             error: (err, _) => TidalErrorWidget(
               error: err,
@@ -2003,7 +1986,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
 
   Widget _buildCustomMixesSection(AsyncValue<List<TidalHomeItem>> mixesAsync) {
     return mixesAsync.when(
-      loading: () => const SizedBox.shrink(),
+      loading: () => const TidalCarouselSkeleton(),
       error: (_, __) => const SizedBox.shrink(),
       data: (mixes) {
         // Daily Discovery only: custom mixes are already shown in the home

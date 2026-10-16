@@ -16,6 +16,7 @@ import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
+import '../widgets/tidal_shimmer.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_album_screen.dart';
 
@@ -75,7 +76,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
   void _openAlbum(Map<String, dynamic> album) {
     final albumId = album['id']?.toString();
     if (albumId == null) return;
-    NavigationHelper.pushFade(
+    NavigationHelper.pushSharedAxis(
       context,
       (_) => TidalAlbumScreen(albumId: albumId, initialAlbumData: album),
     );
@@ -112,9 +113,8 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
           ),
         ),
         body: artistAsync.when(
-          loading: () => const Center(
-            child: CircularProgressIndicator(color: AppColors.accent),
-          ),
+          loading: () =>
+              const TidalDetailBodySkeleton(artSize: 140, circle: true),
           error: (error, _) => Center(
             child: Padding(
               padding: EdgeInsets.all(

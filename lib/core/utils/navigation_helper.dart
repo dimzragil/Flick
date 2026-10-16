@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/navigation/root_navigator.dart';
+import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/features/player/screens/full_player_screen.dart';
 import 'package:flick/features/queue/screens/queue_screen.dart';
 
@@ -184,6 +186,50 @@ class NavigationHelper {
         },
         transitionDuration: AppConstants.animationNormal,
         reverseTransitionDuration: AppConstants.animationFast,
+        settings: settings,
+      ),
+    );
+  }
+
+  /// Shared-axis push for TIDAL screens (Tier 3).
+  ///
+  /// Incoming pages scale + fade in ([SharedAxisTransitionType.scaled]) for
+  /// drill-in navigation (hub -> album/artist/mix/playlist) and slide
+  /// horizontally for lateral destinations (hub -> search). Unlike a slide,
+  /// the scaled variant keeps the shared blurred background from panning.
+  /// Hero flights are unaffected: the hero overlay is independent of the page
+  /// transition, so cover heroes still fly on top of it.
+  static Future<T?> pushSharedAxis<T>(
+    BuildContext context,
+    WidgetBuilder builder, {
+    SharedAxisTransitionType transitionType = SharedAxisTransitionType.scaled,
+    RouteSettings? settings,
+  }) {
+    final animationsEnabled = AppConstants.animationNormal != Duration.zero;
+    return Navigator.of(context).push<T>(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            builder(context),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (!animationsEnabled) {
+            return child;
+          }
+          return SharedAxisTransition(
+            animation: animation,
+            secondaryAnimation: secondaryAnimation,
+            transitionType: transitionType,
+            // Dark fill behind the fading page so the window never shows
+            // through while both routes cross-fade.
+            fillColor: AppColors.background,
+            child: child,
+          );
+        },
+        transitionDuration: animationsEnabled
+            ? const Duration(milliseconds: 300)
+            : Duration.zero,
+        reverseTransitionDuration: animationsEnabled
+            ? const Duration(milliseconds: 250)
+            : Duration.zero,
         settings: settings,
       ),
     );
