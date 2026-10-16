@@ -12,6 +12,8 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
+import '../widgets/press_scale.dart';
+import '../widgets/staggered_entrance.dart';
 
 /// Full "Liked Songs" collection — the user's TIDAL favorite tracks.
 class TidalLikedSongsScreen extends ConsumerWidget {
@@ -94,16 +96,21 @@ class TidalLikedSongsScreen extends ConsumerWidget {
                 ),
               );
             }
-            return ListView.builder(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.scaleSize(AppConstants.spacingMd),
-                vertical: context.scaleSize(AppConstants.spacingSm),
+            return StaggeredEntranceWindow(
+              child: ListView.builder(
+                padding: EdgeInsets.symmetric(
+                  horizontal: context.scaleSize(AppConstants.spacingMd),
+                  vertical: context.scaleSize(AppConstants.spacingSm),
+                ),
+                itemCount: songs.length,
+                itemBuilder: (context, index) {
+                  final song = songs[index];
+                  return StaggeredEntrance(
+                    index: index,
+                    child: _buildSongTile(context, song, songs, index),
+                  );
+                },
               ),
-              itemCount: songs.length,
-              itemBuilder: (context, index) {
-                final song = songs[index];
-                return _buildSongTile(context, song, songs, index);
-              },
             );
           },
         ),
@@ -120,66 +127,74 @@ class TidalLikedSongsScreen extends ConsumerWidget {
     final thumbSize = context.scaleSize(48);
     final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 160);
 
-    return RepaintBoundary(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-          child: SizedBox(
-            width: thumbSize,
-            height: thumbSize,
-            child: thumbArt != null
-                ? CachedImageWidget(
-                    imagePath: thumbArt,
-                    audioSourcePath: song.filePath,
-                    width: thumbSize,
-                    height: thumbSize,
-                    useThumbnail: true,
-                    thumbnailWidth: 160,
-                    thumbnailHeight: 160,
-                    fit: BoxFit.cover,
-                    placeholder: const FlickArtworkPlaceholder(),
-                    errorWidget: const FlickArtworkPlaceholder(),
-                  )
-                : const FlickArtworkPlaceholder(),
+    return PressScale(
+      child: RepaintBoundary(
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 2,
+            horizontal: 4,
           ),
-        ),
-        title: Text(
-          song.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w500,
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            child: SizedBox(
+              width: thumbSize,
+              height: thumbSize,
+              child: thumbArt != null
+                  ? CachedImageWidget(
+                      imagePath: thumbArt,
+                      audioSourcePath: song.filePath,
+                      width: thumbSize,
+                      height: thumbSize,
+                      useThumbnail: true,
+                      thumbnailWidth: 160,
+                      thumbnailHeight: 160,
+                      fit: BoxFit.cover,
+                      placeholder: const FlickArtworkPlaceholder(),
+                      errorWidget: const FlickArtworkPlaceholder(),
+                    )
+                  : const FlickArtworkPlaceholder(),
+            ),
           ),
-        ),
-        subtitle: Text(
-          song.artist,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              song.formattedDuration,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
+          title: Text(
+            song.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w500,
             ),
-            IconButton(
-              icon: const Icon(
-                LucideIcons.ellipsisVertical,
-                color: AppColors.textSecondary,
-                size: 18,
-              ),
-              onPressed: () => SongActionsBottomSheet.show(context, song),
+          ),
+          subtitle: Text(
+            song.artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
             ),
-          ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                song.formattedDuration,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.ellipsisVertical,
+                  color: AppColors.textSecondary,
+                  size: 18,
+                ),
+                onPressed: () => SongActionsBottomSheet.show(context, song),
+              ),
+            ],
+          ),
+          onTap: () => _playSong(context, song, playlist),
         ),
-        onTap: () => _playSong(context, song, playlist),
       ),
     );
   }

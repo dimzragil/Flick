@@ -14,6 +14,8 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../providers/tidal_providers.dart';
+import '../widgets/press_scale.dart';
+import '../widgets/staggered_entrance.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_album_screen.dart';
 
@@ -21,10 +23,14 @@ class TidalArtistScreen extends ConsumerStatefulWidget {
   final String artistId;
   final Map<String, dynamic>? initialArtistData;
 
+  /// Matches the tag of the hub card's cover [Hero], when opened from one.
+  final String? heroTag;
+
   const TidalArtistScreen({
     super.key,
     required this.artistId,
     this.initialArtistData,
+    this.heroTag,
   });
 
   @override
@@ -32,6 +38,13 @@ class TidalArtistScreen extends ConsumerStatefulWidget {
 }
 
 class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
+  /// Wraps [cover] in a [Hero] when this screen was opened from a hub card
+  /// that supplied a matching [TidalArtistScreen.heroTag].
+  Widget _withCoverHero(Widget cover) {
+    final tag = widget.heroTag;
+    return tag == null ? cover : Hero(tag: tag, child: cover);
+  }
+
   void _playSong(Song song, List<Song> playlist) {
     PlayerService().play(song, playlist: playlist);
     NavigationHelper.navigateToFullPlayer(
@@ -173,15 +186,17 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                               width: avatarSize,
                               height: avatarSize,
                               child: pictureUrl != null
-                                  ? CachedImageWidget(
-                                      imagePath: pictureUrl,
-                                      width: avatarSize,
-                                      height: avatarSize,
-                                      fit: BoxFit.cover,
-                                      placeholder:
-                                          const FlickArtworkPlaceholder(),
-                                      errorWidget:
-                                          const FlickArtworkPlaceholder(),
+                                  ? _withCoverHero(
+                                      CachedImageWidget(
+                                        imagePath: pictureUrl,
+                                        width: avatarSize,
+                                        height: avatarSize,
+                                        fit: BoxFit.cover,
+                                        placeholder:
+                                            const FlickArtworkPlaceholder(),
+                                        errorWidget:
+                                            const FlickArtworkPlaceholder(),
+                                      ),
                                     )
                                   : const FlickArtworkPlaceholder(),
                             ),
@@ -283,102 +298,114 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                     padding: EdgeInsets.symmetric(
                       horizontal: context.scaleSize(AppConstants.spacingMd),
                     ),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final song = displayedTopTracks[index];
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: context.scaleSize(
-                              AppConstants.spacingSm,
-                            ),
-                            vertical: 2,
-                          ),
-                          leading: SizedBox(
-                            width: 28,
-                            child: Center(
-                              child: Text(
-                                '${index + 1}',
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 13,
+                    sliver: StaggeredEntranceWindow(
+                      child: SliverList(
+                        delegate: SliverChildBuilderDelegate((context, index) {
+                          final song = displayedTopTracks[index];
+                          return StaggeredEntrance(
+                            index: index,
+                            child: PressScale(
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: context.scaleSize(
+                                    AppConstants.spacingSm,
+                                  ),
+                                  vertical: 2,
                                 ),
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          subtitle: Row(
-                            children: [
-                              if ((song.bitDepth ?? 0) >= 24)
-                                Container(
-                                  margin: const EdgeInsets.only(right: 6),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    borderRadius: BorderRadius.circular(3),
-                                    border: Border.all(
-                                      color: const Color(0xFFE5A93C),
-                                      width: 0.75,
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Hi-Res',
-                                    style: TextStyle(
-                                      color: Color(0xFFE5A93C),
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
+                                leading: SizedBox(
+                                  width: 28,
+                                  child: Center(
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              Expanded(
-                                child: Text(
-                                  song.album ?? song.artist,
+                                title: Text(
+                                  song.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
+                                    color: AppColors.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                formatDuration(song.duration),
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 12,
+                                subtitle: Row(
+                                  children: [
+                                    if ((song.bitDepth ?? 0) >= 24)
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 6),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black,
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFE5A93C),
+                                            width: 0.75,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Hi-Res',
+                                          style: TextStyle(
+                                            color: Color(0xFFE5A93C),
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    Expanded(
+                                      child: Text(
+                                        song.album ?? song.artist,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  LucideIcons.ellipsisVertical,
-                                  size: 18,
-                                  color: AppColors.textSecondary,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      formatDuration(song.duration),
+                                      style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        LucideIcons.ellipsisVertical,
+                                        size: 18,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                      onPressed: () =>
+                                          SongActionsBottomSheet.show(
+                                            context,
+                                            song,
+                                          ),
+                                    ),
+                                  ],
                                 ),
-                                onPressed: () =>
-                                    SongActionsBottomSheet.show(context, song),
+                                onTap: () => _playSong(song, topTracks),
                               ),
-                            ],
-                          ),
-                          onTap: () => _playSong(song, topTracks),
-                        );
-                      }, childCount: displayedTopTracks.length),
+                            ),
+                          );
+                        }, childCount: displayedTopTracks.length),
+                      ),
                     ),
                   ),
 
@@ -507,48 +534,50 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
         ? releaseDate.substring(0, 4)
         : null;
 
-    return GestureDetector(
-      onTap: () => _openAlbum(album),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: coverUrl != null
-                  ? CachedImageWidget(
-                      imagePath: coverUrl,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
+    return PressScale(
+      child: GestureDetector(
+        onTap: () => _openAlbum(album),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: coverUrl != null
+                    ? CachedImageWidget(
+                        imagePath: coverUrl,
+                        fit: BoxFit.cover,
+                        placeholder: const FlickArtworkPlaceholder(),
+                        errorWidget: const FlickArtworkPlaceholder(),
+                      )
+                    : const FlickArtworkPlaceholder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (year != null)
+            const SizedBox(height: 6),
             Text(
-              year,
+              title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 11,
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
             ),
-        ],
+            if (year != null)
+              Text(
+                year,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

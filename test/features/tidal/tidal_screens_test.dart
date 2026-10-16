@@ -199,6 +199,107 @@ void main() {
     expect(find.text('HI-RES LOSSLESS 24-BIT'), findsOneWidget);
   });
 
+  testWidgets(
+    'TidalHubScreen keeps hero tags unique and navigates without duplicates',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // The same album appears in two feed sections, so its covers must get
+      // distinct hero tags (scope + index) or the next push would assert.
+      const albumItem = TidalHomeItem(
+        id: 'alb-77',
+        title: 'Twice Shown Album',
+        type: 'ALBUM',
+        imageUrl: 'https://example.com/cover.jpg',
+        raw: {'artifactId': 'alb-77', 'title': 'Twice Shown Album'},
+      );
+      final feed = TidalHomeFeed(
+        sections: const [
+          TidalHomeSection(
+            title: 'Albums For You',
+            sectionType: 'HORIZONTAL_LIST',
+            items: [albumItem],
+          ),
+          TidalHomeSection(
+            title: 'New Releases',
+            sectionType: 'HORIZONTAL_LIST',
+            items: [albumItem],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentSongProvider.overrideWith((ref) => null),
+            tidalServerProvider.overrideWith(
+              () => _MockTidalServerNotifier(_serverWithToken()),
+            ),
+            tidalHomeFeedProvider.overrideWith((ref, slug) async => feed),
+            tidalUserPlaylistsProvider.overrideWith(
+              (ref) async => [
+                {
+                  'uuid': 'pl-1',
+                  'title': 'My Audiophile Tracks',
+                  'numberOfTracks': 10,
+                },
+              ],
+            ),
+            tidalFavoriteMixesProvider.overrideWith((ref) async => []),
+            tidalLikedSongsProvider.overrideWith((ref) async => []),
+            tidalAlbumDetailsProvider('alb-77').overrideWith(
+              (ref) async => (
+                album: {
+                  'id': 'alb-77',
+                  'title': 'Twice Shown Album',
+                  'artist': {'name': 'Test Artist'},
+                  'cover': 'cover-uuid',
+                },
+                tracks: const <Song>[],
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: TidalHubScreen()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final tags = tester
+          .widgetList<Hero>(find.byType(Hero))
+          .map((hero) => hero.tag)
+          .toList();
+      expect(tags, isNotEmpty);
+      expect(
+        tags.length,
+        tags.toSet().length,
+        reason: 'duplicate hero tags within the hub route: $tags',
+      );
+
+      // Scrolling the hub (dragging across cards) must not throw or leave
+      // press-scales stuck; rows mounted after the entrance window render
+      // statically instead of replaying the animation.
+      await tester.fling(
+        find.byType(ListView).first,
+        const Offset(0, -300),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // Navigating from the hub must not throw a duplicate-tag assertion.
+      await tester.ensureVisible(find.text('Twice Shown Album').first);
+      await tester.tap(find.text('Twice Shown Album').first);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TidalAlbumScreen), findsOneWidget);
+    },
+  );
+
   group('NavBarButton.tidal and navigation', () {
     test('NavBarButton.tidal has correct properties', () {
       expect(NavBarButton.tidal.pageIndex, 9);

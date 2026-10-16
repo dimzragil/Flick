@@ -13,6 +13,8 @@ import '../../../services/player_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
+import '../widgets/press_scale.dart';
+import '../widgets/staggered_entrance.dart';
 
 class TidalMixScreen extends ConsumerStatefulWidget {
   final String mixId;
@@ -20,12 +22,16 @@ class TidalMixScreen extends ConsumerStatefulWidget {
   final String? initialImageUrl;
   final String? initialSubtitle;
 
+  /// Matches the tag of the hub card's cover [Hero], when opened from one.
+  final String? heroTag;
+
   const TidalMixScreen({
     super.key,
     required this.mixId,
     this.initialTitle,
     this.initialImageUrl,
     this.initialSubtitle,
+    this.heroTag,
   });
 
   @override
@@ -62,6 +68,13 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
 
   void _openSongActions(Song song) {
     SongActionsBottomSheet.show(context, song);
+  }
+
+  /// Wraps [cover] in a [Hero] when this screen was opened from a hub card
+  /// that supplied a matching [TidalMixScreen.heroTag].
+  Widget _withCoverHero(Widget cover) {
+    final tag = widget.heroTag;
+    return tag == null ? cover : Hero(tag: tag, child: cover);
   }
 
   @override
@@ -173,14 +186,16 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                       fit: StackFit.expand,
                       children: [
                         if (imageUrl != null && imageUrl.isNotEmpty)
-                          CachedImageWidget(
-                            imagePath: imageUrl,
-                            fit: BoxFit.cover,
-                            placeholder: const ColoredBox(
-                              color: AppColors.glassBackgroundStrong,
-                            ),
-                            errorWidget: const ColoredBox(
-                              color: AppColors.glassBackgroundStrong,
+                          _withCoverHero(
+                            CachedImageWidget(
+                              imagePath: imageUrl,
+                              fit: BoxFit.cover,
+                              placeholder: const ColoredBox(
+                                color: AppColors.glassBackgroundStrong,
+                              ),
+                              errorWidget: const ColoredBox(
+                                color: AppColors.glassBackgroundStrong,
+                              ),
                             ),
                           )
                         else
@@ -319,102 +334,109 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                   padding: EdgeInsets.symmetric(
                     horizontal: context.scaleSize(AppConstants.spacingMd),
                   ),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final song = tracks[index];
-                      final trackNum = index + 1;
-                      final isHiRes = (song.bitDepth ?? 0) >= 24;
+                  sliver: StaggeredEntranceWindow(
+                    child: SliverList(
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final song = tracks[index];
+                        final trackNum = index + 1;
+                        final isHiRes = (song.bitDepth ?? 0) >= 24;
 
-                      return ListTile(
-                        dense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        leading: SizedBox(
-                          width: 28,
-                          child: Center(
-                            child: Text(
-                              '$trackNum',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
+                        return StaggeredEntrance(
+                          index: index,
+                          child: PressScale(
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 2,
                               ),
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        subtitle: Row(
-                          children: [
-                            if (isHiRes)
-                              Container(
-                                margin: const EdgeInsets.only(right: 6),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black,
-                                  borderRadius: BorderRadius.circular(3),
-                                  border: Border.all(
-                                    color: const Color(0xFFE5A93C),
-                                    width: 0.75,
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Hi-Res',
-                                  style: TextStyle(
-                                    color: Color(0xFFE5A93C),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
+                              leading: SizedBox(
+                                width: 28,
+                                child: Center(
+                                  child: Text(
+                                    '$trackNum',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ),
-                            Expanded(
-                              child: Text(
-                                song.artist,
+                              title: Text(
+                                song.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 12,
+                                  color: AppColors.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              formatDuration(song.duration),
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
+                              subtitle: Row(
+                                children: [
+                                  if (isHiRes)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 6),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black,
+                                        borderRadius: BorderRadius.circular(3),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5A93C),
+                                          width: 0.75,
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'Hi-Res',
+                                        style: TextStyle(
+                                          color: Color(0xFFE5A93C),
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: Text(
+                                      song.artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                LucideIcons.ellipsisVertical,
-                                size: 18,
-                                color: AppColors.textSecondary,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    formatDuration(song.duration),
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      LucideIcons.ellipsisVertical,
+                                      size: 18,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    onPressed: () => _openSongActions(song),
+                                  ),
+                                ],
                               ),
-                              onPressed: () => _openSongActions(song),
+                              onTap: () => _playSong(song, tracks),
                             ),
-                          ],
-                        ),
-                        onTap: () => _playSong(song, tracks),
-                      );
-                    }, childCount: tracks.length),
+                          ),
+                        );
+                      }, childCount: tracks.length),
+                    ),
                   ),
                 ),
                 SliverToBoxAdapter(
