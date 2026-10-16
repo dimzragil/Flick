@@ -6317,7 +6317,16 @@ class PlayerService {
     _debugLog('[PlayerService] previous() called (allowRestart=$allowRestart)');
     final gen = ++_playbackGeneration;
 
-    RemoteSourceService.instance.cancelAllDownloads();
+    // Only cancel in-flight downloads when actually changing tracks. If this
+    // press will restart the current track (position > 3s), its proxy
+    // session must stay alive — cancelling it then seeking to zero makes
+    // ExoPlayer hit a 404 on the dead session ("Source error") and wedges
+    // the queue.
+    final willRestartCurrent =
+        allowRestart && positionNotifier.value.inSeconds > 3;
+    if (!willRestartCurrent) {
+      RemoteSourceService.instance.cancelAllDownloads();
+    }
     unawaited(_playbackManager.pause());
     if (_usingRustBackend) {
       unawaited(_rustAudioService.pause());
@@ -6377,6 +6386,15 @@ class PlayerService {
       // Calling public seek() here would enqueue behind ourselves and
       // deadlock the queue forever.
       await _performSeek(Duration.zero);
+      // previous() paused up front; resume so the restarted track actually
+      // plays instead of sitting paused at zero.
+      if (generation == null || generation == _playbackGeneration) {
+        try {
+          await _playbackManager.play();
+        } catch (e) {
+          _debugLog('[PlayerService] resume after previous-restart failed: $e');
+        }
+      }
       return;
     }
 
@@ -6399,7 +6417,15 @@ class PlayerService {
     }
 
     // Already inside the queue — direct seek, not the public seek().
+    // At the head of the queue with no wrap: restart current track.
     await _performSeek(Duration.zero);
+    if (generation == null || generation == _playbackGeneration) {
+      try {
+        await _playbackManager.play();
+      } catch (e) {
+        _debugLog('[PlayerService] resume after previous-restart failed: $e');
+      }
+    }
   }
 
   // ========== Carousel peek helpers (Poweramp-style swipe) ==========
