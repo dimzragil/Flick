@@ -6,6 +6,7 @@ import 'package:animations/animations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -726,26 +727,15 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           elevation: 0,
           title: Row(
             children: [
-              // Nudged up slightly: all-caps "TIDAL" text's visual center
-              // sits above the line-box center, so an unadjusted image
-              // looks like it hangs too low next to it.
-              // (The asset itself is horizontally centered.)
+              // Official TIDAL logo (vector): diamond mark + TIDAL text.
+              // SVG viewBox is 960x960 with content vertically centered,
+              // so nudge up slightly for optical alignment.
               Transform.translate(
                 offset: const Offset(0, -1.5),
-                child: Image.asset(
-                  'assets/icons/tidal_logo.png',
+                child: SvgPicture.asset(
+                  'assets/icons/tidal_logo.svg',
                   height: 22,
                   fit: BoxFit.contain,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'TIDAL',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
                 ),
               ),
               const SizedBox(width: 8),
@@ -812,8 +802,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               border: Border.all(color: const Color(0x45FFFFFF), width: 1.5),
             ),
             child: Center(
-              child: Image.asset(
-                'assets/icons/tidal_logo.png',
+              child: SvgPicture.asset(
+                'assets/icons/tidal_logo.svg',
                 width: 56,
                 fit: BoxFit.contain,
               ),

@@ -17,6 +17,7 @@ import 'package:flick/providers/player_provider.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -71,7 +72,16 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('TIDAL'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is SvgPicture &&
+            w.bytesLoader is SvgAssetLoader &&
+            (w.bytesLoader as SvgAssetLoader).assetName ==
+                'assets/icons/tidal_logo.svg',
+      ),
+      findsNWidgets(2), // Header + sign-in body
+    );
     expect(find.text('TIDAL HiFi & Master'), findsOneWidget);
     expect(find.text('Sign in with TIDAL'), findsOneWidget);
   });
@@ -106,16 +116,16 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('TIDAL'), findsOneWidget);
     expect(find.byTooltip('Search'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (w) =>
-            w is Image &&
-            w.image is AssetImage &&
-            (w.image as AssetImage).assetName == 'assets/icons/tidal_logo.png',
+            w is SvgPicture &&
+            w.bytesLoader is SvgAssetLoader &&
+            (w.bytesLoader as SvgAssetLoader).assetName ==
+                'assets/icons/tidal_logo.svg',
       ),
-      findsOneWidget,
+      findsWidgets,
     );
     expect(find.text('My Playlists'), findsOneWidget);
     expect(find.text('My Audiophile Tracks'), findsOneWidget);
@@ -166,6 +176,7 @@ void main() {
         duration: Duration(seconds: 240),
         fileType: 'flac',
         trackNumber: 1,
+        bitDepth: 24,
       ),
       const Song(
         id: 'tidal_9_2',
@@ -174,6 +185,7 @@ void main() {
         duration: Duration(seconds: 180),
         fileType: 'flac',
         trackNumber: 2,
+        bitDepth: 24,
       ),
     ];
 

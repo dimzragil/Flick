@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 enum NavBarButton {
@@ -35,15 +36,15 @@ Widget navBarButtonIcon(
     // The TIDAL mark is wider than it is tall, so at `size` x `size` with
     // BoxFit.contain it renders visually smaller than the IconData glyphs.
     // Scale up slightly for optical parity with the other nav bar icons.
-    // (The asset itself is horizontally centered; see assets/icons/tidal_logo.png.)
     final logoSize = size * 1.15;
-    return Image.asset(
-      'assets/icons/tidal_logo.png',
+    return SvgPicture.asset(
+      'assets/icons/tidal_logo.svg',
       width: logoSize,
       height: logoSize,
       fit: BoxFit.contain,
-      color: color,
-      colorBlendMode: BlendMode.srcIn,
+      colorFilter: color != null
+          ? ColorFilter.mode(color, BlendMode.srcIn)
+          : null,
     );
   }
   return Icon(button.icon, size: size, color: color);
@@ -83,7 +84,11 @@ class NavBarConfig {
       enabledButtons.contains(NavBarButton.settings);
 
   List<NavBarButton> get missingEssentials {
-    const essential = {NavBarButton.menu, NavBarButton.songs, NavBarButton.settings};
+    const essential = {
+      NavBarButton.menu,
+      NavBarButton.songs,
+      NavBarButton.settings,
+    };
     return essential
         .where((b) => !enabledButtons.contains(b) && !hidden.contains(b))
         .toList()
