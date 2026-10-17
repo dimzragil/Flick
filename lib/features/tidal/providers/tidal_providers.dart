@@ -12,9 +12,12 @@ import '../../../services/sources/tidal_service.dart';
 
 /// TTL caches for Hub data — reduces TIDAL API calls to stay clear of
 /// rate limits. Home feed changes more often than playlists.
-final _homeFeedCache = TtlCache<TidalHomeFeed>(ttl: const Duration(minutes: 15));
-final _playlistsCache =
-    TtlCache<List<Map<String, dynamic>>>(ttl: const Duration(minutes: 30));
+final _homeFeedCache = TtlCache<TidalHomeFeed>(
+  ttl: const Duration(minutes: 15),
+);
+final _playlistsCache = TtlCache<List<Map<String, dynamic>>>(
+  ttl: const Duration(minutes: 30),
+);
 
 /// Clears the Hub TTL caches, forcing fresh API fetches on next read.
 /// Call this from manual retry/refresh actions so they actually hit the API.
@@ -281,18 +284,6 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
   final result = await tidal.getUserPlaylists(server);
   _playlistsCache.set('user_playlists', result);
   return result;
-});
-
-/// Fetches the user's custom mixes & daily discovery (My Mix 1..8, Daily Discovery).
-final tidalFavoriteMixesProvider = FutureProvider<List<TidalHomeItem>>((
-  ref,
-) async {
-  final server = await ref.watch(tidalServerProvider.future);
-  if (server == null || server.token == null || server.token!.isEmpty) {
-    return const [];
-  }
-  final tidal = ref.read(tidalServiceProvider);
-  return tidal.getFavoriteMixes(server);
 });
 
 /// Fetches album details and tracks for a given album ID.

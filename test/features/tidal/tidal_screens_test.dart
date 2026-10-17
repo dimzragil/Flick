@@ -98,7 +98,6 @@ void main() {
           tidalHomeFeedProvider.overrideWith(
             (ref, slug) async => TidalHomeFeed.empty,
           ),
-          tidalFavoriteMixesProvider.overrideWith((ref) async => []),
           tidalLikedSongsProvider.overrideWith((ref) async => []),
         ],
         child: const MaterialApp(home: TidalHubScreen()),
@@ -261,7 +260,6 @@ void main() {
                 },
               ],
             ),
-            tidalFavoriteMixesProvider.overrideWith((ref) async => []),
             tidalLikedSongsProvider.overrideWith((ref) async => []),
             tidalAlbumDetailsProvider('alb-77').overrideWith(
               (ref) async => (
@@ -336,9 +334,6 @@ void main() {
           tidalUserPlaylistsProvider.overrideWith(
             (ref) => Completer<List<Map<String, dynamic>>>().future,
           ),
-          tidalFavoriteMixesProvider.overrideWith(
-            (ref) => Completer<List<TidalHomeItem>>().future,
-          ),
           tidalLikedSongsProvider.overrideWith((ref) async => []),
         ],
         child: const MaterialApp(home: TidalHubScreen()),
@@ -349,42 +344,6 @@ void main() {
 
     expect(find.byType(TidalHubFeedSkeleton), findsOneWidget);
     expect(find.byType(TidalListSkeleton), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('TidalHubScreen shimmers the Daily Discovery row while loading', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(800, 1600);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          currentSongProvider.overrideWith((ref) => null),
-          tidalServerProvider.overrideWith(
-            () => _MockTidalServerNotifier(_serverWithToken()),
-          ),
-          // Feed resolved so the mixes section renders; its provider stays
-          // pending so the carousel skeleton stays mounted.
-          tidalHomeFeedProvider.overrideWith(
-            (ref, slug) async => TidalHomeFeed.empty,
-          ),
-          tidalUserPlaylistsProvider.overrideWith((ref) async => []),
-          tidalFavoriteMixesProvider.overrideWith(
-            (ref) => Completer<List<TidalHomeItem>>().future,
-          ),
-          tidalLikedSongsProvider.overrideWith((ref) async => []),
-        ],
-        child: const MaterialApp(home: TidalHubScreen()),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-
-    expect(find.byType(TidalCarouselSkeleton), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -449,7 +408,6 @@ void main() {
           ),
           tidalHomeFeedProvider.overrideWith((ref, slug) async => feed),
           tidalUserPlaylistsProvider.overrideWith((ref) async => []),
-          tidalFavoriteMixesProvider.overrideWith((ref) async => []),
           tidalLikedSongsProvider.overrideWith((ref) async => []),
           tidalAlbumDetailsProvider('alb-55').overrideWith(
             (ref) async => (

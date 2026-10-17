@@ -126,35 +126,23 @@ class _SkeletonTrackRow extends StatelessWidget {
 
 /// Section placeholder: optional title bar + horizontal card carousel.
 class _SkeletonCarousel extends StatelessWidget {
-  const _SkeletonCarousel({
-    this.showTitle = true,
-    this.cardCount = 3,
-    this.cardSize = 136,
-    this.carouselHeight = 205,
-  });
-
-  final bool showTitle;
-  final int cardCount;
-  final double cardSize;
-  final double carouselHeight;
+  const _SkeletonCarousel();
 
   @override
   Widget build(BuildContext context) {
-    final card = context.scaleSize(cardSize);
+    final card = context.scaleSize(136);
     final gap = context.scaleSize(AppConstants.spacingSm);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showTitle) ...[
-          TidalSkeletonLine(width: context.scaleSize(140), height: 16),
-          SizedBox(height: gap),
-        ],
+        TidalSkeletonLine(width: context.scaleSize(140), height: 16),
+        SizedBox(height: gap),
         SizedBox(
-          height: context.scaleSize(carouselHeight),
+          height: context.scaleSize(205),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: cardCount,
+            itemCount: 3,
             separatorBuilder: (_, __) => SizedBox(width: gap),
             itemBuilder: (context, index) => SizedBox(
               width: card,
@@ -176,34 +164,6 @@ class _SkeletonCarousel extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Carousel-only placeholder (Daily Discovery and other mix rows).
-class TidalCarouselSkeleton extends StatelessWidget {
-  const TidalCarouselSkeleton({
-    super.key,
-    this.showTitle = true,
-    this.cardCount = 3,
-    this.cardSize = 136,
-    this.carouselHeight = 205,
-  });
-
-  final bool showTitle;
-  final int cardCount;
-  final double cardSize;
-  final double carouselHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    return TidalShimmer(
-      child: _SkeletonCarousel(
-        showTitle: showTitle,
-        cardCount: cardCount,
-        cardSize: cardSize,
-        carouselHeight: carouselHeight,
-      ),
     );
   }
 }

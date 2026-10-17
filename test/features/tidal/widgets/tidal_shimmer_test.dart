@@ -53,14 +53,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('detail, banner, carousel and search skeletons render', (
-    tester,
-  ) async {
+  testWidgets('detail, banner and search skeletons render', (tester) async {
     for (final skeleton in const [
       TidalDetailBodySkeleton(),
       TidalDetailBodySkeleton(artSize: 140, circle: true),
       TidalBannerBodySkeleton(),
-      TidalCarouselSkeleton(),
       TidalSearchSkeleton(),
     ]) {
       await tester.pumpWidget(_host(skeleton));

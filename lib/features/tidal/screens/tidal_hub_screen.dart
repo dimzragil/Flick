@@ -76,7 +76,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         if (server != null) {
           ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug));
           ref.invalidate(tidalUserPlaylistsProvider);
-          ref.invalidate(tidalFavoriteMixesProvider);
         }
       }
     } catch (e) {
@@ -942,7 +941,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         await Future.wait([
           ref.refresh(tidalHomeFeedProvider(_activeFeedSlug).future),
           ref.refresh(tidalUserPlaylistsProvider.future),
-          ref.refresh(tidalFavoriteMixesProvider.future),
           ref.refresh(tidalLikedSongsProvider.future),
         ]);
       },
@@ -953,143 +951,129 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           // 1. Feed Content (Vibes Tab Bar + Shortcuts + Horizontal Sections)
           Consumer(
             builder: (context, ref, _) {
-              final feedAsync =
-                  ref.watch(tidalHomeFeedProvider(_activeFeedSlug));
-              return feedAsync.when(
-            loading: () => const TidalHubFeedSkeleton(),
-            error: (err, _) => TidalErrorWidget(
-              error: err,
-              contextLabel: 'Could not load TIDAL home feed',
-              onRetry: () {
-                invalidateTidalHubCache(feedSlug: _activeFeedSlug);
-                ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug));
-              },
-            ),
-            data: (feed) {
-              // The default 'static' feed ("For You") is not exposed as a
-              // selectable tab by the API, so prepend a synthetic pill for it.
-              const forYouTab = TidalHomeTab(
-                name: 'For You',
-                type: 'static',
-                slug: 'static',
+              final feedAsync = ref.watch(
+                tidalHomeFeedProvider(_activeFeedSlug),
               );
-              final displayTabs = [
-                forYouTab,
-                ...feed.tabs.where((tab) {
-                  final name = tab.name.trim().toLowerCase();
-                  final slug = tab.slug.trim().toLowerCase();
-                  return name != 'suggested' &&
-                      slug != 'static' &&
-                      slug != 'suggested';
-                }),
-              ];
+              return feedAsync.when(
+                loading: () => const TidalHubFeedSkeleton(),
+                error: (err, _) => TidalErrorWidget(
+                  error: err,
+                  contextLabel: 'Could not load TIDAL home feed',
+                  onRetry: () {
+                    invalidateTidalHubCache(feedSlug: _activeFeedSlug);
+                    ref.invalidate(tidalHomeFeedProvider(_activeFeedSlug));
+                  },
+                ),
+                data: (feed) {
+                  // The default 'static' feed ("For You") is not exposed as a
+                  // selectable tab by the API, so prepend a synthetic pill for it.
+                  const forYouTab = TidalHomeTab(
+                    name: 'For You',
+                    type: 'static',
+                    slug: 'static',
+                  );
+                  final displayTabs = [
+                    forYouTab,
+                    ...feed.tabs.where((tab) {
+                      final name = tab.name.trim().toLowerCase();
+                      final slug = tab.slug.trim().toLowerCase();
+                      return name != 'suggested' &&
+                          slug != 'static' &&
+                          slug != 'suggested';
+                    }),
+                  ];
 
-              // One-shot staggered entrance across the feed sections; the
-              // index counter drives the per-item delay, and the surrounding
-              // StaggeredEntranceWindow (screen body) makes sure children
-              // mounted later — scrolled into view — don't re-animate.
-              var entranceIndex = 0;
-              final entranceChildren = <Widget>[];
+                  // One-shot staggered entrance across the feed sections; the
+                  // index counter drives the per-item delay, and the surrounding
+                  // StaggeredEntranceWindow (screen body) makes sure children
+                  // mounted later — scrolled into view — don't re-animate.
+                  var entranceIndex = 0;
+                  final entranceChildren = <Widget>[];
 
-              // Vibes Tabs Pills ('For You' first, then the API tabs)
-              if (displayTabs.isNotEmpty) {
-                entranceChildren.add(
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: RepaintBoundary(
-                      child: SizedBox(
-                        height: 38,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          // Perf (2026-10-13): reduced cacheExtent to limit
-                          // offscreen image decodes during scroll.
-                          // ignore: deprecated_member_use
-                          cacheExtent: 100,
-                          itemCount: displayTabs.length,
-                          itemBuilder: (context, index) {
-                            final tab = displayTabs[index];
-                            final isActive = tab.slug == _activeFeedSlug;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: TidalTabPill(
-                                label: tab.name,
-                                selected: isActive,
-                                onTap: () {
-                                  // Tapping the active pill toggles back to
-                                  // the default "For You" feed.
-                                  setState(() {
-                                    _activeFeedSlug =
-                                        tab.slug == _activeFeedSlug
-                                        ? 'static'
-                                        : tab.slug;
-                                  });
-                                },
-                              ),
-                            );
-                          },
+                  // Vibes Tabs Pills ('For You' first, then the API tabs)
+                  if (displayTabs.isNotEmpty) {
+                    entranceChildren.add(
+                      StaggeredEntrance(
+                        index: entranceIndex++,
+                        child: RepaintBoundary(
+                          child: SizedBox(
+                            height: 38,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              // Perf (2026-10-13): reduced cacheExtent to limit
+                              // offscreen image decodes during scroll.
+                              // ignore: deprecated_member_use
+                              cacheExtent: 100,
+                              itemCount: displayTabs.length,
+                              itemBuilder: (context, index) {
+                                final tab = displayTabs[index];
+                                final isActive = tab.slug == _activeFeedSlug;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: TidalTabPill(
+                                    label: tab.name,
+                                    selected: isActive,
+                                    onTap: () {
+                                      // Tapping the active pill toggles back to
+                                      // the default "For You" feed.
+                                      setState(() {
+                                        _activeFeedSlug =
+                                            tab.slug == _activeFeedSlug
+                                            ? 'static'
+                                            : tab.slug;
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
                       ),
+                    );
+                    entranceChildren.add(
+                      SizedBox(
+                        height: context.scaleSize(AppConstants.spacingMd),
+                      ),
+                    );
+                  }
+
+                  // Quick-Access Shortcut Grid (SHORTCUT_LIST)
+                  for (var i = 0; i < feed.sections.length; i++) {
+                    final sec = feed.sections[i];
+                    if (!sec.isShortcutList) continue;
+                    entranceChildren.add(
+                      StaggeredEntrance(
+                        index: entranceIndex++,
+                        child: _buildShortcutGrid(sec, scope: 'sec$i'),
+                      ),
+                    );
+                  }
+
+                  // Adaptive Sections (Track list, Compact Grid for Recently played, or Carousel)
+                  for (var i = 0; i < feed.sections.length; i++) {
+                    final sec = feed.sections[i];
+                    if (sec.isShortcutList) continue;
+                    entranceChildren.add(
+                      StaggeredEntrance(
+                        index: entranceIndex++,
+                        child: _buildAdaptiveSection(sec, scope: 'sec$i'),
+                      ),
+                    );
+                  }
+
+                  // The entrance window starts when the feed content first
+                  // builds (not at screen open), so the stagger still plays when
+                  // the async feed resolves after the screen has been opened.
+                  return StaggeredEntranceWindow(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: entranceChildren,
                     ),
-                  ),
-                );
-                entranceChildren.add(
-                  SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-                );
-              }
-
-              // Quick-Access Shortcut Grid (SHORTCUT_LIST)
-              for (var i = 0; i < feed.sections.length; i++) {
-                final sec = feed.sections[i];
-                if (!sec.isShortcutList) continue;
-                entranceChildren.add(
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: _buildShortcutGrid(sec, scope: 'sec$i'),
-                  ),
-                );
-              }
-
-              // Daily Discovery (from /v2/favorites/mixes, filtered to daily only)
-              // Scoped Consumer: mixes resolve independently of the feed.
-              if (_activeFeedSlug == 'static') {
-                entranceChildren.add(
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: Consumer(
-                      builder: (context, ref, _) {
-                        final mixesAsync =
-                            ref.watch(tidalFavoriteMixesProvider);
-                        return _buildCustomMixesSection(mixesAsync);
-                      },
-                    ),
-                  ),
-                );
-              }
-
-              // Adaptive Sections (Track list, Compact Grid for Recently played, or Carousel)
-              for (var i = 0; i < feed.sections.length; i++) {
-                final sec = feed.sections[i];
-                if (sec.isShortcutList) continue;
-                entranceChildren.add(
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: _buildAdaptiveSection(sec, scope: 'sec$i'),
-                  ),
-                );
-              }
-
-              // The entrance window starts when the feed content first
-              // builds (not at screen open), so the stagger still plays when
-              // the async feed resolves after the screen has been opened.
-              return StaggeredEntranceWindow(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: entranceChildren,
-                ),
+                  );
+                },
               );
             },
-          );
-          },
           ),
 
           SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
@@ -1148,132 +1132,137 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           // Scoped Consumer: playlist updates rebuild only this section.
           Consumer(
             builder: (context, ref, _) {
-              final playlistsAsync =
-                  ref.watch(tidalUserPlaylistsProvider);
+              final playlistsAsync = ref.watch(tidalUserPlaylistsProvider);
               return playlistsAsync.when(
-            loading: () => const TidalListSkeleton(
-              rows: 4,
-              thumbSize: 52,
-              trailingWidth: null,
-            ),
-            error: (err, _) => TidalErrorWidget(
-              error: err,
-              contextLabel: 'Could not load playlists',
-              onRetry: () {
-                invalidateTidalHubCache();
-                ref.invalidate(tidalUserPlaylistsProvider);
-              },
-            ),
-            data: (playlists) {
-              // Column instead of shrinkWrap ListView: shrinkWrap already
-              // defeats builder laziness (all items are laid out anyway),
-              // so a Column avoids the nested Scrollable/Viewport overhead.
-              // Liked Songs is always pinned first, then user playlists.
-              var entranceIndex = 0;
-              final children = <Widget>[
-                StaggeredEntrance(
-                  index: entranceIndex++,
-                  child: _buildLikedSongsTile(),
+                loading: () => const TidalListSkeleton(
+                  rows: 4,
+                  thumbSize: 52,
+                  trailingWidth: null,
                 ),
-              ];
-              if (playlists.isEmpty) {
-                children.add(
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: Container(
-                    padding: EdgeInsets.all(
-                      context.scaleSize(AppConstants.spacingLg),
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.glassBackground,
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusMd,
-                      ),
-                      border: Border.all(color: AppColors.glassBorder),
-                    ),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'No playlists found in your TIDAL library.',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: 10,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _showCreatePlaylistDialog,
-                              icon: const Icon(
-                                LucideIcons.plus,
-                                size: 16,
-                                color: Color(0xD9FFFFFF),
-                              ),
-                              label: const Text(
-                                'Create Playlist',
-                                style: TextStyle(color: Color(0xD9FFFFFF)),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0xD9FFFFFF),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppConstants.radiusSm,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _importPlaylistFromJson,
-                              icon: const Icon(
-                                LucideIcons.fileSpreadsheet,
-                                size: 16,
-                                color: Color(0xD9FFFFFF),
-                              ),
-                              label: const Text(
-                                'Import JSON',
-                                style: TextStyle(color: Color(0xD9FFFFFF)),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0xD9FFFFFF),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppConstants.radiusSm,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  ),
-                );
-              } else {
-                for (var i = 0; i < playlists.length; i++) {
-                  children.add(
+                error: (err, _) => TidalErrorWidget(
+                  error: err,
+                  contextLabel: 'Could not load playlists',
+                  onRetry: () {
+                    invalidateTidalHubCache();
+                    ref.invalidate(tidalUserPlaylistsProvider);
+                  },
+                ),
+                data: (playlists) {
+                  // Column instead of shrinkWrap ListView: shrinkWrap already
+                  // defeats builder laziness (all items are laid out anyway),
+                  // so a Column avoids the nested Scrollable/Viewport overhead.
+                  // Liked Songs is always pinned first, then user playlists.
+                  var entranceIndex = 0;
+                  final children = <Widget>[
                     StaggeredEntrance(
                       index: entranceIndex++,
-                      child: _buildPlaylistTile(playlists[i], index: i),
+                      child: _buildLikedSongsTile(),
                     ),
+                  ];
+                  if (playlists.isEmpty) {
+                    children.add(
+                      StaggeredEntrance(
+                        index: entranceIndex++,
+                        child: Container(
+                          padding: EdgeInsets.all(
+                            context.scaleSize(AppConstants.spacingLg),
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.glassBackground,
+                            borderRadius: BorderRadius.circular(
+                              AppConstants.radiusMd,
+                            ),
+                            border: Border.all(color: AppColors.glassBorder),
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'No playlists found in your TIDAL library.',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 10,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: _showCreatePlaylistDialog,
+                                    icon: const Icon(
+                                      LucideIcons.plus,
+                                      size: 16,
+                                      color: Color(0xD9FFFFFF),
+                                    ),
+                                    label: const Text(
+                                      'Create Playlist',
+                                      style: TextStyle(
+                                        color: Color(0xD9FFFFFF),
+                                      ),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                        color: Color(0xD9FFFFFF),
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          AppConstants.radiusSm,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: _importPlaylistFromJson,
+                                    icon: const Icon(
+                                      LucideIcons.fileSpreadsheet,
+                                      size: 16,
+                                      color: Color(0xD9FFFFFF),
+                                    ),
+                                    label: const Text(
+                                      'Import JSON',
+                                      style: TextStyle(
+                                        color: Color(0xD9FFFFFF),
+                                      ),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                        color: Color(0xD9FFFFFF),
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          AppConstants.radiusSm,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  } else {
+                    for (var i = 0; i < playlists.length; i++) {
+                      children.add(
+                        StaggeredEntrance(
+                          index: entranceIndex++,
+                          child: _buildPlaylistTile(playlists[i], index: i),
+                        ),
+                      );
+                    }
+                  }
+                  // Window anchored to the playlist content itself so the
+                  // entrance plays when this async section resolves.
+                  return StaggeredEntranceWindow(
+                    child: Column(children: children),
                   );
-                }
-              }
-              // Window anchored to the playlist content itself so the
-              // entrance plays when this async section resolves.
-              return StaggeredEntranceWindow(child: Column(children: children));
+                },
+              );
             },
-          );
-        },
-      ),
+          ),
           SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
         ],
       ),
@@ -1364,7 +1353,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   ? TidalService.resizedCoverUrl(item.imageUrl, 160)
                   : null;
               final heroTag = _coverHeroTag(item, scope, index);
-              final cover = (effectiveImage != null && effectiveImage.isNotEmpty)
+              final cover =
+                  (effectiveImage != null && effectiveImage.isNotEmpty)
                   ? CachedImageWidget(
                       imagePath: effectiveImage,
                       width: 56,
@@ -1386,7 +1376,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusSm,
+                      ),
                       onTap: () => _openHomeItem(item, heroTag: heroTag),
                       onLongPress: () => _showItemActionSheet(item),
                       child: Container(
@@ -1453,7 +1445,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     );
   }
 
-  Widget _buildHorizontalCarousel(TidalHomeSection section, {String scope = 'c'}) {
+  Widget _buildHorizontalCarousel(
+    TidalHomeSection section, {
+    String scope = 'c',
+  }) {
     if (section.items.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -1489,7 +1484,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   ? TidalService.resizedCoverUrl(item.imageUrl, 320)
                   : null;
               final heroTag = _coverHeroTag(item, scope, index);
-              final cover = (effectiveImage != null && effectiveImage.isNotEmpty)
+              final cover =
+                  (effectiveImage != null && effectiveImage.isNotEmpty)
                   ? CachedImageWidget(
                       imagePath: effectiveImage,
                       width: 136,
@@ -1534,8 +1530,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                     height: 136,
                                     child: cover == null
                                         ? const ColoredBox(
-                                            color: AppColors
-                                                .glassBackgroundStrong,
+                                            color:
+                                                AppColors.glassBackgroundStrong,
                                             child: Center(
                                               child: Icon(
                                                 LucideIcons.music,
@@ -1672,68 +1668,74 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     return PressScale(
       child: RepaintBoundary(
         child: ListTile(
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-          child: SizedBox(
-            width: 42,
-            height: 42,
-            child: (img != null && img.isNotEmpty)
-                ? CachedImageWidget(
-                    imagePath: img,
-                    width: 42,
-                    height: 42,
-                    useThumbnail: true,
-                    thumbnailWidth: 160,
-                    thumbnailHeight: 160,
-                    fit: BoxFit.cover,
-                    placeholder: const FlickArtworkPlaceholder(),
-                    errorWidget: const FlickArtworkPlaceholder(),
-                  )
-                : const FlickArtworkPlaceholder(),
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 2,
           ),
-        ),
-        title: Text(
-          item.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            child: SizedBox(
+              width: 42,
+              height: 42,
+              child: (img != null && img.isNotEmpty)
+                  ? CachedImageWidget(
+                      imagePath: img,
+                      width: 42,
+                      height: 42,
+                      useThumbnail: true,
+                      thumbnailWidth: 160,
+                      thumbnailHeight: 160,
+                      fit: BoxFit.cover,
+                      placeholder: const FlickArtworkPlaceholder(),
+                      errorWidget: const FlickArtworkPlaceholder(),
+                    )
+                  : const FlickArtworkPlaceholder(),
+            ),
           ),
-        ),
-        subtitle: Text(
-          item.subtitle ?? item.type,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(
-                LucideIcons.play,
-                size: 16,
-                color: Color(0xD9FFFFFF),
-              ),
-              onPressed: () => _playTrackItem(item),
+          title: Text(
+            item.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
             ),
-            IconButton(
-              icon: const Icon(
-                LucideIcons.ellipsisVertical,
-                size: 16,
-                color: AppColors.textSecondary,
-              ),
-              onPressed: () => _showItemActionSheet(item),
+          ),
+          subtitle: Text(
+            item.subtitle ?? item.type,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
             ),
-          ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.play,
+                  size: 16,
+                  color: Color(0xD9FFFFFF),
+                ),
+                onPressed: () => _playTrackItem(item),
+              ),
+              IconButton(
+                icon: const Icon(
+                  LucideIcons.ellipsisVertical,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () => _showItemActionSheet(item),
+              ),
+            ],
+          ),
+          onTap: () => _playTrackItem(item),
+          onLongPress: () => _showItemActionSheet(item),
         ),
-        onTap: () => _playTrackItem(item),
-        onLongPress: () => _showItemActionSheet(item),
-      ),
       ),
     );
   }
@@ -1860,49 +1862,49 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (item.subtitle != null &&
-                          item.subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          item.subtitle!,
+                          item.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 11,
+                            color: AppColors.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
+                        if (item.subtitle != null &&
+                            item.subtitle!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            item.subtitle!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Icon(
-                    LucideIcons.play,
-                    size: 14,
-                    color: const Color(0xCCFFFFFF),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      LucideIcons.play,
+                      size: 14,
+                      color: const Color(0xCCFFFFFF),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 
@@ -1974,155 +1976,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
           onTap: () {
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const TidalLikedSongsScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const TidalLikedSongsScreen()),
             );
           },
         ),
       ),
-    );
-  }
-
-  Widget _buildCustomMixesSection(AsyncValue<List<TidalHomeItem>> mixesAsync) {
-    return mixesAsync.when(
-      loading: () => const TidalCarouselSkeleton(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (mixes) {
-        // Daily Discovery only: custom mixes are already shown in the home
-        // feed section below, so filter them out here to avoid duplication.
-        // Detect via mixType first, fall back to title match.
-        final dailyOnly = mixes.where((item) {
-          final mixType = (item.raw['mixType'] as String? ?? '').toUpperCase();
-          if (mixType.contains('DAILY')) return true;
-          return item.title.toLowerCase().contains('daily discovery');
-        }).toList();
-        if (dailyOnly.isEmpty) return const SizedBox.shrink();
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(LucideIcons.sparkles, size: 18, color: Color(0xD9FFFFFF)),
-                SizedBox(width: 6),
-                Text(
-                  'Daily Discovery',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 205,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                // Perf (2026-10-13): reduced cacheExtent to limit
-                // offscreen image decodes during scroll.
-                // ignore: deprecated_member_use
-                cacheExtent: 100,
-                itemCount: dailyOnly.length,
-                itemBuilder: (context, index) {
-                  final item = dailyOnly[index];
-                  final effectiveImage =
-                      (item.imageUrl != null && item.imageUrl!.isNotEmpty)
-                      ? TidalService.resizedCoverUrl(item.imageUrl, 320)
-                      : null;
-                  return RepaintBoundary(
-                    child: Container(
-                      width: 136,
-                      margin: const EdgeInsets.only(right: 12),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusMd,
-                          ),
-                          onTap: () => _openHomeItem(item),
-                          onLongPress: () => _showItemActionSheet(item),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Stack(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(
-                                      AppConstants.radiusMd,
-                                    ),
-                                    child: SizedBox(
-                                      width: 136,
-                                      height: 136,
-                                      child:
-                                          (effectiveImage != null &&
-                                              effectiveImage.isNotEmpty)
-                                          ? CachedImageWidget(
-                                              imagePath: effectiveImage,
-                                              width: 136,
-                                              height: 136,
-                                              useThumbnail: true,
-                                              thumbnailWidth: 320,
-                                              thumbnailHeight: 320,
-                                              fit: BoxFit.cover,
-                                              placeholder:
-                                                  const FlickArtworkPlaceholder(),
-                                              errorWidget:
-                                                  const FlickArtworkPlaceholder(),
-                                            )
-                                          : const FlickArtworkPlaceholder(),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 6,
-                                    bottom: 6,
-                                    child: const Icon(
-                                      LucideIcons.play,
-                                      size: 20,
-                                      color: Color(0xD9FFFFFF),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (item.subtitle != null &&
-                                  item.subtitle!.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.subtitle!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-          ],
-        );
-      },
     );
   }
 }

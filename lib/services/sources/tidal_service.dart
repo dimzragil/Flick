@@ -281,7 +281,9 @@ class TidalService implements NetworkSourceService {
         }).timeout(const Duration(seconds: 30));
         break;
       } on TimeoutException catch (e) {
-        devLog('[Tidal] device_authorization attempt ${attempt + 1}/3 timed out');
+        devLog(
+          '[Tidal] device_authorization attempt ${attempt + 1}/3 timed out',
+        );
         if (attempt == 2) rethrow;
       }
     }
@@ -829,22 +831,6 @@ class TidalService implements NetworkSourceService {
       throw TidalException('HTTP ${response.statusCode} for $path');
     }
     return response.body;
-  }
-
-  Future<Map<String, dynamic>> _apiV2Get(
-    NetworkServerEntity server,
-    String path, {
-    Map<String, String>? query,
-    bool retry = true,
-  }) async {
-    final body = await _apiV2GetRaw(server, path, query: query, retry: retry);
-    final decoded = jsonDecode(body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    } else if (decoded is List) {
-      return {'items': decoded};
-    }
-    return <String, dynamic>{};
   }
 
   Future<http.Response> _apiAuthPostForm(
@@ -2076,7 +2062,11 @@ class TidalService implements NetworkSourceService {
 
     String? rawBody;
     try {
-      rawBody = await _apiV2GetRaw(server, '/home/feed/$feedSlug', query: query);
+      rawBody = await _apiV2GetRaw(
+        server,
+        '/home/feed/$feedSlug',
+        query: query,
+      );
     } catch (e) {
       devLog(
         '[Tidal] v2 home feed failed ($e), falling back to v1 multi-endpoints...',
@@ -2417,63 +2407,6 @@ class TidalService implements NetworkSourceService {
       }
     }
     return TidalMix(mixId: mixId, title: 'Mix', tracks: tracks);
-  }
-
-  /// Fetch user favorite/custom mixes (Daily Discovery, My Mix 1..8, Artist Mixes)
-  /// from `GET https://api.tidal.com/v2/favorites/mixes`, with fallback to `/pages/my_collection_my_mixes`.
-  Future<List<TidalHomeItem>> getFavoriteMixes(
-    NetworkServerEntity server, {
-    int limit = 50,
-    int offset = 0,
-  }) async {
-    final query = {
-      'limit': limit.toString(),
-      'offset': offset.toString(),
-      'order': 'DATE',
-      'orderDirection': 'DESC',
-    };
-
-    List<dynamic>? rawItems;
-    try {
-      final res = await _apiV2Get(server, '/favorites/mixes', query: query);
-      rawItems =
-          (res['items'] as List<dynamic>?) ?? (res['data'] as List<dynamic>?);
-    } catch (e) {
-      devLog('[Tidal] v2 /favorites/mixes failed ($e)');
-    }
-
-    final mixes = <TidalHomeItem>[];
-    for (final item in (rawItems ?? const [])) {
-      if (item is Map<String, dynamic>) {
-        final parsed = TidalHomeItem.fromJson(item, typeHint: 'MIX_LIST');
-        if (parsed.id.isNotEmpty || parsed.title.isNotEmpty) {
-          mixes.add(parsed);
-        }
-      }
-    }
-
-    if (mixes.isNotEmpty) return mixes;
-
-    // Fallback: If v2 returned no items or failed, check /pages/my_collection_my_mixes
-    try {
-      final pageBody = await _apiGetRaw(
-        server,
-        '/pages/my_collection_my_mixes',
-        query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
-      );
-      final pageFeed = await compute(parseTidalHomeFeedBody, pageBody);
-      for (final sec in pageFeed.sections) {
-        for (final item in sec.items) {
-          if (item.isMix || item.type.toUpperCase().contains('MIX')) {
-            mixes.add(item);
-          }
-        }
-      }
-    } catch (e) {
-      devLog('[Tidal] fallback /pages/my_collection_my_mixes failed: $e');
-    }
-
-    return mixes;
   }
 
   /// Fetches track metadata by id (returns full JSON including `mixes` dictionary).
