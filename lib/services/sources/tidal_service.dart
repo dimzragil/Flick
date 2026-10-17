@@ -68,12 +68,18 @@ class TidalService implements NetworkSourceService {
     Future<void> Function(NetworkServerEntity server, String token)?
     persistToken,
     Future<bool> Function(Uri)? urlOpener,
+    Duration dashSegmentHeaderTimeout = const Duration(seconds: 15),
+    Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
+    int dashSegmentAttempts = 3,
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
        _networkCache = networkCache,
        _tokenStore = tokenStore,
        _persistToken = persistToken ?? _persistTokenToDatabase,
-       _urlOpener = urlOpener ?? _defaultOpenUrl;
+       _urlOpener = urlOpener ?? _defaultOpenUrl,
+       _dashSegmentHeaderTimeout = dashSegmentHeaderTimeout,
+       _dashSegmentIdleTimeout = dashSegmentIdleTimeout,
+       _dashSegmentAttempts = dashSegmentAttempts;
 
   static TidalService instance = TidalService._();
 
@@ -86,6 +92,9 @@ class TidalService implements NetworkSourceService {
     Future<void> Function(NetworkServerEntity server, String token)?
     persistToken,
     Future<bool> Function(Uri)? urlOpener,
+    Duration dashSegmentHeaderTimeout = const Duration(seconds: 15),
+    Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
+    int dashSegmentAttempts = 3,
   }) => TidalService._(
     client: client,
     songRepository: songRepository,
@@ -93,6 +102,9 @@ class TidalService implements NetworkSourceService {
     tokenStore: tokenStore,
     persistToken: persistToken,
     urlOpener: urlOpener,
+    dashSegmentHeaderTimeout: dashSegmentHeaderTimeout,
+    dashSegmentIdleTimeout: dashSegmentIdleTimeout,
+    dashSegmentAttempts: dashSegmentAttempts,
   );
 
   // ponytail: Tidal desktop/TV app OAuth2 client credentials, scraped from the
@@ -127,6 +139,21 @@ class TidalService implements NetworkSourceService {
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, Set<void Function()>> _activeDownloads = {};
   final Map<String, Future<String>> _downloadInFlight = {};
+
+  /// Resilient DASH fetch policy (see [_fetchDashBytesWithRetry]): response
+  /// headers must arrive within [_dashSegmentHeaderTimeout], the body may
+  /// stall for at most [_dashSegmentIdleTimeout] between chunks (a
+  /// slow-but-progressing transfer is never killed mid-flight), and a failed
+  /// request is retried up to [_dashSegmentAttempts] times before the track
+  /// download gives up. Overridable in tests via [create].
+  final Duration _dashSegmentHeaderTimeout;
+  final Duration _dashSegmentIdleTimeout;
+  final int _dashSegmentAttempts;
+
+  /// Base delay between DASH fetch attempts (doubles each retry).
+  static const Duration _dashSegmentRetryBaseDelay = Duration(
+    milliseconds: 400,
+  );
 
   /// Max entries for in-memory caches before oldest-first eviction.
   /// Prevents unbounded growth during long listening sessions.
@@ -1447,7 +1474,12 @@ class TidalService implements NetworkSourceService {
       remoteId,
       extension: 'mp4',
     );
-    final partFile = File('$targetPath.part');
+    // Distinct temp name on purpose: a live [TidalStreamSession] for the same
+    // track writes and serves the engine from `<targetPath>.part`. Sharing that
+    // file here would truncate the stream under the engine's feet (audible
+    // stutter) and the two downloads would race on rename/delete. `openWrite`
+    // truncates whatever temp file already exists.
+    final partFile = File('$targetPath.download.part');
     final sink = partFile.openWrite();
 
     var isCancelled = false;
@@ -1459,18 +1491,18 @@ class TidalService implements NetworkSourceService {
 
     try {
       // 1. Download initialization segment
-      final initResp = await _client
-          .get(Uri.parse(dashInfo.initializationUrl))
-          .timeout(const Duration(seconds: 30));
-      if (initResp.statusCode != 200) {
-        throw TidalException(
-          'Failed to download DASH init segment: HTTP ${initResp.statusCode}',
-        );
-      }
+      final initBytes = await _fetchDashBytesWithRetry(
+        Uri.parse(dashInfo.initializationUrl),
+        label: 'init segment',
+        isCancelled: () => isCancelled,
+      );
       if (isCancelled) throw TidalException('Download cancelled');
-      sink.add(initResp.bodyBytes);
+      sink.add(initBytes);
 
-      // 2. Download media segments in a pipelined worker pool (up to 4 concurrent workers)
+      // 2. Download media segments in a pipelined worker pool (up to 4
+      // concurrent workers). Each segment is fetched with bounded retries (see
+      // [_fetchDashBytesWithRetry]); only a segment that fails every attempt
+      // aborts the track, so one transient CDN hiccup can't kill the download.
       final totalSegments = dashInfo.segmentUrls.length;
       final completedBuffers = <int, List<int>>{};
       var nextIndexToWrite = 0;
@@ -1491,17 +1523,14 @@ class TidalService implements NetworkSourceService {
           final myUrl = dashInfo.segmentUrls[myIndex];
 
           try {
-            final resp = await _client
-                .get(Uri.parse(myUrl))
-                .timeout(const Duration(seconds: 30));
-            if (resp.statusCode != 200) {
-              throw TidalException(
-                'Failed segment $myIndex: HTTP ${resp.statusCode}',
-              );
-            }
+            final bytes = await _fetchDashBytesWithRetry(
+              Uri.parse(myUrl),
+              label: 'segment $myIndex',
+              isCancelled: () => isCancelled,
+            );
             if (isCancelled) return;
 
-            completedBuffers[myIndex] = resp.bodyBytes;
+            completedBuffers[myIndex] = bytes;
 
             // Stream out contiguous segments in exact playback order
             while (completedBuffers.containsKey(nextIndexToWrite)) {
@@ -1562,6 +1591,73 @@ class TidalService implements NetworkSourceService {
         }
       }
     }
+  }
+
+  /// Fetch a DASH init or media segment with bounded retries.
+  ///
+  /// One transient CDN hiccup (timeout, 5xx, reset) must not abort the whole
+  /// track download, so each failed attempt is retried with a short backoff
+  /// before the worker gives up. Individual attempts bound the response
+  /// headers with [_dashSegmentHeaderTimeout] and use [_dashSegmentIdleTimeout]
+  /// as a stall detector on the body: a slow-but-progressing transfer on a
+  /// throttled connection keeps flowing instead of being killed by a flat
+  /// total-timeout (the "download speed drops" failure mode).
+  Future<List<int>> _fetchDashBytesWithRetry(
+    Uri url, {
+    required String label,
+    required bool Function() isCancelled,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= _dashSegmentAttempts; attempt++) {
+      if (isCancelled()) throw TidalException('Playback download cancelled');
+      try {
+        return await _fetchDashBytesOnce(url, isCancelled);
+      } catch (e) {
+        if (isCancelled()) {
+          throw TidalException('Playback download cancelled');
+        }
+        lastError = e;
+        if (attempt >= _dashSegmentAttempts) break;
+        devLog(
+          '[Tidal] DASH $label attempt $attempt/$_dashSegmentAttempts failed, '
+          'retrying: $e',
+        );
+        await Future<void>.delayed(
+          _dashSegmentRetryBaseDelay * (1 << (attempt - 1)),
+        );
+      }
+    }
+    throw TidalException(
+      'Failed to download DASH $label after $_dashSegmentAttempts '
+      'attempts: $lastError',
+    );
+  }
+
+  /// One DASH fetch attempt: headers within [_dashSegmentHeaderTimeout], body
+  /// chunks may not stall for more than [_dashSegmentIdleTimeout].
+  Future<List<int>> _fetchDashBytesOnce(
+    Uri url,
+    bool Function() isCancelled,
+  ) async {
+    final response = await _client
+        .send(http.Request('GET', url))
+        .timeout(_dashSegmentHeaderTimeout);
+    if (response.statusCode != 200) {
+      // Release the failed response (bounded) before surfacing the error.
+      try {
+        await response.stream.drain<void>().timeout(_dashSegmentIdleTimeout);
+      } catch (_) {}
+      throw TidalException('HTTP ${response.statusCode} for $url');
+    }
+
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in response.stream.timeout(
+      _dashSegmentIdleTimeout,
+    )) {
+      if (isCancelled()) throw TidalException('Playback download cancelled');
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
   }
 
   /// Resolve a directly streamable CDN url or DASH track info.
