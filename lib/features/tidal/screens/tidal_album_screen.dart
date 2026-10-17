@@ -155,7 +155,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen> {
             final coverUrl = coverUuid != null
                 ? TidalService.coverUrl(coverUuid, size: 320)
                 : null;
-            final quality = album['audioQuality'] as String?;
+            final hasHiRes = tracks.any((t) => (t.bitDepth ?? 0) >= 24);
             final releaseDate = album['releaseDate'] as String?;
             final year = releaseDate != null && releaseDate.length >= 4
                 ? releaseDate.substring(0, 4)
@@ -244,35 +244,28 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen> {
                           height: context.scaleSize(AppConstants.spacingSm),
                         ),
                         // Quality Badge
-                        if (quality != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.glassBackgroundStrong,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: quality == 'HI_RES_LOSSLESS'
-                                    ? const Color(0xFFE5A93C)
-                                    : AppColors.glassBorder,
-                              ),
-                            ),
-                            child: Text(
-                              quality == 'HI_RES_LOSSLESS'
-                                  ? 'HI-RES LOSSLESS 24-BIT'
-                                  : 'LOSSLESS FLAC',
-                              style: TextStyle(
-                                color: quality == 'HI_RES_LOSSLESS'
-                                    ? const Color(0xFFE5A93C)
-                                    : AppColors.textSecondary,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.5,
-                              ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.glassBackgroundStrong,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: AppColors.glassBorder),
+                          ),
+                          child: Text(
+                            hasHiRes
+                                ? 'HI-RES LOSSLESS 24-BIT'
+                                : 'LOSSLESS FLAC',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
                             ),
                           ),
+                        ),
                         SizedBox(
                           height: context.scaleSize(AppConstants.spacingMd),
                         ),
