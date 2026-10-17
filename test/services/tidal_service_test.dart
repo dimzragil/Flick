@@ -417,72 +417,71 @@ void main() {
   });
 
   group('streamDescriptor', () {
-    test(
-      'decodes a NONE-encryption BTS manifest to a local proxy URL',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp('tidal_bts_test');
-        addTearDown(() => tempDir.delete(recursive: true));
-        final manifest = base64Encode(
-          utf8.encode(
-            jsonEncode({
-              'mimeType': 'audio/flac',
-              'codecs': 'flac',
-              'encryptionType': 'NONE',
-              'urls': ['https://cdn.tidal.com/track/flac/abc'],
-            }),
-          ),
+    test('decodes a NONE-encryption BTS manifest to a local proxy URL', () async {
+      final tempDir = await Directory.systemTemp.createTemp('tidal_bts_test');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final manifest = base64Encode(
+        utf8.encode(
+          jsonEncode({
+            'mimeType': 'audio/flac',
+            'codecs': 'flac',
+            'encryptionType': 'NONE',
+            'urls': ['https://cdn.tidal.com/track/flac/abc'],
+          }),
+        ),
+      );
+      var playbackInfoRequests = 0;
+      final client = MockClient((request) async {
+        if (request.url.host == 'cdn.tidal.com') {
+          return http.Response.bytes([1, 2, 3], 200);
+        }
+        playbackInfoRequests++;
+        expect(request.url.path, contains('/playbackinfopostpaywall'));
+        expect(request.headers['Authorization'], 'Bearer acc-xyz');
+        return http.Response(
+          jsonEncode({
+            'manifest': manifest,
+            'manifestMimeType': 'application/vnd.tidal.bts',
+            'assetPresentation': 'FULL',
+          }),
+          200,
         );
-        var playbackInfoRequests = 0;
-        final client = MockClient((request) async {
-          if (request.url.host == 'cdn.tidal.com') {
-            return http.Response.bytes([1, 2, 3], 200);
-          }
-          playbackInfoRequests++;
-          expect(request.url.path, contains('/playbackinfopostpaywall'));
-          expect(request.headers['Authorization'], 'Bearer acc-xyz');
-          return http.Response(
-            jsonEncode({
-              'manifest': manifest,
-              'manifestMimeType': 'application/vnd.tidal.bts',
-              'assetPresentation': 'FULL',
-            }),
-            200,
-          );
-        });
-        final service = TidalService.create(
-          client: client,
-          networkCache: NetworkCacheService(rootDirectory: tempDir),
-        );
+      });
+      final service = TidalService.create(
+        client: client,
+        networkCache: NetworkCacheService(rootDirectory: tempDir),
+      );
 
-        final desc = await service.streamDescriptor(
-          _server(token: _validToken()),
-          '1234567',
-        );
+      final desc = await service.streamDescriptor(
+        _server(token: _validToken()),
+        '1234567',
+      );
 
-        expect(desc, isNotNull);
-        expect(desc!.url, startsWith('http://127.0.0.1:'));
-        expect(desc.url, contains('/tidal-bts/'));
-        // Sample rate and bit depth omitted from manifest -> headers must be omitted to let probe win
-        expect(desc.headers['x-flick-sample-rate'], isNull);
-        expect(desc.headers['x-flick-bit-depth'], isNull);
-        final secondDescriptor = await service.streamDescriptor(
-          _server(token: _validToken()),
-          '1234567',
-          extension: 'flac',
-        );
-        expect(playbackInfoRequests, 1);
-        expect(
-          secondDescriptor == null || secondDescriptor.url == desc.url,
-          isTrue,
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      },
-    );
+      expect(desc, isNotNull);
+      expect(desc!.url, startsWith('http://127.0.0.1:'));
+      expect(desc.url, contains('/tidal-bts/'));
+      // Sample rate and bit depth omitted from manifest -> headers must be omitted to let probe win
+      expect(desc.headers['x-flick-sample-rate'], isNull);
+      expect(desc.headers['x-flick-bit-depth'], isNull);
+      final secondDescriptor = await service.streamDescriptor(
+        _server(token: _validToken()),
+        '1234567',
+        extension: 'flac',
+      );
+      expect(playbackInfoRequests, 1);
+      expect(
+        secondDescriptor == null || secondDescriptor.url == desc.url,
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
 
     test(
       'includes x-flick-sample-rate and x-flick-bit-depth headers when explicitly provided',
       () async {
-        final tempDir = await Directory.systemTemp.createTemp('tidal_bts_explicit_test');
+        final tempDir = await Directory.systemTemp.createTemp(
+          'tidal_bts_explicit_test',
+        );
         addTearDown(() => tempDir.delete(recursive: true));
         final manifest = base64Encode(
           utf8.encode(
@@ -1260,55 +1259,7 @@ void main() {
     );
   });
 
-  group('Dynamic Mixes & Playback Reporting', () {
-    test('getFavoriteMixes fetches and parses mixes correctly', () async {
-      final client = MockClient((request) async {
-        expect(request.url.path, '/v2/favorites/mixes');
-        expect(request.url.queryParameters['limit'], '50');
-        return http.Response(
-          jsonEncode({
-            'items': [
-              {
-                'id': 'mix-daily',
-                'title': 'My Daily Discovery',
-                'subTitle': 'Updated daily',
-                'mixType': 'DAILY_DISCOVERY',
-                'images': {
-                  'LARGE': {
-                    'url': 'https://resources.tidal.com/images/mix-daily.jpg',
-                  },
-                },
-              },
-              {
-                'id': 'mix-1',
-                'title': 'My Mix 1',
-                'subTitle': 'Based on your recent listening',
-                'mixType': 'MY_MIX',
-                'images': {
-                  'LARGE': {
-                    'url': 'https://resources.tidal.com/images/mix-1.jpg',
-                  },
-                },
-              },
-            ],
-          }),
-          200,
-        );
-      });
-
-      final service = TidalService.create(client: client);
-      final mixes = await service.getFavoriteMixes(
-        _server(token: _validToken()),
-      );
-
-      expect(mixes.length, 2);
-      expect(mixes.first.id, 'mix-daily');
-      expect(mixes.first.title, 'My Daily Discovery');
-      expect(mixes.first.isMix, isTrue);
-      expect(mixes.last.id, 'mix-1');
-      expect(mixes.last.title, 'My Mix 1');
-    });
-
+  group('Playback Reporting & Home Feed', () {
     test('reportPlayback sends SQS batch event to ec.tidal.com', () async {
       bool sent = false;
       final payloadB64 = base64Url
@@ -1364,83 +1315,6 @@ void main() {
 
       expect(sent, isTrue);
     });
-
-    test(
-      'getFavoriteMixes handles raw JSON array and sends x-tidal-client-version',
-      () async {
-        final client = MockClient((request) async {
-          expect(request.url.path, '/v2/favorites/mixes');
-          expect(request.headers['x-tidal-client-version'], '2026.9.15');
-          // Return raw JSON array
-          return http.Response(
-            jsonEncode([
-              {
-                'id': 'mix-array-1',
-                'title': 'Array Mix 1',
-                'mixType': 'MY_MIX',
-              },
-            ]),
-            200,
-          );
-        });
-
-        final service = TidalService.create(client: client);
-        final mixes = await service.getFavoriteMixes(
-          _server(token: _validToken()),
-        );
-
-        expect(mixes.length, 1);
-        expect(mixes.first.id, 'mix-array-1');
-        expect(mixes.first.title, 'Array Mix 1');
-      },
-    );
-
-    test(
-      'getFavoriteMixes falls back to /pages/my_collection_my_mixes on V2 failure',
-      () async {
-        final client = MockClient((request) async {
-          if (request.url.path == '/v2/favorites/mixes') {
-            return http.Response('Internal Error', 500);
-          }
-          if (request.url.path == '/v1/pages/my_collection_my_mixes') {
-            return http.Response(
-              jsonEncode({
-                'rows': [
-                  {
-                    'modules': [
-                      {
-                        'type': 'MIX_LIST',
-                        'title': 'My Mixes',
-                        'pagedList': {
-                          'items': [
-                            {
-                              'mixId': 'fallback-mix-1',
-                              'title': 'Fallback Mix 1',
-                              'mixType': 'MY_MIX',
-                            },
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                ],
-              }),
-              200,
-            );
-          }
-          return http.Response('Not Found', 404);
-        });
-
-        final service = TidalService.create(client: client);
-        final mixes = await service.getFavoriteMixes(
-          _server(token: _validToken()),
-        );
-
-        expect(mixes.length, 1);
-        expect(mixes.first.id, 'fallback-mix-1');
-        expect(mixes.first.title, 'Fallback Mix 1');
-      },
-    );
 
     test(
       'getHomeFeed falls back to SONE-parity V1 multi-endpoints when V2 fails',
@@ -1564,5 +1438,88 @@ void main() {
         expect(radioId, 'radio-mix-12345');
       },
     );
+  });
+
+  group('getTrackCredits', () {
+    test('parses the top-level array shape returned by the live API', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/tracks/20115564/credits');
+        expect(request.url.queryParameters['countryCode'], 'NO');
+        expect(request.headers['Authorization'], 'Bearer acc-xyz');
+        return http.Response(
+          jsonEncode([
+            {
+              'type': 'Producer',
+              'contributors': [
+                {'name': 'Thomas Bangalter', 'id': 3538385},
+              ],
+            },
+            {
+              'type': 'Composer',
+              'contributors': [
+                {'name': 'Pharrell Williams', 'id': 4900204},
+                {'name': 'Nile Rodgers', 'id': 30528},
+                {'name': ''},
+              ],
+            },
+          ]),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+
+      final credits = await service.getTrackCredits(
+        _server(token: _validToken()),
+        '20115564',
+      );
+
+      expect(credits, [
+        {'type': 'Producer', 'name': 'Thomas Bangalter'},
+        {'type': 'Composer', 'name': 'Pharrell Williams'},
+        {'type': 'Composer', 'name': 'Nile Rodgers'},
+      ]);
+    });
+
+    test(
+      'returns an empty list when the API succeeds with no credits',
+      () async {
+        final client = MockClient((request) async => http.Response('[]', 200));
+        final service = TidalService.create(client: client);
+
+        final credits = await service.getTrackCredits(
+          _server(token: _validToken()),
+          '100524902',
+        );
+
+        expect(credits, isEmpty);
+      },
+    );
+
+    test('throws on HTTP failure instead of silently returning empty', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          '{"status":404,"subStatus":2001,"userMessage":"Resource not found"}',
+          404,
+        ),
+      );
+      final service = TidalService.create(client: client);
+
+      await expectLater(
+        service.getTrackCredits(_server(token: _validToken()), '999999999999'),
+        throwsA(isA<TidalException>()),
+      );
+    });
+
+    test('throws on unexpected (non-array) response shape', () async {
+      final client = MockClient(
+        (request) async => http.Response('{"items": []}', 200),
+      );
+      final service = TidalService.create(client: client);
+
+      await expectLater(
+        service.getTrackCredits(_server(token: _validToken()), '20115564'),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

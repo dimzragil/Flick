@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/utils/app_log.dart';
 import '../../core/utils/dev_log.dart';
 import '../../data/database.dart';
 import 'package:isar_community/isar.dart';
@@ -280,7 +281,7 @@ class TidalService implements NetworkSourceService {
           'scope': _scope,
         }).timeout(const Duration(seconds: 30));
         break;
-      } on TimeoutException catch (e) {
+      } on TimeoutException {
         devLog(
           '[Tidal] device_authorization attempt ${attempt + 1}/3 timed out',
         );
@@ -2805,35 +2806,61 @@ class TidalService implements NetworkSourceService {
 
   /// Get track credits (writers, composers, producers, etc.) from TIDAL.
   /// Returns a list of {type, name} maps, one per contributor.
-  /// API shape: items[].{creditType, contributors[].{name}}
+  ///
+  /// Verified against the live API (2026-10): `GET /tracks/{id}/credits`
+  /// returns a **top-level JSON array** of role groups — not an `{items: …}`
+  /// envelope — and the role key is `type`, not `creditType`:
+  ///
+  ///   [{"type": "Composer",
+  ///     "contributors": [{"name": "Pharrell Williams", "id": 4900204}, …]}, …]
+  ///
+  /// A track with no credits returns HTTP 200 with an empty array. API,
+  /// network and parse failures throw instead of silently returning `[]`, so
+  /// the UI can tell "failed to load" apart from "no credits"; every failure
+  /// is also recorded in the in-app log (visible in release builds).
   Future<List<Map<String, String>>> getTrackCredits(
     NetworkServerEntity server,
     String trackId,
   ) async {
+    final String raw;
     try {
-      final res = await _apiGet(server, '/tracks/$trackId/credits');
-      final items = res['items'] as List<dynamic>?;
-      if (items == null) return [];
+      raw = await _apiGetRaw(server, '/tracks/$trackId/credits');
+    } catch (e) {
+      // TidalException carries the HTTP status + path (401/404/429/…);
+      // transport failures carry their own message.
+      AppLog.instance.add('[Tidal] getTrackCredits($trackId) failed: $e');
+      rethrow;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        throw FormatException(
+          'expected a JSON array of credit groups, got ${decoded.runtimeType}',
+        );
+      }
       final credits = <Map<String, String>>[];
-      for (final it in items) {
-        if (it is Map<String, dynamic>) {
-          final type = it['creditType'] as String? ?? 'Contributor';
-          final contributors = it['contributors'] as List<dynamic>?;
-          if (contributors == null) continue;
-          for (final c in contributors) {
-            if (c is Map<String, dynamic>) {
-              final name = c['name'] as String? ?? '';
-              if (name.isNotEmpty) {
-                credits.add({'type': type, 'name': name});
-              }
+      for (final group in decoded) {
+        if (group is! Map<String, dynamic>) continue;
+        final type = group['type'] as String? ?? 'Contributor';
+        final contributors = group['contributors'] as List<dynamic>?;
+        if (contributors == null) continue;
+        for (final c in contributors) {
+          if (c is Map<String, dynamic>) {
+            final name = c['name'] as String? ?? '';
+            if (name.isNotEmpty) {
+              credits.add({'type': type, 'name': name});
             }
           }
         }
       }
       return credits;
     } catch (e) {
-      devLog('[Tidal] getTrackCredits error: $e');
-      return [];
+      final excerpt = raw.length > 500 ? '${raw.substring(0, 500)}…' : raw;
+      AppLog.instance.add(
+        '[Tidal] getTrackCredits($trackId) parse error: $e | body: $excerpt',
+      );
+      rethrow;
     }
   }
 

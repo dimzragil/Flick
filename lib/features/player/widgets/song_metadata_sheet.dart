@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
+import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/sources/network_source_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 
-class SongMetadataSheet extends ConsumerWidget {
+class SongMetadataSheet extends ConsumerStatefulWidget {
   final Song song;
   const SongMetadataSheet({super.key, required this.song});
 
@@ -22,13 +23,24 @@ class SongMetadataSheet extends ConsumerWidget {
     );
   }
 
+  @override
+  ConsumerState<SongMetadataSheet> createState() => _SongMetadataSheetState();
+}
+
+class _SongMetadataSheetState extends ConsumerState<SongMetadataSheet> {
+  /// Cached so sheet rebuilds (theme, animations, provider updates) don't
+  /// re-hit the API; replaced by the retry action after a failure.
+  Future<List<Map<String, String>>>? _creditsFuture;
+
+  Song get _song => widget.song;
+
   bool get _isTidal =>
-      song.sourceType == NetworkProtocol.tidal &&
-      song.remoteId != null &&
-      song.remoteId!.isNotEmpty;
+      _song.sourceType == NetworkProtocol.tidal &&
+      _song.remoteId != null &&
+      _song.remoteId!.isNotEmpty;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -37,13 +49,17 @@ class SongMetadataSheet extends ConsumerWidget {
       ),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       child: _isTidal
-          ? _buildCreditsView(context, ref)
+          ? _buildCreditsView(context)
           : _buildMetadataView(context),
     );
   }
 
+  Future<List<Map<String, String>>> _fetchCredits(NetworkServerEntity server) {
+    return TidalService.instance.getTrackCredits(server, _song.remoteId!);
+  }
+
   /// TIDAL-style credits view: writers, composers, producers, etc.
-  Widget _buildCreditsView(BuildContext context, WidgetRef ref) {
+  Widget _buildCreditsView(BuildContext context) {
     final serverAsync = ref.watch(tidalServerProvider);
 
     return serverAsync.when(
@@ -51,8 +67,9 @@ class SongMetadataSheet extends ConsumerWidget {
         if (server == null) {
           return _buildErrorView(context, 'Not signed in to TIDAL');
         }
+        final future = _creditsFuture ??= _fetchCredits(server);
         return FutureBuilder<List<Map<String, String>>>(
-          future: TidalService.instance.getTrackCredits(server, song.remoteId!),
+          future: future,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(
@@ -60,6 +77,17 @@ class SongMetadataSheet extends ConsumerWidget {
                 child: Center(
                   child: CircularProgressIndicator(color: AppColors.accent),
                 ),
+              );
+            }
+            if (snapshot.hasError) {
+              // API/network/parse failure — distinct from a genuinely
+              // creditless track, which returns an empty list below.
+              return _buildErrorView(
+                context,
+                'Failed to load credits',
+                onRetry: () => setState(() {
+                  _creditsFuture = _fetchCredits(server);
+                }),
               );
             }
             final credits = snapshot.data ?? [];
@@ -111,7 +139,11 @@ class SongMetadataSheet extends ConsumerWidget {
     );
   }
 
-  Widget _buildErrorView(BuildContext context, String message) {
+  Widget _buildErrorView(
+    BuildContext context,
+    String message, {
+    VoidCallback? onRetry,
+  }) {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -126,6 +158,22 @@ class SongMetadataSheet extends ConsumerWidget {
               fontSize: 14,
             ),
           ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(LucideIcons.refreshCw, size: 16),
+              label: const Text('Retry'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                textStyle: const TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -190,32 +238,32 @@ class SongMetadataSheet extends ConsumerWidget {
       children: [
         _buildHeader(context, 'Song Metadata', LucideIcons.info),
         const SizedBox(height: 16),
-        _buildMetadataRow(context, 'Title', song.title),
-        _buildMetadataRow(context, 'Artist', song.artist),
-        if (song.album != null)
-          _buildMetadataRow(context, 'Album', song.album!),
-        _buildMetadataRow(context, 'Duration', song.formattedDuration),
+        _buildMetadataRow(context, 'Title', _song.title),
+        _buildMetadataRow(context, 'Artist', _song.artist),
+        if (_song.album != null)
+          _buildMetadataRow(context, 'Album', _song.album!),
+        _buildMetadataRow(context, 'Duration', _song.formattedDuration),
         _buildMetadataRow(
           context,
           'Format',
-          song.isDsd
-              ? '${song.fileType.toUpperCase()} (${song.dsdRateLabel})'
-              : song.fileType.toUpperCase(),
+          _song.isDsd
+              ? '${_song.fileType.toUpperCase()} (${_song.dsdRateLabel})'
+              : _song.fileType.toUpperCase(),
         ),
-        if (song.resolution != null && !song.isDsd)
-          _buildMetadataRow(context, 'Resolution', song.resolution!),
-        if (song.albumArtist != null)
-          _buildMetadataRow(context, 'Album Artist', song.albumArtist!),
-        if (song.genre != null)
-          _buildMetadataRow(context, 'Genre', song.genre!),
-        if (song.year != null)
-          _buildMetadataRow(context, 'Year', song.year!.toString()),
-        if (song.trackNumber != null)
-          _buildMetadataRow(context, 'Track', song.trackNumber!.toString()),
-        if (song.discNumber != null)
-          _buildMetadataRow(context, 'Disc', song.discNumber!.toString()),
-        if (song.filePath != null)
-          _buildMetadataRow(context, 'File Path', song.filePath!),
+        if (_song.resolution != null && !_song.isDsd)
+          _buildMetadataRow(context, 'Resolution', _song.resolution!),
+        if (_song.albumArtist != null)
+          _buildMetadataRow(context, 'Album Artist', _song.albumArtist!),
+        if (_song.genre != null)
+          _buildMetadataRow(context, 'Genre', _song.genre!),
+        if (_song.year != null)
+          _buildMetadataRow(context, 'Year', _song.year!.toString()),
+        if (_song.trackNumber != null)
+          _buildMetadataRow(context, 'Track', _song.trackNumber!.toString()),
+        if (_song.discNumber != null)
+          _buildMetadataRow(context, 'Disc', _song.discNumber!.toString()),
+        if (_song.filePath != null)
+          _buildMetadataRow(context, 'File Path', _song.filePath!),
       ],
     );
   }
