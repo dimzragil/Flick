@@ -61,7 +61,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
   List<Song> _songs = [];
   bool _isLoading = true;
   Color? _playlistColor;
-  PlaylistSortOption _sortOption = PlaylistSortOption.dateAddedNewest;
+  PlaylistSortOption _sortOption = PlaylistSortOption.manual;
 
   String get _sortPrefsKey => '$_sortPrefsKeyPrefix${widget.playlist.id}';
 
@@ -166,21 +166,10 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
   Future<void> _loadSortOption() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getString(_sortPrefsKey);
-    // Migrate old default: 'manual' was the previous default, now
-    // 'dateAddedNewest' is. Users who never explicitly chose manual
-    // get the new default.
-    if (value == null || value == PlaylistSortOption.manual.name) {
-      if (value == PlaylistSortOption.manual.name) {
-        await prefs.setString(
-          _sortPrefsKey,
-          PlaylistSortOption.dateAddedNewest.name,
-        );
-      }
-      return;
-    }
+    if (value == null) return;
     final option = PlaylistSortOption.values.firstWhere(
       (o) => o.name == value,
-      orElse: () => PlaylistSortOption.dateAddedNewest,
+      orElse: () => PlaylistSortOption.manual,
     );
     if (mounted && option != _sortOption) {
       setState(() => _sortOption = option);
@@ -873,7 +862,10 @@ class _SongTile extends StatelessWidget {
                     ),
                   ),
                 ),
-              SongTileThumbnail(song: song, trackNumber: null),
+              SongTileThumbnail(
+                song: song,
+                trackNumber: index != null ? index! + 1 : null,
+              ),
               const SizedBox(width: AppConstants.spacingMd),
               Expanded(
                 child: Column(
