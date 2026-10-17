@@ -42,12 +42,12 @@ class BitPerfectIndicator extends ConsumerWidget {
     );
     final label = _getSongQuality(song);
     if (label == 'HR') {
-      // Hi-Res: grey badge like the FLAC badge, but keep the gold glow
-      // and path icon to distinguish it.
+      // Hi-Res: grey background like the FLAC badge, but keep gold
+      // border, text, and glow for the Hi-Res identity.
       state = _IndicatorState(
         bgColor: AppColors.glassBackgroundStrong,
-        textColor: AppColors.textSecondary,
-        borderColor: AppColors.glassBorder,
+        textColor: const Color(0xFFE5A93C),
+        borderColor: const Color(0xFFE5A93C),
         glowColor: const Color(0xFFE5A93C).withValues(alpha: 0.12),
         icon: state.icon,
       );

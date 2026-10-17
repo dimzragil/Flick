@@ -358,7 +358,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                                         child: const Text(
                                           'Hi-Res',
                                           style: TextStyle(
-                                            color: AppColors.textSecondary,
+                                            color: Color(0xFFE5A93C),
                                             fontSize: 9,
                                             fontWeight: FontWeight.bold,
                                           ),

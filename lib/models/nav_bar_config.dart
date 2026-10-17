@@ -34,8 +34,8 @@ Widget navBarButtonIcon(
 }) {
   if (button == NavBarButton.tidal) {
     // The diamond mark is roughly square (1.5:1), so it fills the icon
-    // slot well. Scale up slightly for optical parity with IconData glyphs.
-    final logoSize = size * 1.15;
+    // slot well. Slightly smaller than IconData glyphs for visual balance.
+    final logoSize = size * 0.85;
     return SvgPicture.asset(
       'assets/icons/tidal_mark.svg',
       width: logoSize,

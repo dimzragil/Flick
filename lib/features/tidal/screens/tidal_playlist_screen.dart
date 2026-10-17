@@ -407,14 +407,14 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                                         color: AppColors.glassBackgroundStrong,
                                         borderRadius: BorderRadius.circular(3),
                                         border: Border.all(
-                                          color: AppColors.glassBorder,
+                                          color: const Color(0xFFE5A93C),
                                           width: 0.75,
                                         ),
                                       ),
                                       child: const Text(
                                         'Hi-Res',
                                         style: TextStyle(
-                                          color: AppColors.textSecondary,
+                                          color: Color(0xFFE5A93C),
                                           fontSize: 9,
                                           fontWeight: FontWeight.bold,
                                         ),
