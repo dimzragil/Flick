@@ -166,10 +166,21 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
   Future<void> _loadSortOption() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getString(_sortPrefsKey);
-    if (value == null) return;
+    // Migrate old default: 'manual' was the previous default, now
+    // 'dateAddedNewest' is. Users who never explicitly chose manual
+    // get the new default.
+    if (value == null || value == PlaylistSortOption.manual.name) {
+      if (value == PlaylistSortOption.manual.name) {
+        await prefs.setString(
+          _sortPrefsKey,
+          PlaylistSortOption.dateAddedNewest.name,
+        );
+      }
+      return;
+    }
     final option = PlaylistSortOption.values.firstWhere(
       (o) => o.name == value,
-      orElse: () => PlaylistSortOption.manual,
+      orElse: () => PlaylistSortOption.dateAddedNewest,
     );
     if (mounted && option != _sortOption) {
       setState(() => _sortOption = option);

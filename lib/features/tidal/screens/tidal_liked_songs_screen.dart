@@ -7,6 +7,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
 import '../../../services/player_service.dart';
+import '../../../services/sources/tidal_service.dart';
+import '../../../widgets/common/cached_image_widget.dart';
+import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -126,6 +129,8 @@ class TidalLikedSongsScreen extends ConsumerWidget {
     int index,
   ) {
     final isHiRes = (song.bitDepth ?? 0) >= 24;
+    final thumbSize = context.scaleSize(48);
+    final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 160);
 
     return PressScale(
       child: RepaintBoundary(
@@ -134,6 +139,27 @@ class TidalLikedSongsScreen extends ConsumerWidget {
           contentPadding: const EdgeInsets.symmetric(
             vertical: 2,
             horizontal: 4,
+          ),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            child: SizedBox(
+              width: thumbSize,
+              height: thumbSize,
+              child: thumbArt != null
+                  ? CachedImageWidget(
+                      imagePath: thumbArt,
+                      audioSourcePath: song.filePath,
+                      width: thumbSize,
+                      height: thumbSize,
+                      useThumbnail: true,
+                      thumbnailWidth: 160,
+                      thumbnailHeight: 160,
+                      fit: BoxFit.cover,
+                      placeholder: const FlickArtworkPlaceholder(),
+                      errorWidget: const FlickArtworkPlaceholder(),
+                    )
+                  : const FlickArtworkPlaceholder(),
+            ),
           ),
           title: Text(
             song.title,
