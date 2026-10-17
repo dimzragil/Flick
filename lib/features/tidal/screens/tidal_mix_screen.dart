@@ -381,17 +381,17 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                                         vertical: 1,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.black,
+                                        color: AppColors.glassBackgroundStrong,
                                         borderRadius: BorderRadius.circular(3),
                                         border: Border.all(
-                                          color: const Color(0xFFE5A93C),
+                                          color: AppColors.glassBorder,
                                           width: 0.75,
                                         ),
                                       ),
                                       child: const Text(
                                         'Hi-Res',
                                         style: TextStyle(
-                                          color: Color(0xFFE5A93C),
+                                          color: AppColors.textSecondary,
                                           fontSize: 9,
                                           fontWeight: FontWeight.bold,
                                         ),

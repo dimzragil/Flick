@@ -42,13 +42,12 @@ class BitPerfectIndicator extends ConsumerWidget {
     );
     final label = _getSongQuality(song);
     if (label == 'HR') {
-      // Hi-Res gets the gold-on-black Hi-Res Audio logo treatment,
-      // overriding the path-based capsule colors. The path icon is kept
-      // since it conveys a different dimension (audio path state).
+      // Hi-Res: grey badge like the FLAC badge, but keep the gold glow
+      // and path icon to distinguish it.
       state = _IndicatorState(
-        bgColor: Colors.black,
-        textColor: const Color(0xFFE5A93C),
-        borderColor: const Color(0xFFE5A93C),
+        bgColor: AppColors.glassBackgroundStrong,
+        textColor: AppColors.textSecondary,
+        borderColor: AppColors.glassBorder,
         glowColor: const Color(0xFFE5A93C).withValues(alpha: 0.12),
         icon: state.icon,
       );
