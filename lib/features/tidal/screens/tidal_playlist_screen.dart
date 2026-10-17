@@ -160,8 +160,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
           ),
           data: (data) {
             final playlist = data.playlist;
-            // Newest tracks first (reversed API order).
-            final tracks = data.tracks.reversed.toList();
+            final tracks = data.tracks;
             final title =
                 (playlist['title'] as String?) ??
                 widget.initialTitle ??
@@ -373,6 +372,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                     child: SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
                         final song = tracks[index];
+                        final trackNum = index + 1;
                         final isHiRes = (song.bitDepth ?? 0) >= 24;
 
                         return StaggeredEntrance(
@@ -383,6 +383,18 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen> {
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 4,
                                 vertical: 2,
+                              ),
+                              leading: SizedBox(
+                                width: 28,
+                                child: Center(
+                                  child: Text(
+                                    '$trackNum',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
                               ),
                               title: Text(
                                 song.title,

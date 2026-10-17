@@ -61,7 +61,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
   List<Song> _songs = [];
   bool _isLoading = true;
   Color? _playlistColor;
-  PlaylistSortOption _sortOption = PlaylistSortOption.manual;
+  PlaylistSortOption _sortOption = PlaylistSortOption.dateAddedNewest;
 
   String get _sortPrefsKey => '$_sortPrefsKeyPrefix${widget.playlist.id}';
 
@@ -338,7 +338,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
 
   Future<void> _toggleFavoriteAll() async {
     if (_songs.isEmpty) return;
-    final favIds = ref.read(favoritesProvider).value?.favoriteIds ?? const <String>{};
+    final favIds =
+        ref.read(favoritesProvider).value?.favoriteIds ?? const <String>{};
     final notifier = ref.read(favoritesProvider.notifier);
     final isAll = _songs.every((s) => favIds.contains(s.id));
     if (isAll) {
@@ -489,8 +490,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
                         ),
                       ),
                       SliverToBoxAdapter(
-                        child:
-                            DetailDescription(descriptionKey: _descriptionKey),
+                        child: DetailDescription(
+                          descriptionKey: _descriptionKey,
+                        ),
                       ),
                       const SliverToBoxAdapter(
                         child: SizedBox(height: AppConstants.spacingLg),
@@ -674,10 +676,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen>
                         alignment: Alignment.centerLeft,
                         child: Text(
                           playlist.name,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: context.adaptiveTextPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: context.adaptiveTextPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
                           maxLines: 1,
                         ),
                       ),
@@ -859,10 +862,7 @@ class _SongTile extends StatelessWidget {
                     ),
                   ),
                 ),
-              SongTileThumbnail(
-                song: song,
-                trackNumber: index != null ? index! + 1 : null,
-              ),
+              SongTileThumbnail(song: song, trackNumber: null),
               const SizedBox(width: AppConstants.spacingMd),
               Expanded(
                 child: Column(
@@ -895,10 +895,7 @@ class _SongTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              SongActionsButton(
-                song: song,
-                onRemoveFromPlaylist: onRemove,
-              ),
+              SongActionsButton(song: song, onRemoveFromPlaylist: onRemove),
             ],
           ),
         ),
