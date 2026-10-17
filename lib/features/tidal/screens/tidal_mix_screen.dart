@@ -10,7 +10,9 @@ import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
 import '../../../services/player_service.dart';
+import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
+import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -337,8 +339,12 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                     child: SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
                         final song = tracks[index];
-                        final trackNum = index + 1;
                         final isHiRes = (song.bitDepth ?? 0) >= 24;
+                        final thumbSize = context.scaleSize(48);
+                        final thumbArt = TidalService.resizedCoverUrl(
+                          song.albumArt,
+                          160,
+                        );
 
                         return StaggeredEntrance(
                           index: index,
@@ -349,16 +355,29 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen> {
                                 horizontal: 4,
                                 vertical: 2,
                               ),
-                              leading: SizedBox(
-                                width: 28,
-                                child: Center(
-                                  child: Text(
-                                    '$trackNum',
-                                    style: const TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 13,
-                                    ),
-                                  ),
+                              leading: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusSm,
+                                ),
+                                child: SizedBox(
+                                  width: thumbSize,
+                                  height: thumbSize,
+                                  child: thumbArt != null
+                                      ? CachedImageWidget(
+                                          imagePath: thumbArt,
+                                          audioSourcePath: song.filePath,
+                                          width: thumbSize,
+                                          height: thumbSize,
+                                          useThumbnail: true,
+                                          thumbnailWidth: 160,
+                                          thumbnailHeight: 160,
+                                          fit: BoxFit.cover,
+                                          placeholder:
+                                              const FlickArtworkPlaceholder(),
+                                          errorWidget:
+                                              const FlickArtworkPlaceholder(),
+                                        )
+                                      : const FlickArtworkPlaceholder(),
                                 ),
                               ),
                               title: Text(

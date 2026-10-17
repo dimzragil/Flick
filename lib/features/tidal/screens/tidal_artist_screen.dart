@@ -302,6 +302,11 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                       child: SliverList(
                         delegate: SliverChildBuilderDelegate((context, index) {
                           final song = displayedTopTracks[index];
+                          final thumbSize = context.scaleSize(48);
+                          final thumbArt = TidalService.resizedCoverUrl(
+                            song.albumArt,
+                            160,
+                          );
                           return StaggeredEntrance(
                             index: index,
                             child: PressScale(
@@ -313,16 +318,29 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen> {
                                   ),
                                   vertical: 2,
                                 ),
-                                leading: SizedBox(
-                                  width: 28,
-                                  child: Center(
-                                    child: Text(
-                                      '${index + 1}',
-                                      style: const TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusSm,
+                                  ),
+                                  child: SizedBox(
+                                    width: thumbSize,
+                                    height: thumbSize,
+                                    child: thumbArt != null
+                                        ? CachedImageWidget(
+                                            imagePath: thumbArt,
+                                            audioSourcePath: song.filePath,
+                                            width: thumbSize,
+                                            height: thumbSize,
+                                            useThumbnail: true,
+                                            thumbnailWidth: 160,
+                                            thumbnailHeight: 160,
+                                            fit: BoxFit.cover,
+                                            placeholder:
+                                                const FlickArtworkPlaceholder(),
+                                            errorWidget:
+                                                const FlickArtworkPlaceholder(),
+                                          )
+                                        : const FlickArtworkPlaceholder(),
                                   ),
                                 ),
                                 title: Text(
