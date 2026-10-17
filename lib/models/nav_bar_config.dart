@@ -23,9 +23,9 @@ enum NavBarButton {
 
 /// Builds the display icon for a nav-bar button.
 ///
-/// The TIDAL button uses the raster TIDAL logo instead of its fallback
-/// [NavBarButton.icon]; every other button renders its [IconData] as usual.
-/// The logo is tinted with [color] so it follows the bar's
+/// The TIDAL button uses the TIDAL diamond mark (vector) instead of its
+/// fallback [NavBarButton.icon]; every other button renders its [IconData]
+/// as usual. The mark is tinted with [color] so it follows the bar's
 /// selected/unselected icon colors like the other icons do.
 Widget navBarButtonIcon(
   NavBarButton button, {
@@ -33,12 +33,11 @@ Widget navBarButtonIcon(
   Color? color,
 }) {
   if (button == NavBarButton.tidal) {
-    // The TIDAL mark is wider than it is tall, so at `size` x `size` with
-    // BoxFit.contain it renders visually smaller than the IconData glyphs.
-    // Scale up slightly for optical parity with the other nav bar icons.
+    // The diamond mark is roughly square (1.5:1), so it fills the icon
+    // slot well. Scale up slightly for optical parity with IconData glyphs.
     final logoSize = size * 1.15;
     return SvgPicture.asset(
-      'assets/icons/tidal_logo.svg',
+      'assets/icons/tidal_mark.svg',
       width: logoSize,
       height: logoSize,
       fit: BoxFit.contain,

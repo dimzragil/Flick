@@ -738,22 +738,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   fit: BoxFit.contain,
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0x33FFFFFF),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'HiFi',
-                  style: TextStyle(
-                    color: Color(0xD9FFFFFF),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
             ],
           ),
           actions: [
