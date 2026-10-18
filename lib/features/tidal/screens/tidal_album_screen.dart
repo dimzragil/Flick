@@ -702,6 +702,12 @@ class _MoreAlbumCard extends StatelessWidget {
                 child: coverUrl != null
                     ? CachedImageWidget(
                         imagePath: coverUrl,
+                        // Same 320 px decode key as the hub/search cards so
+                        // the same album cover is one cache entry app-wide
+                        // instead of a 512 px default duplicate.
+                        useThumbnail: true,
+                        thumbnailWidth: 320,
+                        thumbnailHeight: 320,
                         fit: BoxFit.cover,
                         placeholder: const FlickArtworkPlaceholder(),
                         errorWidget: const FlickArtworkPlaceholder(),

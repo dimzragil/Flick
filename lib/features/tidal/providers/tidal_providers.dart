@@ -289,11 +289,15 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
 });
 
 /// Fetches album details and tracks for a given album ID.
-final tidalAlbumDetailsProvider =
-    FutureProvider.family<
-      ({Map<String, dynamic> album, List<Song> tracks}),
-      String
-    >((ref, albumId) async {
+///
+/// `autoDispose`: the payload is screen-scoped and refetchable, so it must
+/// not be retained for the whole session — browsing the TIDAL catalog would
+/// otherwise pin every visited album's track list in memory forever.
+final tidalAlbumDetailsProvider = FutureProvider.autoDispose
+    .family<({Map<String, dynamic> album, List<Song> tracks}), String>((
+      ref,
+      albumId,
+    ) async {
       final server = await ref.watch(tidalServerProvider.future);
       if (server == null) {
         throw StateError('Tidal server not found');
@@ -317,11 +321,16 @@ final tidalAlbumDetailsProvider =
     });
 
 /// Fetches playlist details and tracks for a given playlist UUID.
-final tidalPlaylistDetailsProvider =
-    FutureProvider.family<
-      ({Map<String, dynamic> playlist, List<Song> tracks}),
-      String
-    >((ref, playlistId) async {
+///
+/// `autoDispose` (like the other TIDAL detail families): keeps per-playlist
+/// payloads from accumulating; a revisit refetches, which also keeps the
+/// track list fresh after local edits (the add-to-playlist flow invalidates
+/// this provider deliberately).
+final tidalPlaylistDetailsProvider = FutureProvider.autoDispose
+    .family<({Map<String, dynamic> playlist, List<Song> tracks}), String>((
+      ref,
+      playlistId,
+    ) async {
       final server = await ref.watch(tidalServerProvider.future);
       if (server == null) {
         throw StateError('Tidal server not found');
@@ -341,8 +350,12 @@ final tidalPlaylistDetailsProvider =
     });
 
 /// Fetches artist details, top tracks, albums, singles & EPs, and compilations for a given artist ID.
-final tidalArtistDetailsProvider =
-    FutureProvider.family<
+///
+/// `autoDispose`: this is the heaviest family payload (five catalog sections
+/// per artist), so retaining every visited artist would be the fastest way
+/// to grow the heap across a browsing session.
+final tidalArtistDetailsProvider = FutureProvider.autoDispose
+    .family<
       ({
         Map<String, dynamic> artist,
         List<Song> topTracks,
@@ -387,11 +400,11 @@ final tidalArtistDetailsProvider =
 
 /// Fetches an artist's albums for the "More from `artist`" rail on the TIDAL
 /// album screen. The rail filters out the album being viewed.
-final tidalArtistAlbumsProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, String>((
-      ref,
-      artistId,
-    ) async {
+///
+/// `autoDispose`: only the album screen's rail watches this, so the payload
+/// has no reason to outlive the screen.
+final tidalArtistAlbumsProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, artistId) async {
       final server = await ref.watch(tidalServerProvider.future);
       if (server == null) {
         throw StateError('Tidal server not found');
@@ -404,46 +417,49 @@ final tidalArtistAlbumsProvider =
 ///
 /// The bio is decorative, so a missing biography or any transport failure
 /// resolves to null and the screen simply skips the section.
-final tidalArtistBioProvider = FutureProvider.family<String?, String>((
-  ref,
-  artistId,
-) async {
-  final server = await ref.watch(tidalServerProvider.future);
-  if (server == null) return null;
-  return ref.read(tidalServiceProvider).getArtistBio(server, artistId);
-});
+///
+/// `autoDispose`: screen-scoped like the rest of the detail families.
+final tidalArtistBioProvider = FutureProvider.autoDispose
+    .family<String?, String>((ref, artistId) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null) return null;
+      return ref.read(tidalServiceProvider).getArtistBio(server, artistId);
+    });
 
 /// Fetches the official TIDAL home feed for a given vibe/category slug (e.g. 'static', 'relax', 'workout').
-final tidalHomeFeedProvider = FutureProvider.family<TidalHomeFeed, String>((
-  ref,
-  feedSlug,
-) async {
-  final server = await ref.watch(tidalServerProvider.future);
-  if (server == null || server.token == null || server.token!.isEmpty) {
-    return TidalHomeFeed.empty;
-  }
-  // Serve from TTL cache when fresh — avoids re-hitting the API on every
-  // Hub visit and keeps us clear of TIDAL's rate limits.
-  final cached = _homeFeedCache.get(feedSlug);
-  if (cached != null) return cached;
-  final tidal = ref.read(tidalServiceProvider);
-  final result = await tidal.getHomeFeed(server, feedSlug: feedSlug);
-  _homeFeedCache.set(feedSlug, result);
-  return result;
-});
+///
+/// `autoDispose`: each feed tab's parsed sections are dropped when the hub
+/// (and the tab) goes away — the 15-minute TTL cache below softens the cost
+/// of re-entering a tab.
+final tidalHomeFeedProvider = FutureProvider.autoDispose
+    .family<TidalHomeFeed, String>((ref, feedSlug) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null || server.token == null || server.token!.isEmpty) {
+        return TidalHomeFeed.empty;
+      }
+      // Serve from TTL cache when fresh — avoids re-hitting the API on every
+      // Hub visit and keeps us clear of TIDAL's rate limits.
+      final cached = _homeFeedCache.get(feedSlug);
+      if (cached != null) return cached;
+      final tidal = ref.read(tidalServiceProvider);
+      final result = await tidal.getHomeFeed(server, feedSlug: feedSlug);
+      _homeFeedCache.set(feedSlug, result);
+      return result;
+    });
 
 /// Fetches details and tracks for a given TIDAL mix or radio station ID.
-final tidalMixDetailsProvider = FutureProvider.family<TidalMix, String>((
-  ref,
-  mixId,
-) async {
-  final server = await ref.watch(tidalServerProvider.future);
-  if (server == null) {
-    throw StateError('Tidal server not found');
-  }
-  final tidal = ref.read(tidalServiceProvider);
-  return await tidal.getMix(server, mixId);
-});
+///
+/// `autoDispose`: mixes are one-off screens; retaining every visited mix's
+/// parsed track list serves no navigation path.
+final tidalMixDetailsProvider = FutureProvider.autoDispose
+    .family<TidalMix, String>((ref, mixId) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null) {
+        throw StateError('Tidal server not found');
+      }
+      final tidal = ref.read(tidalServiceProvider);
+      return await tidal.getMix(server, mixId);
+    });
 
 /// Local optimistic adjustments to TIDAL favorite track IDs (added/removed).
 class TidalFavoriteTrackIdsOptimisticNotifier
