@@ -2485,6 +2485,7 @@ class TidalService implements NetworkSourceService {
         String title = 'Mix';
         String? subtitle;
         String? mixType;
+        String? description;
         String? image;
         final tracks = <Song>[];
 
@@ -2500,6 +2501,13 @@ class TidalService implements NetworkSourceService {
                 title = (mixObj['title'] as String?) ?? title;
                 subtitle = mixObj['subTitle'] as String?;
                 mixType = mixObj['mixType'] as String?;
+                // Editorial description — not present in today's mix
+                // payloads, so the About section stays hidden until it is.
+                final descriptionRaw = (mixObj['description'] as String?)
+                    ?.trim();
+                if (descriptionRaw != null && descriptionRaw.isNotEmpty) {
+                  description = descriptionRaw;
+                }
                 final images = mixObj['images'] as Map<String, dynamic>?;
                 image =
                     (images?['LARGE']?['url'] as String?) ??
@@ -2528,6 +2536,7 @@ class TidalService implements NetworkSourceService {
             subTitle: subtitle,
             imageUrl: image,
             mixType: mixType,
+            description: description,
             tracks: tracks,
           );
         }

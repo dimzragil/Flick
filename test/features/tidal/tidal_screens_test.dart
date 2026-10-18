@@ -482,6 +482,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('TidalMixScreen shows capsule and About description', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalMixDetailsProvider('mix-1').overrideWith(
+            (ref) async => const TidalMix(
+              mixId: 'mix-1',
+              title: 'Test Mix',
+              mixType: 'DAILY_MIX',
+              description: 'A radio station just for you.',
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: TidalMixScreen(mixId: 'mix-1')),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Mix'), findsOneWidget);
+    expect(find.text('About this mix'), findsOneWidget);
+    expect(find.text('A radio station just for you.'), findsOneWidget);
+    // Capsule mapping: Play/Shuffle/More only — no Favorite or Queue.
+    expect(find.byTooltip('Play'), findsOneWidget);
+    expect(find.byTooltip('Shuffle'), findsOneWidget);
+    expect(find.byTooltip('More'), findsOneWidget);
+    expect(find.byTooltip('Follow artist'), findsNothing);
+    expect(find.byTooltip('Queue'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('TidalPlaylistScreen shows the banner skeleton while loading', (
     tester,
   ) async {

@@ -357,10 +357,7 @@ class TidalHomeItem {
     }
     final image = data['image'];
     if (image is String && image.isNotEmpty) {
-      final url = _tidalWideImageUrl(
-        image,
-        width: size > 160 ? 640 : 480,
-      );
+      final url = _tidalWideImageUrl(image, width: size > 160 ? 640 : 480);
       if (url != null && url.isNotEmpty) return url;
     }
 
@@ -525,6 +522,7 @@ class TidalMix {
   final String? subTitle;
   final String? imageUrl;
   final String? mixType;
+  final String? description;
   final List<Song> tracks;
 
   const TidalMix({
@@ -533,6 +531,7 @@ class TidalMix {
     this.subTitle,
     this.imageUrl,
     this.mixType,
+    this.description,
     this.tracks = const [],
   });
 }
