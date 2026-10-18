@@ -468,6 +468,79 @@ class PlaybackPositionTracker {
   }
 }
 
+/// Tracks the most recent explicit track change (tap/next/previous) whose
+/// eager UI update has already been published but whose engine load has not
+/// been confirmed yet.
+///
+/// Engines keep reporting the *previous* track in their playback state until
+/// the newly requested source finishes loading — pause, position and
+/// engine-transition emissions all carry the old `currentTrack`. While a
+/// request is pending, an engine state reporting a different track is stale
+/// and must not overwrite the eagerly published song, otherwise the full
+/// player flashes new -> old -> new on every track change (worst for uncached
+/// tracks, where the load window lasts seconds).
+///
+/// Lifecycle: [mark] when the new song is published to the UI, [confirm] on
+/// every engine state (clears once the engine reports the requested track),
+/// [fail] when the load throws before confirmation, and [clear] when the user
+/// forces a sync or playback is fully cleared.
+@visibleForTesting
+class PendingTrackRequestTracker {
+  String? _songId;
+
+  /// True while a track request is waiting for engine confirmation.
+  bool get isPending => _songId != null;
+
+  /// Publishes [song] as the explicitly requested track. A newer request
+  /// replaces any previous pending one.
+  void mark(Song song) {
+    _songId = song.id;
+  }
+
+  /// Whether [engineTrack] is a stale report from before the requested track
+  /// was loaded (e.g. the engine's pause state still carrying the old song).
+  bool isStale(Song? engineTrack) =>
+      engineTrack != null && _songId != null && engineTrack.id != _songId;
+
+  /// Records that the engine reported [engineTrack]; when it matches the
+  /// requested track the request is fulfilled and engine states become
+  /// authoritative again.
+  void confirm(Song? engineTrack) {
+    final pendingId = _songId;
+    if (pendingId != null && engineTrack?.id == pendingId) {
+      _songId = null;
+    }
+  }
+
+  /// Drops the request for [song] when its load failed before the engine
+  /// confirmed it. Requests for other songs are left untouched.
+  void fail(Song song) {
+    if (_songId == song.id) {
+      _songId = null;
+    }
+  }
+
+  /// Resolves which song the UI should display for an incoming engine state.
+  ///
+  /// While a request is pending, an engine track that differs from the
+  /// requested song is stale and the eagerly published [uiSong] is preserved.
+  /// Null engine tracks (transitional states) keep the last known song while
+  /// the playlist is populated; when the playlist is empty, playback has
+  /// truly cleared and null wins.
+  Song? resolve({
+    required Song? engineTrack,
+    required Song? uiSong,
+    required bool playlistIsNotEmpty,
+  }) {
+    if (isStale(engineTrack)) return uiSong;
+    return engineTrack ?? (playlistIsNotEmpty ? uiSong : null);
+  }
+
+  void clear() {
+    _songId = null;
+  }
+}
+
 @visibleForTesting
 bool shouldThrottleSpeakerSinkRearm({
   required bool isQueued,
@@ -764,6 +837,13 @@ class PlayerService {
   Future<void>? _rustEnginePreparationInFlight;
   bool _suppressSequenceStateUpdates = false;
   String? _autoSyncGuardSongId;
+
+  /// Most recent explicit track-change request awaiting engine confirmation.
+  /// While pending, engine states still reporting the previous track must not
+  /// overwrite [currentSongNotifier] (see [PendingTrackRequestTracker]).
+  final PendingTrackRequestTracker _pendingTrackRequest =
+      PendingTrackRequestTracker();
+
   String? _restoredSongId;
   Duration _restoredPosition = Duration.zero;
   final PlaybackPositionTracker _positionTracker = PlaybackPositionTracker();
@@ -3591,11 +3671,23 @@ class PlayerService {
       // notifier so the mini-player and ambient background never flash to black.
       // We only truly clear the song notifier when the playlist itself is empty
       // (i.e. the user explicitly stopped all playback).
-      final incomingTrack =
-          state.currentTrack ??
-          (_playlist.isNotEmpty ? currentSongNotifier.value : null);
+      //
+      // Similarly, until the engine confirms the most recent explicit track
+      // change it keeps reporting the previous track (pause/position/
+      // engine-transition emissions). Those stale reports must not overwrite
+      // the eagerly published song, otherwise the full player flashes
+      // new -> old -> new during the load window.
+      final incomingTrack = _pendingTrackRequest.resolve(
+        engineTrack: state.currentTrack,
+        uiSong: currentSongNotifier.value,
+        playlistIsNotEmpty: _playlist.isNotEmpty,
+      );
       if (currentSongNotifier.value != incomingTrack) {
         currentSongNotifier.value = incomingTrack;
+      }
+      _pendingTrackRequest.confirm(state.currentTrack);
+      if (currentSongNotifier.value == null) {
+        _pendingTrackRequest.clear();
       }
       if (isPlayingNotifier.value != state.isPlaying) {
         isPlayingNotifier.value = state.isPlaying;
@@ -5252,6 +5344,7 @@ class PlayerService {
 
     // Eagerly update UI so mini-player, notification, and full player respond in 0ms (SONE adaptation)
     currentSongNotifier.value = song;
+    _pendingTrackRequest.mark(song);
     if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
 
     // Immediately pause active audio playback so previous song doesn't keep playing during load
@@ -5536,6 +5629,10 @@ class PlayerService {
         'on ${currentEngineType.logLabel}: $e',
       );
       debugPrintStack(stackTrace: stackTrace);
+      // The load failed without the engine ever confirming this song: drop
+      // the pending-request marker so later engine states (the engine still
+      // holds the previous track) are allowed to drive the UI again.
+      _pendingTrackRequest.fail(song);
       rethrow;
     } finally {
       // Only the most-recent play request is allowed to clear the loading
@@ -5559,6 +5656,7 @@ class PlayerService {
     }
     final gen = generation ?? ++_playbackGeneration;
     currentSongNotifier.value = song;
+    _pendingTrackRequest.mark(song);
     if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
     await _playInternal(
       song,
@@ -6239,6 +6337,7 @@ class PlayerService {
         final song = _songAtCurrentIndex();
         if (song != null) {
           currentSongNotifier.value = song;
+          _pendingTrackRequest.mark(song);
           if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
         }
         targetAlreadySelected = true;
@@ -6361,6 +6460,7 @@ class PlayerService {
         final song = _songAtCurrentIndex();
         if (song != null) {
           currentSongNotifier.value = song;
+          _pendingTrackRequest.mark(song);
           if (song.isNetworkSource) isNetworkLoadingNotifier.value = true;
         }
       }
@@ -7284,6 +7384,9 @@ class PlayerService {
     if (engineTrack == null) return;
 
     currentSongNotifier.value = engineTrack;
+    // The user explicitly adopted the engine's track: drop any pending
+    // request so later engine states stay authoritative.
+    _pendingTrackRequest.clear();
     _syncCurrentIndexToTrack(engineTrack);
     _syncUac2PlaybackStatus(engineTrack, isPlaying: isPlayingNotifier.value);
     _updateNotificationState();
