@@ -16,6 +16,7 @@ import 'package:flick/models/song.dart';
 import 'package:flick/models/sources/tidal_models.dart';
 import 'package:flick/providers/player_provider.dart';
 import 'package:flick/services/sources/tidal_service.dart';
+import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -614,6 +615,111 @@ void main() {
     expect(find.text('Top One'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'TidalArtistScreen falls back to selectedAlbumCoverFallback without a picture',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const artistId = 'art-1';
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentSongProvider.overrideWith((ref) => null),
+            tidalServerProvider.overrideWith(
+              () => _MockTidalServerNotifier(_serverWithToken()),
+            ),
+            tidalArtistDetailsProvider(artistId).overrideWith(
+              (ref) async => (
+                artist: {
+                  'id': artistId,
+                  'name': 'Test Artist',
+                  'selectedAlbumCoverFallback': 'fb-uuid',
+                },
+                topTracks: const <Song>[],
+                albums: const <Map<String, dynamic>>[],
+                singlesAndEPs: const <Map<String, dynamic>>[],
+                compilations: const <Map<String, dynamic>>[],
+              ),
+            ),
+            tidalArtistBioProvider(artistId).overrideWith((ref) async => null),
+            tidalFavoriteArtistIdsProvider.overrideWith(
+              (ref) async => <String>{},
+            ),
+          ],
+          child: const MaterialApp(home: TidalArtistScreen(artistId: artistId)),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final fallbackUrl = TidalService.coverUrl('fb-uuid', size: 640);
+      expect(fallbackUrl, isNotEmpty);
+      // The avatar is the only CachedImageWidget inside the ClipOval.
+      final avatar = find.descendant(
+        of: find.byType(ClipOval),
+        matching: find.byType(CachedImageWidget),
+      );
+      expect(avatar, findsOneWidget);
+      expect(tester.widget<CachedImageWidget>(avatar).imagePath, fallbackUrl);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'TidalArtistScreen falls back to the first album cover when no artist image',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const artistId = 'art-1';
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentSongProvider.overrideWith((ref) => null),
+            tidalServerProvider.overrideWith(
+              () => _MockTidalServerNotifier(_serverWithToken()),
+            ),
+            tidalArtistDetailsProvider(artistId).overrideWith(
+              (ref) async => (
+                artist: {'id': artistId, 'name': 'Test Artist'},
+                topTracks: const <Song>[],
+                albums: const [
+                  {'id': 'alb-1', 'title': 'Album One', 'cover': 'abc-cover'},
+                ],
+                singlesAndEPs: const <Map<String, dynamic>>[],
+                compilations: const <Map<String, dynamic>>[],
+              ),
+            ),
+            tidalArtistBioProvider(artistId).overrideWith((ref) async => null),
+            tidalFavoriteArtistIdsProvider.overrideWith(
+              (ref) async => <String>{},
+            ),
+          ],
+          child: const MaterialApp(home: TidalArtistScreen(artistId: artistId)),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final albumCoverUrl = TidalService.coverUrl('abc-cover', size: 640);
+      expect(albumCoverUrl, isNotEmpty);
+      final avatar = find.descendant(
+        of: find.byType(ClipOval),
+        matching: find.byType(CachedImageWidget),
+      );
+      expect(avatar, findsOneWidget);
+      expect(tester.widget<CachedImageWidget>(avatar).imagePath, albumCoverUrl);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('TidalPlaylistScreen shows capsule and About description', (
     tester,

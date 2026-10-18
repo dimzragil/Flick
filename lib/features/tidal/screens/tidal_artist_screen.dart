@@ -185,6 +185,28 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     );
   }
 
+  /// A non-empty string [value], or null for missing/empty data.
+  static String? _nonEmpty(Object? value) =>
+      value is String && value.isNotEmpty ? value : null;
+
+  /// First usable `cover` uuid among an already-fetched release list.
+  static String? _firstReleaseCover(List<Map<String, dynamic>> releases) {
+    for (final release in releases) {
+      final cover = _nonEmpty(release['cover']);
+      if (cover != null) return cover;
+    }
+    return null;
+  }
+
+  /// Builds the avatar CDN url for a cover uuid, mapping empty and
+  /// nil/placeholder uuids (which [TidalService.coverUrl] rejects) to null so
+  /// the placeholder shows instead of a doomed image request.
+  static String? _avatarUrl(String? coverUuid) {
+    if (coverUuid == null || coverUuid.isEmpty) return null;
+    final url = TidalService.coverUrl(coverUuid, size: 640);
+    return url.isEmpty ? null : url;
+  }
+
   @override
   Widget build(BuildContext context) {
     final artistAsync = ref.watch(tidalArtistDetailsProvider(widget.artistId));
@@ -297,12 +319,23 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
         (artist['name'] as String?) ??
         widget.initialArtistData?['name'] ??
         'Unknown Artist';
+    // Avatar source chain, all from already-fetched data (zero extra API
+    // calls, and only the resolved image is ever downloaded):
+    // 1. the artist photo (`picture`);
+    // 2. TIDAL's `selectedAlbumCoverFallback` — an album-cover uuid the
+    //    server fills in for artists without a photo (same payload, served
+    //    by the same CDN at 640x640);
+    // 3. the first cover among the already-fetched releases;
+    // 4. the placeholder (stub artists with neither field nor releases).
     final picture =
-        (artist['picture'] as String?) ??
-        widget.initialArtistData?['picture'] as String?;
-    final pictureUrl = picture != null
-        ? TidalService.coverUrl(picture, size: 640)
-        : null;
+        _nonEmpty(artist['picture']) ??
+        _nonEmpty(widget.initialArtistData?['picture']) ??
+        _nonEmpty(artist['selectedAlbumCoverFallback']) ??
+        _nonEmpty(widget.initialArtistData?['selectedAlbumCoverFallback']) ??
+        _firstReleaseCover(albums) ??
+        _firstReleaseCover(singlesAndEPs) ??
+        _firstReleaseCover(compilations);
+    final pictureUrl = _avatarUrl(picture);
     maybeExtractDominantColor(pictureUrl);
     final avatarSize = context.scaleSize(140);
 
