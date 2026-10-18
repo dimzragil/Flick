@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:flick/features/tidal/screens/tidal_album_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_artist_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_mix_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_playlist_screen.dart';
@@ -506,6 +507,69 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byType(TidalBannerBodySkeleton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TidalArtistScreen shows capsule, bio and top tracks', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const artistId = 'art-1';
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalArtistDetailsProvider(artistId).overrideWith(
+            (ref) async => (
+              artist: {'id': artistId, 'name': 'Test Artist'},
+              topTracks: const [
+                Song(
+                  id: 'tidal_9_1',
+                  title: 'Top One',
+                  artist: 'Test Artist',
+                  duration: Duration(seconds: 200),
+                  fileType: 'flac',
+                ),
+              ],
+              albums: const <Map<String, dynamic>>[],
+              singlesAndEPs: const <Map<String, dynamic>>[],
+              compilations: const <Map<String, dynamic>>[],
+            ),
+          ),
+          tidalArtistBioProvider(
+            artistId,
+          ).overrideWith((ref) async => 'Born in Oslo.'),
+          tidalFavoriteArtistIdsProvider.overrideWith(
+            (ref) async => <String>{},
+          ),
+        ],
+        child: const MaterialApp(home: TidalArtistScreen(artistId: artistId)),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Test Artist'),
+      findsNWidgets(3), // AppBar + header + track subtitle
+    );
+    // Capsule mapping: Follow instead of Favorite, no Queue.
+    expect(find.byTooltip('Follow artist'), findsOneWidget);
+    expect(find.byTooltip('Play'), findsOneWidget);
+    expect(find.byTooltip('Shuffle'), findsOneWidget);
+    expect(find.byTooltip('More'), findsOneWidget);
+    expect(find.byTooltip('Queue'), findsNothing);
+    expect(find.text('About'), findsOneWidget);
+    expect(find.text('Born in Oslo.'), findsOneWidget);
+    expect(find.text('Top One'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
