@@ -11,6 +11,7 @@ import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/services/uac2_service.dart';
+import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/features/player/widgets/audio_visualizer.dart';
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -731,24 +732,17 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     }
 
     if (d != null) {
+      final resamplerName =
+          Uac2PreferencesService.resamplerPreferenceNotifier.value ==
+              ResamplerPreference.sox
+          ? 'SoX'
+          : 'rubato';
+      final resamplerActive = isMixerManaged || d.resamplerActive;
       rows.add(
         _buildRow(
           context,
           label: 'Resampler',
-          value: isMixerManaged
-              ? 'Active (Android Mixer)'
-              : (d.resamplerActive ? 'Active' : 'Inactive'),
-          trailing: (isMixerManaged || d.resamplerActive)
-              ? Icon(
-                  Icons.warning_amber_rounded,
-                  size: 14,
-                  color: Colors.amber.shade400,
-                )
-              : Icon(
-                  Icons.check_circle_rounded,
-                  size: 14,
-                  color: Colors.green.shade400,
-                ),
+          value: resamplerActive ? 'Active ($resamplerName)' : 'Inactive',
         ),
       );
     }
