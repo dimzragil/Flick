@@ -573,6 +573,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('TidalPlaylistScreen shows capsule and About description', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalPlaylistDetailsProvider('pl-1').overrideWith(
+            (ref) async => (
+              playlist: {
+                'uuid': 'pl-1',
+                'title': 'Test Playlist',
+                'description': 'A long playlist description.',
+              },
+              tracks: const <Song>[],
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: TidalPlaylistScreen(playlistId: 'pl-1')),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Playlist'), findsOneWidget);
+    expect(find.text('About this playlist'), findsOneWidget);
+    expect(find.text('A long playlist description.'), findsOneWidget);
+    // Capsule mapping: Play/Shuffle/More only — no Favorite or Queue.
+    expect(find.byTooltip('Play'), findsOneWidget);
+    expect(find.byTooltip('Shuffle'), findsOneWidget);
+    expect(find.byTooltip('More'), findsOneWidget);
+    expect(find.byTooltip('Follow artist'), findsNothing);
+    expect(find.byTooltip('Queue'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   group('NavBarButton.tidal and navigation', () {
     test('NavBarButton.tidal has correct properties', () {
       expect(NavBarButton.tidal.pageIndex, 9);
