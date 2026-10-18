@@ -460,7 +460,9 @@ class PlaybackPositionTracker {
       return bestCandidate;
     }
 
-    if (songId != null && lastSongId == songId && lastPosition > Duration.zero) {
+    if (songId != null &&
+        lastSongId == songId &&
+        lastPosition > Duration.zero) {
       return lastPosition;
     }
 
@@ -491,10 +493,16 @@ class PendingTrackRequestTracker {
   /// True while a track request is waiting for engine confirmation.
   bool get isPending => _songId != null;
 
+  /// Called whenever the pending state changes (mark/confirm/fail/clear).
+  VoidCallback? onChanged;
+
+  void _notify() => onChanged?.call();
+
   /// Publishes [song] as the explicitly requested track. A newer request
   /// replaces any previous pending one.
   void mark(Song song) {
     _songId = song.id;
+    _notify();
   }
 
   /// Whether [engineTrack] is a stale report from before the requested track
@@ -509,6 +517,7 @@ class PendingTrackRequestTracker {
     final pendingId = _songId;
     if (pendingId != null && engineTrack?.id == pendingId) {
       _songId = null;
+      _notify();
     }
   }
 
@@ -517,6 +526,7 @@ class PendingTrackRequestTracker {
   void fail(Song song) {
     if (_songId == song.id) {
       _songId = null;
+      _notify();
     }
   }
 
@@ -537,7 +547,10 @@ class PendingTrackRequestTracker {
   }
 
   void clear() {
-    _songId = null;
+    if (_songId != null) {
+      _songId = null;
+      _notify();
+    }
   }
 }
 
@@ -644,9 +657,16 @@ class PlayerService {
       onSwitchEngine: _handleEngineSwitch,
       isPlaybackActive: () => isPlayingNotifier.value,
     );
+    // Mirror the pending-track state to the loading notifier for the UI.
+    _pendingTrackRequest.onChanged = () {
+      isTrackLoadingNotifier.value = _pendingTrackRequest.isPending;
+    };
     if (Platform.isAndroid) {
-      _lastEvaluatedAudioRouteSignature =
-          AndroidAudioDeviceService.instance.deviceInfoNotifier.value.routeSummary;
+      _lastEvaluatedAudioRouteSignature = AndroidAudioDeviceService
+          .instance
+          .deviceInfoNotifier
+          .value
+          .routeSummary;
     }
     _bindPlaybackState();
     _init();
@@ -843,6 +863,10 @@ class PlayerService {
   /// overwrite [currentSongNotifier] (see [PendingTrackRequestTracker]).
   final PendingTrackRequestTracker _pendingTrackRequest =
       PendingTrackRequestTracker();
+
+  /// True while a newly requested track is loading (engine hasn't confirmed
+  /// it yet). Drives the loading ring around the play/pause button.
+  final ValueNotifier<bool> isTrackLoadingNotifier = ValueNotifier(false);
 
   String? _restoredSongId;
   Duration _restoredPosition = Duration.zero;
@@ -1629,8 +1653,8 @@ class PlayerService {
           targetPosition: capturedPosition > Duration.zero
               ? capturedPosition
               : (positionNotifier.value > Duration.zero
-                  ? positionNotifier.value
-                  : null),
+                    ? positionNotifier.value
+                    : null),
         );
       } catch (e, stack) {
         _debugLog('[Playback] Rearm speaker sink failed: $e\n$stack');
@@ -2227,8 +2251,11 @@ class PlayerService {
 
       _playbackManager.publishIdleState(_sessionManager.selectedMode);
       if (Platform.isAndroid) {
-        _lastEvaluatedAudioRouteSignature ??=
-            AndroidAudioDeviceService.instance.deviceInfoNotifier.value.routeSummary;
+        _lastEvaluatedAudioRouteSignature ??= AndroidAudioDeviceService
+            .instance
+            .deviceInfoNotifier
+            .value
+            .routeSummary;
       }
       _audioInitialized = true;
       await _refreshAudioOutputDiagnostics(reason: 'audio initialized');
@@ -3983,10 +4010,8 @@ class PlayerService {
       _playbackErrorRecoveryInFlight = false;
       _debugLog('[Playback] error recovery failed; advancing to next track');
       return _enqueuePlaybackRequest(
-        () => _nextInternal(
-          generation: failedGen,
-          targetAlreadySelected: false,
-        ),
+        () =>
+            _nextInternal(generation: failedGen, targetAlreadySelected: false),
         label: 'playbackErrorAdvance',
       );
     }
@@ -4004,7 +4029,10 @@ class PlayerService {
   /// [_onPlaybackError] again (which flips the in-flight flag off and
   /// queues the advance) or as a load exception, both of which end in a
   /// single advance — never another retry.
-  Future<void> _retryFailedTrackOnce(int failedGen, String? failedSongId) async {
+  Future<void> _retryFailedTrackOnce(
+    int failedGen,
+    String? failedSongId,
+  ) async {
     // The user moved on while the retry was queued: don't restart the new
     // (healthy) track from 0.
     if (failedGen != _playbackGeneration ||
@@ -5142,7 +5170,6 @@ class PlayerService {
   @visibleForTesting
   PlaybackPositionTracker get positionTrackerForTesting => _positionTracker;
 
-
   Future<AudioEngineType> _normalizeRequestedEngine(
     AudioEngineType desiredEngine, {
     required String reason,
@@ -6275,10 +6302,7 @@ class PlayerService {
     // Serialized with load/play ops: a seek racing an in-flight load could
     // otherwise be applied to the old track or overwritten when the load
     // completes.
-    return _enqueuePlaybackRequest(
-      () => _performSeek(position),
-      label: 'seek',
-    );
+    return _enqueuePlaybackRequest(() => _performSeek(position), label: 'seek');
   }
 
   /// The actual seek work, without queueing. Called from the queued [seek]
@@ -7366,6 +7390,11 @@ class PlayerService {
     }
 
     if (_desyncDetectionTimer != null) return;
+
+    // A pending track request means the UI eagerly shows the new song while
+    // the engine is still loading it — the mismatch is expected, not a desync.
+    // Don't start the timer until the engine confirms (or the request fails).
+    if (_pendingTrackRequest.isPending) return;
 
     _desyncDetectionTimer = Timer(_desyncThreshold, () {
       if (_engineCurrentTrack != null &&

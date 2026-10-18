@@ -22,7 +22,8 @@ class PlayerControls extends StatelessWidget {
   final Color? albumColor;
   final bool showTimeLabels;
 
-  const PlayerControls({super.key,
+  const PlayerControls({
+    super.key,
     required this.playerService,
     required this.formatDuration,
     required this.currentSong,
@@ -77,8 +78,7 @@ class PlayerControls extends StatelessWidget {
                                   position: position,
                                   duration: duration,
                                   formatDuration: formatDuration,
-                                  horizontalPadding:
-                                      timelineHorizontalPadding,
+                                  horizontalPadding: timelineHorizontalPadding,
                                 ),
                                 const SizedBox(height: 12),
                               ],
@@ -275,7 +275,8 @@ class PlaybackTimeLabels extends StatelessWidget {
   final String Function(Duration) formatDuration;
   final double horizontalPadding;
 
-  const PlaybackTimeLabels({super.key,
+  const PlaybackTimeLabels({
+    super.key,
     required this.position,
     required this.duration,
     required this.formatDuration,
@@ -345,36 +346,57 @@ class _PlayPauseButton extends StatelessWidget {
           final buttonSize = context.responsive(58.0, 64.0, 68.0);
           final iconSize = context.responsive(26.0, 28.0, 30.0);
 
-          return Container(
-            width: buttonSize,
-            height: buttonSize,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: buttonSurface.withValues(alpha: 0.6),
-              boxShadow: [
-                BoxShadow(
-                  color: glowColor.withValues(alpha: 0.4),
-                  blurRadius: context.responsive(14.0, 18.0, 22.0),
-                  offset: Offset(0, context.responsive(5.0, 6.0, 7.0)),
-                ),
-              ],
-            ),
-            child: IconButton(
-              onPressed: () {
-                AppHaptics.tap();
-                playerService.togglePlayPause();
-              },
-              iconSize: iconSize,
-              padding: EdgeInsets.zero,
-              icon: Icon(
-                isPlaying ? LucideIcons.pause : LucideIcons.play,
-                color: Colors.white,
-              ),
-            ),
+          return ValueListenableBuilder<bool>(
+            valueListenable: playerService.isTrackLoadingNotifier,
+            builder: (context, isLoading, _) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Loading ring around the button border while a new track loads.
+                  if (isLoading)
+                    SizedBox(
+                      width: buttonSize + 8,
+                      height: buttonSize + 8,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        // Use the glow color (album-tinted when available)
+                        // for a personalized loading ring.
+                        valueColor: AlwaysStoppedAnimation<Color>(glowColor),
+                      ),
+                    ),
+                  Container(
+                    width: buttonSize,
+                    height: buttonSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: buttonSurface.withValues(alpha: 0.6),
+                      boxShadow: [
+                        BoxShadow(
+                          color: glowColor.withValues(alpha: 0.4),
+                          blurRadius: context.responsive(14.0, 18.0, 22.0),
+                          offset: Offset(0, context.responsive(5.0, 6.0, 7.0)),
+                        ),
+                      ],
+                    ),
+                    child: IconButton(
+                      onPressed: () {
+                        AppHaptics.tap();
+                        playerService.togglePlayPause();
+                      },
+                      iconSize: iconSize,
+                      padding: EdgeInsets.zero,
+                      icon: Icon(
+                        isPlaying ? LucideIcons.pause : LucideIcons.play,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
     );
   }
 }
-
