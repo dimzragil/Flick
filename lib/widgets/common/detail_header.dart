@@ -6,6 +6,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/adaptive_colors.dart';
 import 'package:flick/core/theme/app_colors.dart';
+import 'package:flick/features/tidal/widgets/press_scale.dart';
 
 /// Shared detail-screen header: full-bleed art fading into the page
 /// background at the bottom, with the title block overlaid on the gradient.
@@ -137,35 +138,35 @@ class DetailHeader extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
-                if (meta != null || lossless) ...[
-                  const SizedBox(height: 4),
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        if (meta != null) TextSpan(text: meta),
-                        if (meta != null && lossless)
-                          const TextSpan(text: ' · '),
-                        if (lossless) ...[
-                          WidgetSpan(
-                            alignment: PlaceholderAlignment.middle,
-                            child: Icon(
-                              LucideIcons.audioWaveform,
-                              size: 14,
-                              color: context.adaptiveTextSecondary,
+                  if (meta != null || lossless) ...[
+                    const SizedBox(height: 4),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          if (meta != null) TextSpan(text: meta),
+                          if (meta != null && lossless)
+                            const TextSpan(text: ' · '),
+                          if (lossless) ...[
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Icon(
+                                LucideIcons.audioWaveform,
+                                size: 14,
+                                color: context.adaptiveTextSecondary,
+                              ),
                             ),
-                          ),
-                          const TextSpan(text: ' Lossless'),
+                            const TextSpan(text: ' Lossless'),
+                          ],
                         ],
-                      ],
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
+                      textAlign: textAlign,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: context.adaptiveTextTertiary,
-                    ),
-                    textAlign: textAlign,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  ],
                 ],
               ),
             ),
@@ -179,14 +180,25 @@ class DetailHeader extends StatelessWidget {
 /// Sliced action capsule for detail screens: one pill split into
 /// favorite / shuffle / play / queue / more segments on the
 /// dominant-color gradient.
+///
+/// Segments can be omitted by passing a null callback — the TIDAL screens
+/// drop Queue (artist/playlist) and Favorite (playlist) where they don't
+/// apply. The first segment can also be repurposed (e.g. "Follow artist"
+/// on TIDAL artist screens) through the `toggle*` overrides.
 class DetailActionCapsule extends StatelessWidget {
   final bool isFavorite;
-  final VoidCallback onToggleFavorite;
+  final VoidCallback? onToggleFavorite;
   final VoidCallback onShuffle;
   final VoidCallback onPlay;
-  final VoidCallback onQueue;
+  final VoidCallback? onQueue;
   final VoidCallback onMore;
   final Color? primaryColor;
+
+  /// Optional icon/tooltip overrides for the first (toggle) segment.
+  final IconData? toggleActiveIcon;
+  final IconData? toggleInactiveIcon;
+  final String? toggleActiveTooltip;
+  final String? toggleInactiveTooltip;
 
   const DetailActionCapsule({
     super.key,
@@ -197,6 +209,10 @@ class DetailActionCapsule extends StatelessWidget {
     required this.onQueue,
     required this.onMore,
     this.primaryColor,
+    this.toggleActiveIcon,
+    this.toggleInactiveIcon,
+    this.toggleActiveTooltip,
+    this.toggleInactiveTooltip,
   });
 
   @override
@@ -210,23 +226,63 @@ class DetailActionCapsule extends StatelessWidget {
       required Widget child,
       required VoidCallback onTap,
     }) {
+      // PressScale adds the transform-only press feedback shared with the
+      // TIDAL detail screens; the inner InkWell still drives the ripple.
       return Expanded(
-        child: InkWell(
-          onTap: onTap,
-          child: Center(
-            child: Tooltip(message: tooltip, child: child),
+        child: PressScale(
+          child: InkWell(
+            onTap: onTap,
+            child: Center(
+              child: Tooltip(message: tooltip, child: child),
+            ),
           ),
         ),
       );
     }
 
     Widget slice() {
-      return SizedBox(
-        width: 1,
-        height: 26,
-        child: ColoredBox(color: divider),
-      );
+      return SizedBox(width: 1, height: 26, child: ColoredBox(color: divider));
     }
+
+    final toggle = onToggleFavorite;
+    final queue = onQueue;
+    final segments = <Widget>[
+      if (toggle != null)
+        segment(
+          tooltip: isFavorite
+              ? (toggleActiveTooltip ?? 'Remove from favorites')
+              : (toggleInactiveTooltip ?? 'Favorite all'),
+          child: Icon(
+            isFavorite
+                ? (toggleActiveIcon ?? Icons.favorite_rounded)
+                : (toggleInactiveIcon ?? Icons.favorite_border),
+            color: fg,
+            size: 21,
+          ),
+          onTap: toggle,
+        ),
+      segment(
+        tooltip: 'Shuffle',
+        child: Icon(LucideIcons.shuffle, color: fg, size: 21),
+        onTap: onShuffle,
+      ),
+      segment(
+        tooltip: 'Play',
+        child: Icon(LucideIcons.play, color: fg, size: 24),
+        onTap: onPlay,
+      ),
+      if (queue != null)
+        segment(
+          tooltip: 'Queue',
+          child: Icon(LucideIcons.listMusic, color: fg, size: 21),
+          onTap: queue,
+        ),
+      segment(
+        tooltip: 'More',
+        child: Icon(LucideIcons.ellipsisVertical, color: fg, size: 21),
+        onTap: onMore,
+      ),
+    ];
 
     return Container(
       height: 56,
@@ -253,43 +309,10 @@ class DetailActionCapsule extends StatelessWidget {
           ),
           child: Row(
             children: [
-              segment(
-                tooltip: isFavorite ? 'Remove from favorites' : 'Favorite all',
-                child: Icon(
-                  isFavorite ? Icons.favorite_rounded : Icons.favorite_border,
-                  color: fg,
-                  size: 21,
-                ),
-                onTap: onToggleFavorite,
-              ),
-              slice(),
-              segment(
-                tooltip: 'Shuffle',
-                child: Icon(LucideIcons.shuffle, color: fg, size: 21),
-                onTap: onShuffle,
-              ),
-              slice(),
-              segment(
-                tooltip: 'Play',
-                child: Icon(LucideIcons.play, color: fg, size: 24),
-                onTap: onPlay,
-              ),
-              slice(),
-              segment(
-                tooltip: 'Queue',
-                child: Icon(LucideIcons.listMusic, color: fg, size: 21),
-                onTap: onQueue,
-              ),
-              slice(),
-              segment(
-                tooltip: 'More',
-                child: Icon(
-                  LucideIcons.ellipsisVertical,
-                  color: fg,
-                  size: 21,
-                ),
-                onTap: onMore,
-              ),
+              for (var i = 0; i < segments.length; i++) ...[
+                if (i > 0) slice(),
+                segments[i],
+              ],
             ],
           ),
         ),

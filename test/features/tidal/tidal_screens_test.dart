@@ -216,8 +216,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Test Album Title'), findsNWidgets(2)); // AppBar + Header
-    expect(find.text('Play All'), findsOneWidget);
-    expect(find.text('Shuffle'), findsOneWidget);
+    // Unified action capsule replaces the old text buttons.
+    expect(find.byTooltip('Play'), findsOneWidget);
+    expect(find.byTooltip('Shuffle'), findsOneWidget);
+    expect(find.byTooltip('Queue'), findsOneWidget);
+    expect(find.byTooltip('More'), findsOneWidget);
     expect(find.text('Track One'), findsOneWidget);
     expect(find.text('Track Two'), findsOneWidget);
     expect(find.text('HI-RES LOSSLESS 24-BIT'), findsOneWidget);

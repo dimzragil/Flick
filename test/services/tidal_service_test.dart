@@ -1522,4 +1522,202 @@ void main() {
       );
     });
   });
+
+  group('getArtistBio', () {
+    test('parses biography text from the included resource', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v2/artists/1234');
+        expect(request.url.queryParameters['include'], 'biography');
+        expect(request.url.queryParameters['countryCode'], 'NO');
+        expect(request.headers['Authorization'], 'Bearer acc-xyz');
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'id': '1234',
+              'type': 'artists',
+              'relationships': {
+                'biography': {
+                  'data': {'id': 'bio-1', 'type': 'artistBiographies'},
+                },
+              },
+            },
+            'included': [
+              {
+                'id': 'bio-1',
+                'type': 'artistBiographies',
+                'attributes': {'source': 'TiVo', 'text': '  Born in Oslo.  '},
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+
+      final bio = await service.getArtistBio(
+        _server(token: _validToken()),
+        '1234',
+      );
+
+      expect(bio, 'Born in Oslo.');
+    });
+
+    test('accepts a to-many biography relationship (list ref)', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'data': {
+              'id': '1234',
+              'type': 'artists',
+              'relationships': {
+                'biography': {
+                  'data': [
+                    {'id': 'bio-1', 'type': 'artistBiographies'},
+                  ],
+                },
+              },
+            },
+            'included': [
+              {
+                'id': 'bio-1',
+                'type': 'artistBiographies',
+                'attributes': {'text': 'List-shaped bio'},
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+      final service = TidalService.create(client: client);
+
+      final bio = await service.getArtistBio(
+        _server(token: _validToken()),
+        '1234',
+      );
+
+      expect(bio, 'List-shaped bio');
+    });
+
+    test('returns null when the artist has no biography', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'data': {'id': '1234', 'type': 'artists', 'relationships': {}},
+          }),
+          200,
+        ),
+      );
+      final service = TidalService.create(client: client);
+
+      expect(
+        await service.getArtistBio(_server(token: _validToken()), '1234'),
+        isNull,
+      );
+    });
+
+    test('returns null instead of throwing on HTTP failure', () async {
+      final client = MockClient(
+        (request) async => http.Response('{"errors": []}', 404),
+      );
+      final service = TidalService.create(client: client);
+
+      expect(
+        await service.getArtistBio(_server(token: _validToken()), '9999'),
+        isNull,
+      );
+    });
+  });
+
+  group('favorite artists', () {
+    test('collects ids across paginated favorites', () async {
+      final requestedOffsets = <String?>[];
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/users/user-1/favorites/artists');
+        final offset = request.url.queryParameters['offset'];
+        requestedOffsets.add(offset);
+        final items = offset == '0'
+            ? List.generate(
+                100,
+                (i) => {
+                  'item': {'id': 'a$i'},
+                },
+              )
+            : [
+                {
+                  'item': {'id': 'b1'},
+                },
+              ];
+        return http.Response(jsonEncode({'items': items}), 200);
+      });
+      final service = TidalService.create(client: client);
+
+      final ids = await service.getFavoriteArtistIds(
+        _server(token: _validToken()),
+      );
+
+      expect(ids.length, 101);
+      expect(ids, contains('a0'));
+      expect(ids, contains('b1'));
+      expect(requestedOffsets, ['0', '100']);
+    });
+
+    test('addFavoriteArtist posts the artistId form field', () async {
+      late http.Request captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response('', 201);
+      });
+      final service = TidalService.create(client: client);
+
+      await service.addFavoriteArtist(_server(token: _validToken()), '42');
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, '/v1/users/user-1/favorites/artists');
+      expect(captured.url.queryParameters['countryCode'], 'NO');
+      expect(captured.headers['Authorization'], 'Bearer acc-xyz');
+      expect(captured.body, 'artistId=42');
+    });
+
+    test('removeFavoriteArtist deletes the favorite relationship', () async {
+      late http.Request captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response('', 204);
+      });
+      final service = TidalService.create(client: client);
+
+      await service.removeFavoriteArtist(_server(token: _validToken()), '42');
+
+      expect(captured.method, 'DELETE');
+      expect(captured.url.path, '/v1/users/user-1/favorites/artists/42');
+      expect(captured.url.queryParameters['countryCode'], 'NO');
+    });
+
+    test('addFavoriteArtist throws TidalException on HTTP failure', () async {
+      final client = MockClient(
+        (request) async => http.Response('{"status":403}', 403),
+      );
+      final service = TidalService.create(client: client);
+
+      await expectLater(
+        service.addFavoriteArtist(_server(token: _validToken()), '42'),
+        throwsA(isA<TidalException>()),
+      );
+    });
+
+    test(
+      'favorite-artist calls are no-ops without a signed-in account',
+      () async {
+        final client = MockClient(
+          (request) async => fail('no HTTP expected for a tokenless server'),
+        );
+        final service = TidalService.create(client: client);
+        final server = _server();
+
+        expect(await service.getFavoriteArtistIds(server), isEmpty);
+        await service.addFavoriteArtist(server, '42');
+        await service.removeFavoriteArtist(server, '42');
+      },
+    );
+  });
 }

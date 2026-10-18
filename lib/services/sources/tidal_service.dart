@@ -2101,6 +2101,55 @@ class TidalService implements NetworkSourceService {
     return _apiGet(server, '/artists/$artistId');
   }
 
+  /// Fetch an artist's biography text, or null when the artist has none.
+  ///
+  /// The v1 artist object carries no bio; the v2 API exposes it through the
+  /// `biography` relationship. `include=biography` expands it into the
+  /// `included` array (resource type `artistBiographies`) so a single request
+  /// is enough. Biography text is decorative — every failure mode (missing
+  /// relationship, HTTP error, malformed payload) resolves to null instead of
+  /// throwing, and the caller simply skips the section.
+  Future<String?> getArtistBio(
+    NetworkServerEntity server,
+    String artistId,
+  ) async {
+    try {
+      final raw = await _apiV2GetRaw(
+        server,
+        '/artists/$artistId',
+        query: {'include': 'biography'},
+      );
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final data = decoded['data'];
+      final relationships = data is Map ? data['relationships'] : null;
+      final biography = relationships is Map
+          ? relationships['biography']
+          : null;
+      final referenceRaw = biography is Map ? biography['data'] : null;
+      final reference = referenceRaw is List
+          ? (referenceRaw.isEmpty ? null : referenceRaw.first)
+          : referenceRaw;
+      final bioId = reference is Map ? reference['id']?.toString() : null;
+
+      final included = decoded['included'];
+      if (bioId == null || included is! List) return null;
+      for (final resource in included) {
+        if (resource is! Map || resource['id']?.toString() != bioId) continue;
+        final attributes = resource['attributes'];
+        final text = attributes is Map
+            ? attributes['text']?.toString().trim()
+            : null;
+        if (text != null && text.isNotEmpty) return text;
+      }
+      return null;
+    } catch (e) {
+      devLog('[Tidal] getArtistBio($artistId) failed: $e');
+      return null;
+    }
+  }
+
   /// Get albums for a specific artist by [artistId].
   ///
   /// Pass [filter] to narrow results:
@@ -2897,6 +2946,83 @@ class TidalService implements NetworkSourceService {
       throw TidalException(
         'Failed to remove from TIDAL favorites: HTTP ${res.statusCode}',
       );
+    }
+  }
+
+  /// Get the set of favorite artist IDs in the user's TIDAL account.
+  ///
+  /// Mirrors [getFavoriteTrackIds]: paginated, capped, and returning the IDs
+  /// collected so far on error so the UI can fall back to "not followed"
+  /// instead of breaking.
+  Future<Set<String>> getFavoriteArtistIds(NetworkServerEntity server) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return {};
+    const pageSize = 100;
+    const maxArtists = 5000;
+    final ids = <String>{};
+    var offset = 0;
+    try {
+      while (offset < maxArtists) {
+        final res = await _apiGet(
+          server,
+          '/users/$userId/favorites/artists',
+          query: {'limit': '$pageSize', 'offset': '$offset'},
+        );
+        final items = res['items'] as List<dynamic>?;
+        if (items == null || items.isEmpty) break;
+        for (final it in items) {
+          if (it is Map<String, dynamic>) {
+            final item = it['item'] as Map<String, dynamic>?;
+            final id = item?['id']?.toString() ?? it['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              ids.add(id);
+            }
+          }
+        }
+        if (items.length < pageSize) break;
+        offset += pageSize;
+      }
+      return ids;
+    } catch (e) {
+      devLog('[Tidal] getFavoriteArtistIds error: $e');
+      return ids;
+    }
+  }
+
+  /// Follow an artist (add to the account's TIDAL favorites).
+  Future<void> addFavoriteArtist(
+    NetworkServerEntity server,
+    String artistId,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/artists';
+    final res = await _apiAuthPostForm(server, url, {'artistId': artistId});
+    if (res.statusCode >= 400) {
+      devLog(
+        '[Tidal] addFavoriteArtist failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException('Failed to follow artist: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Unfollow an artist (remove from the account's TIDAL favorites).
+  Future<void> removeFavoriteArtist(
+    NetworkServerEntity server,
+    String artistId,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/artists/$artistId';
+    final res = await _apiAuthDelete(server, url);
+    if (res.statusCode >= 400) {
+      devLog(
+        '[Tidal] removeFavoriteArtist failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException('Failed to unfollow artist: HTTP ${res.statusCode}');
     }
   }
 

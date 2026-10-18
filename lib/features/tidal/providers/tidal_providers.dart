@@ -94,6 +94,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
     // New account — drop stale optimistic favorite adjustments.
     ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
     ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
+    ref.read(tidalFavoriteArtistIdsOptimisticProvider.notifier).clear();
 
     state = AsyncValue.data(server);
     return server;
@@ -111,6 +112,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
       // Drop optimistic adjustments so they can't leak into another account.
       ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
       ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
+      ref.read(tidalFavoriteArtistIdsOptimisticProvider.notifier).clear();
       state = AsyncValue.data(server);
     }
   }
@@ -383,6 +385,34 @@ final tidalArtistDetailsProvider =
       );
     });
 
+/// Fetches an artist's albums for the "More from `artist`" rail on the TIDAL
+/// album screen. The rail filters out the album being viewed.
+final tidalArtistAlbumsProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>((
+      ref,
+      artistId,
+    ) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null) {
+        throw StateError('Tidal server not found');
+      }
+      final tidal = ref.read(tidalServiceProvider);
+      return tidal.getArtistAlbums(server, artistId, limit: 10);
+    });
+
+/// Fetches an artist's biography text (TIDAL v2), or null when unavailable.
+///
+/// The bio is decorative, so a missing biography or any transport failure
+/// resolves to null and the screen simply skips the section.
+final tidalArtistBioProvider = FutureProvider.family<String?, String>((
+  ref,
+  artistId,
+) async {
+  final server = await ref.watch(tidalServerProvider.future);
+  if (server == null) return null;
+  return ref.read(tidalServiceProvider).getArtistBio(server, artistId);
+});
+
 /// Fetches the official TIDAL home feed for a given vibe/category slug (e.g. 'static', 'relax', 'workout').
 final tidalHomeFeedProvider = FutureProvider.family<TidalHomeFeed, String>((
   ref,
@@ -515,6 +545,76 @@ final tidalLikedSongsOptimisticProvider =
       TidalLikedSongsOptimisticNotifier,
       ({List<Song> added, Set<String> removed})
     >(TidalLikedSongsOptimisticNotifier.new);
+
+/// Local optimistic adjustments to TIDAL favorite artist IDs (followed and
+/// unfollowed artists), mirroring the track-favorites pattern so the Follow
+/// capsule reacts instantly while the network call runs in the background.
+class TidalFavoriteArtistIdsOptimisticNotifier
+    extends Notifier<({Set<String> added, Set<String> removed})> {
+  @override
+  ({Set<String> added, Set<String> removed}) build() =>
+      (added: const <String>{}, removed: const <String>{});
+
+  void add(String id) {
+    state = (
+      added: {...state.added, id},
+      removed: state.removed.where((x) => x != id).toSet(),
+    );
+  }
+
+  void remove(String id) {
+    state = (
+      added: state.added.where((x) => x != id).toSet(),
+      removed: {...state.removed, id},
+    );
+  }
+
+  /// Clears all optimistic adjustments (e.g. on sign-out / account switch).
+  void clear() {
+    state = (added: const <String>{}, removed: const <String>{});
+  }
+}
+
+final tidalFavoriteArtistIdsOptimisticProvider =
+    NotifierProvider<
+      TidalFavoriteArtistIdsOptimisticNotifier,
+      ({Set<String> added, Set<String> removed})
+    >(TidalFavoriteArtistIdsOptimisticNotifier.new);
+
+/// Fetches the set of followed (favorite) artist IDs for the authenticated
+/// TIDAL account, merged with local optimistic additions and removals for
+/// real-time updates.
+final tidalFavoriteArtistIdsProvider = FutureProvider<Set<String>>((ref) async {
+  final server = await ref.watch(tidalServerProvider.future);
+  if (server == null || server.token == null || server.token!.isEmpty) {
+    return const <String>{};
+  }
+  final tidal = ref.read(tidalServiceProvider);
+  final remoteIds = await tidal.getFavoriteArtistIds(server);
+
+  final optimistic = ref.watch(tidalFavoriteArtistIdsOptimisticProvider);
+  if (optimistic.added.isEmpty && optimistic.removed.isEmpty) {
+    return remoteIds;
+  }
+
+  final result = Set<String>.from(remoteIds);
+  result.addAll(optimistic.added);
+  result.removeAll(optimistic.removed);
+  return result;
+});
+
+/// Whether the given TIDAL artist is followed by the account, including
+/// optimistic adjustments.
+final tidalArtistFollowedProvider = Provider.autoDispose.family<bool, String>((
+  ref,
+  artistId,
+) {
+  final optimistic = ref.watch(tidalFavoriteArtistIdsOptimisticProvider);
+  if (optimistic.added.contains(artistId)) return true;
+  if (optimistic.removed.contains(artistId)) return false;
+  return ref.watch(tidalFavoriteArtistIdsProvider).value?.contains(artistId) ??
+      false;
+});
 
 /// Fetches the full TIDAL "Liked Songs" collection (favorite tracks with
 /// metadata) for the authenticated account, merged with local optimistic updates
