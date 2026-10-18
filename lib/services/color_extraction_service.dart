@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/utils/dev_log.dart';
-import 'package:flick/services/image_cache_policy.dart';
 
 /// Service to extract dominant colors from images for adaptive theming.
 ///
@@ -42,9 +42,9 @@ class ColorExtractionService {
 
   /// Extracts the dominant/average color from an image file or remote URL.
   ///
-  /// Remote (http/https) images are resolved through the shared cover disk
-  /// cache ([coverImageCacheManager]): a cache hit is used directly, otherwise
-  /// the image is downloaded once. This lets network-sourced artwork (e.g.
+  /// Remote (http/https) images are resolved through the shared disk cache
+  /// ([DefaultCacheManager]): a cache hit is used directly, otherwise the
+  /// image is downloaded once. This lets network-sourced artwork (e.g.
   /// TIDAL covers) participate in adaptive theming just like local files.
   ///
   /// Returns null if extraction fails, the file doesn't exist, or the
@@ -102,17 +102,18 @@ class ColorExtractionService {
 
   /// Resolves [imagePath] to a local file path.
   ///
-  /// Plain file paths are returned as-is. Remote URLs go through the shared
-  /// [coverImageCacheManager]: the disk-cached file is preferred so no network
+  /// Plain file paths are returned as-is. Remote URLs go through
+  /// [DefaultCacheManager]: the disk-cached file is preferred so no network
   /// fetch happens when the image was already loaded elsewhere in the app
   /// (e.g. by [CachedImageWidget]); otherwise it is downloaded once.
   /// Returns null when the path can't be resolved to a readable file.
   Future<String?> _resolveLocalPath(String imagePath) async {
-    if (!imagePath.startsWith('http://') && !imagePath.startsWith('https://')) {
+    if (!imagePath.startsWith('http://') &&
+        !imagePath.startsWith('https://')) {
       return imagePath;
     }
     try {
-      final cacheManager = coverImageCacheManager;
+      final cacheManager = DefaultCacheManager();
       final cached = await cacheManager.getFileFromCache(imagePath);
       if (cached != null && await cached.file.exists()) {
         return cached.file.path;

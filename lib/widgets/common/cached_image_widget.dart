@@ -8,7 +8,6 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/services/artwork_gate.dart';
-import 'package:flick/services/image_cache_policy.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 
@@ -82,43 +81,6 @@ class CachedImageWidget extends StatefulWidget {
     return defaultPlaceholder();
   }
 
-  /// Test hooks for the module-level lookup caches that keep fast-scroll
-  /// path checks and failed-URL retries flat.
-  @visibleForTesting
-  static int get knownExistingPathsCount =>
-      _CachedImageWidgetState._knownExistingPaths.length;
-
-  @visibleForTesting
-  static int get knownMissingPathsCount =>
-      _CachedImageWidgetState._knownMissingPaths.length;
-
-  @visibleForTesting
-  static int get knownBadUrlsCount =>
-      _CachedImageWidgetState._knownBadUrls.length;
-
-  @visibleForTesting
-  static int get pathCacheMaxEntries =>
-      _CachedImageWidgetState._pathCacheMaxEntries;
-
-  @visibleForTesting
-  static int get negativeCacheMaxEntries =>
-      _CachedImageWidgetState._negativeCacheMaxEntries;
-
-  @visibleForTesting
-  static void clearPathCachesForTesting() {
-    _CachedImageWidgetState._knownExistingPaths.clear();
-    _CachedImageWidgetState._knownMissingPaths.clear();
-    _CachedImageWidgetState._knownBadUrls.clear();
-  }
-
-  @visibleForTesting
-  static String? resolveUsablePathForTesting(String? path) =>
-      _CachedImageWidgetState._usablePath(path);
-
-  @visibleForTesting
-  static void markBadUrlForTesting(String url) =>
-      _CachedImageWidgetState._markBadUrl(url);
-
   @override
   State<CachedImageWidget> createState() => _CachedImageWidgetState();
 }
@@ -138,45 +100,9 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   static final Map<String, int> _knownBadUrls = {};
   static const int _badUrlTtlMs = 30000; // 30 seconds
 
-  // Entries above are tiny (a path string plus an int), but growth is
-  // unbounded: every local song path ever rendered plus every TIDAL cover URL
-  // ever attempted stays for the process lifetime. FIFO caps keep the
-  // fast-path lookups flat without changing their semantics — evicted paths
-  // are simply re-checked against the filesystem/network once more.
-  static const int _pathCacheMaxEntries = 4096;
-  static const int _negativeCacheMaxEntries = 2048;
-
   /// Records a network URL that failed to load so it isn't retried until TTL.
   static void _markBadUrl(String url) {
-    _rememberEntry(
-      _knownBadUrls,
-      url,
-      DateTime.now().millisecondsSinceEpoch,
-      _negativeCacheMaxEntries,
-    );
-  }
-
-  /// Records a path whose file was confirmed on disk.
-  static void _rememberExistingPath(String path) {
-    _knownExistingPaths.add(path);
-    while (_knownExistingPaths.length > _pathCacheMaxEntries) {
-      _knownExistingPaths.remove(_knownExistingPaths.first);
-    }
-  }
-
-  /// Adds [key] to a FIFO-bounded lookup map, re-inserting on re-add so the
-  /// oldest *unused* entry is evicted first.
-  static void _rememberEntry(
-    Map<String, int> cache,
-    String key,
-    int value,
-    int maxEntries,
-  ) {
-    cache.remove(key);
-    cache[key] = value;
-    while (cache.length > maxEntries) {
-      cache.remove(cache.keys.first);
-    }
+    _knownBadUrls[url] = DateTime.now().millisecondsSinceEpoch;
   }
 
   /// True if [url] failed recently and is still within the negative-cache TTL.
@@ -311,7 +237,7 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     return _defaultMemCacheSize;
   }
 
-  static String? _usablePath(String? path) {
+  String? _usablePath(String? path) {
     if (path == null || path.isEmpty) {
       return null;
     }
@@ -371,18 +297,13 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
 
     try {
       if (File(cleanPath).existsSync()) {
-        _rememberExistingPath(cleanPath);
+        _knownExistingPaths.add(cleanPath);
         _knownMissingPaths.remove(cleanPath);
         return cleanPath;
       }
     } catch (_) {}
 
-    _rememberEntry(
-      _knownMissingPaths,
-      cleanPath,
-      now,
-      _negativeCacheMaxEntries,
-    );
+    _knownMissingPaths[cleanPath] = now;
     return null;
   }
 
@@ -471,10 +392,6 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
     );
     return CachedNetworkImage(
       imageUrl: imagePath,
-      // App-wide cover cache (1000 objects) instead of the 200-object
-      // DefaultCacheManager, which the TIDAL screens outgrow within a couple
-      // of screens and then re-download covers on every revisit.
-      cacheManager: coverImageCacheManager,
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
@@ -508,7 +425,7 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
 
 /// Helper class for preloading images
 class ImagePreloader {
-  static final BaseCacheManager _cacheManager = coverImageCacheManager;
+  static final DefaultCacheManager _cacheManager = DefaultCacheManager();
 
   static Future<void> preloadFile(
     String filePath,

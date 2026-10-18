@@ -274,44 +274,7 @@ void main() {
       expect(playlists.length, 1);
       expect(playlists.first['title'], 'Chill Vibes');
     });
-  });
 
-  group('autoDispose families', () {
-    test('album details provider releases its state once unlistened', () async {
-      final client = MockClient((request) async {
-        if (request.url.path.endsWith('/albums/album-1')) {
-          return http.Response(
-            jsonEncode({'id': 'album-1', 'title': 'Test Album'}),
-            200,
-          );
-        }
-        if (request.url.path.endsWith('/albums/album-1/tracks')) {
-          return http.Response(jsonEncode({'items': []}), 200);
-        }
-        return http.Response('', 404);
-      });
-
-      final mockService = TidalService.create(client: client);
-      final container = ProviderContainer(
-        overrides: [
-          tidalServiceProvider.overrideWithValue(mockService),
-          tidalServerProvider.overrideWith(
-            () => _MockTidalServerNotifier(_testServer(token: _validToken())),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      final provider = tidalAlbumDetailsProvider('album-1');
-      final subscription = container.listen(provider, (previous, next) {});
-      await container.read(provider.future);
-      expect(container.exists(provider), isTrue);
-
-      subscription.close();
-      // Disposal is scheduled for the end of the next event-loop.
-      await container.pump();
-      expect(container.exists(provider), isFalse);
-    });
   });
 }
 

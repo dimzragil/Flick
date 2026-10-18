@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -16,7 +17,6 @@ import 'package:flick/models/song.dart';
 import 'package:flick/providers/album_color_provider.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/services/gallery_save_service.dart';
-import 'package:flick/services/image_cache_policy.dart';
 import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -63,7 +63,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
         (song.albumArt!.startsWith('http://') ||
             song.albumArt!.startsWith('https://'))) {
       try {
-        final file = await coverImageCacheManager.getSingleFile(song.albumArt!);
+        final file = await DefaultCacheManager().getSingleFile(song.albumArt!);
         if (mounted && await file.exists()) {
           setState(() => _resolvedAlbumArt = file.path);
           return;
@@ -92,8 +92,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
       final pos = playerService.positionNotifier.value;
       final idx = lyricsService.findCurrentLineIndex(data, pos);
       final line = idx >= 0 && idx < data.lines.length ? data.lines[idx] : null;
-      if (mounted && line != null)
-        setState(() => _currentLyric = line.text.trim());
+      if (mounted && line != null) setState(() => _currentLyric = line.text.trim());
     } else if (data.lines.isNotEmpty) {
       final line = data.lines.firstWhere(
         (l) => l.text.trim().isNotEmpty,
@@ -116,11 +115,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
           fontSizeOverride: _lyricAutoFit ? null : _lyricFontSize,
         );
       case ShareTemplate.solidColor:
-        return SolidColorShareCard(
-          song: song,
-          dominantColor: dominantColor,
-          albumArtPath: _resolvedAlbumArt,
-        );
+        return SolidColorShareCard(song: song, dominantColor: dominantColor, albumArtPath: _resolvedAlbumArt);
       case ShareTemplate.minimal:
         return MinimalShareCard(song: song, albumArtPath: _resolvedAlbumArt);
       case ShareTemplate.albumArt:
@@ -155,8 +150,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text:
-            'Listening to ${widget.song.title} by ${widget.song.artist} on Flick',
+        text: 'Listening to ${widget.song.title} by ${widget.song.artist} on Flick',
       );
     } catch (e) {
       if (mounted) {
@@ -180,23 +174,18 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
       final galleryService = GallerySaveService();
       await galleryService.saveImage(
         bytes: bytes,
-        fileName:
-            'flick_share_${widget.song.id}_${DateTime.now().millisecondsSinceEpoch}',
+        fileName: 'flick_share_${widget.song.id}_${DateTime.now().millisecondsSinceEpoch}',
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Saved to gallery')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved to gallery')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is GallerySaveException ? e.message : 'Failed to save',
-            ),
-          ),
+          SnackBar(content: Text(e is GallerySaveException ? e.message : 'Failed to save')),
         );
       }
     } finally {
@@ -216,7 +205,8 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
           dimmed: _lyricAutoFit,
           onTap: () => setState(() {
             _lyricAutoFit = false;
-            _lyricFontSize = (_lyricFontSize - 2).clamp(14.0, 34.0).toDouble();
+            _lyricFontSize =
+                (_lyricFontSize - 2).clamp(14.0, 34.0).toDouble();
           }),
         ),
         const SizedBox(width: 6),
@@ -231,7 +221,8 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
           dimmed: _lyricAutoFit,
           onTap: () => setState(() {
             _lyricAutoFit = false;
-            _lyricFontSize = (_lyricFontSize + 2).clamp(14.0, 34.0).toDouble();
+            _lyricFontSize =
+                (_lyricFontSize + 2).clamp(14.0, 34.0).toDouble();
           }),
         ),
       ],
@@ -293,9 +284,7 @@ class _ShareBottomSheetState extends ConsumerState<ShareBottomSheet> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: isSelected
-                            ? Colors.white
-                            : AppColors.glassBorder,
+                        color: isSelected ? Colors.white : AppColors.glassBorder,
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -373,10 +362,7 @@ class _ActionButton extends StatelessWidget {
             ? const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.textPrimary,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textPrimary),
               )
             : Row(
                 mainAxisSize: MainAxisSize.min,

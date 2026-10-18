@@ -308,20 +308,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     width: 44,
                     height: 44,
                     child: item.imageUrl != null
-                        // 44 px preview: request/decode the same 160 px
-                        // variant the track tiles use instead of pulling the
-                        // full cover and decoding it at the 512 px default
-                        // (1 MiB of bitmap for a thumbnail).
                         ? CachedImageWidget(
-                            imagePath: TidalService.resizedCoverUrl(
-                              item.imageUrl,
-                              160,
-                            ),
-                            width: 44,
-                            height: 44,
-                            useThumbnail: true,
-                            thumbnailWidth: 160,
-                            thumbnailHeight: 160,
+                            imagePath: item.imageUrl!,
                             fit: BoxFit.cover,
                             placeholder: const FlickArtworkPlaceholder(),
                             errorWidget: const FlickArtworkPlaceholder(),

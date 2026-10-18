@@ -2,11 +2,11 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/album_art_service.dart';
 import 'package:flick/core/utils/dev_log.dart';
-import 'package:flick/services/image_cache_policy.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 
 // ---------------------------------------------------------------------------
@@ -298,15 +298,13 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
       }
       if (remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://')) {
         try {
-          // Shared cover cache: hits the same files CachedImageWidget already
-          // downloaded, instead of a duplicate download from a second cache.
-          final cached = await coverImageCacheManager.getFileFromCache(
+          final cached = await DefaultCacheManager().getFileFromCache(
             remoteUrl,
           );
           if (cached != null && await cached.file.exists()) {
             return cached.file.path;
           }
-          final file = await coverImageCacheManager.getSingleFile(remoteUrl);
+          final file = await DefaultCacheManager().getSingleFile(remoteUrl);
           if (await file.exists()) return file.path;
         } catch (e) {
           devLog('[AmbientBackground] Remote artwork cache failed: $e');

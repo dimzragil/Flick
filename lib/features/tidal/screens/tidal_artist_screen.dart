@@ -710,11 +710,8 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
   ) {
     final title = album['title'] as String? ?? 'Unknown Album';
     final coverUuid = album['cover'] as String?;
-    // 320 px CDN variant + 320 px decode key: matches the hub/search cards,
-    // so the same cover is one disk file and one bitmap cache entry app-wide
-    // (was: 640 px download decoded at the 512 px default).
     final coverUrl = coverUuid != null
-        ? TidalService.coverUrl(coverUuid, size: 320)
+        ? TidalService.coverUrl(coverUuid, size: 640)
         : null;
     final releaseDate = album['releaseDate'] as String?;
     final year = releaseDate != null && releaseDate.length >= 4
@@ -735,9 +732,6 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                 child: coverUrl != null
                     ? CachedImageWidget(
                         imagePath: coverUrl,
-                        useThumbnail: true,
-                        thumbnailWidth: 320,
-                        thumbnailHeight: 320,
                         fit: BoxFit.cover,
                         placeholder: const FlickArtworkPlaceholder(),
                         errorWidget: const FlickArtworkPlaceholder(),
