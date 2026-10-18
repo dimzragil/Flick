@@ -141,6 +141,30 @@ class BitPerfectIndicator extends ConsumerWidget {
     return _IndicatorState.standard();
   }
 
+  /// Output-rate label for the Android mixer path: the real device rate when
+  /// the AudioManager query supplied one, otherwise the 48 kHz fallback is
+  /// explicitly marked as assumed rather than measured.
+  @visibleForTesting
+  static String mixerOutputRateLabel(int? nativeRate) {
+    if (nativeRate == null || nativeRate <= 0) {
+      return '48.0 kHz (assumed)';
+    }
+    return _formatHz(nativeRate);
+  }
+
+  /// Bit-depth label for the Android mixer path: 24-bit sources are either
+  /// preserved or truncated to 16-bit. Both are capability-based inference
+  /// from `hiResInternal` — Android has no mixer bit-depth API — so the
+  /// arrow format is kept and no verified icon is attached.
+  @visibleForTesting
+  static String mixerBitDepthLabel(
+    int bitDepth, {
+    required bool preservesHiRes,
+  }) {
+    if (bitDepth != 24) return '$bitDepth-bit';
+    return preservesHiRes ? '24-bit → 24-bit' : '24-bit → 16-bit';
+  }
+
   /// Opens a sleek bottom sheet with full audio diagnostics.
   static void showInfoSheet(
     BuildContext context, {
@@ -589,9 +613,12 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     final rows = <Widget>[];
     final d = widget.diagnostics;
     // Honest Android mixer display: on the speaker path (mixer-managed),
-    // Android resamples to its native 48 kHz / 16-bit regardless of what
-    // ExoPlayer requests. The USB DAC path (isMixerManaged == false) is
-    // untouched and keeps its verified values.
+    // Android resamples to the device's real native output rate, queried
+    // from AudioManager (`mixerNativeSampleRate`). When that query fails the
+    // UI falls back to assuming 48 kHz and labels it as assumed, not
+    // measured. Mixer bit depth cannot be queried at all; it is shown as
+    // capability-based inference (see the Bit depth row). The USB DAC path
+    // (isMixerManaged == false) is untouched and keeps verified values.
     final isMixerManaged = d?.isMixerManaged == true;
     final codecLabel = resolved?.codec;
     final formatValue = widget.song.isDsd
@@ -643,7 +670,11 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         _buildRow(
           context,
           label: 'Output rate',
-          value: isMixerManaged ? '48.0 kHz' : _formatHz(displayRate),
+          value: isMixerManaged
+              ? BitPerfectIndicator.mixerOutputRateLabel(
+                  d?.mixerNativeSampleRate,
+                )
+              : _formatHz(displayRate),
           trailing: isMixerManaged
               ? Icon(Icons.android, size: 14, color: Colors.green.shade400)
               : (matches
@@ -664,12 +695,18 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     final bitDepth =
         widget.deviceStatus?.currentFormat?.bitDepth ?? widget.song.bitDepth;
     if (bitDepth != null) {
+      // Android has no API for the mixer's output bit depth: this is
+      // capability-based inference (see `mixerBitDepthLabel`), not a
+      // measured value, so no verified icon is attached.
       rows.add(
         _buildRow(
           context,
           label: 'Bit depth',
-          value: (isMixerManaged && bitDepth == 24)
-              ? '24-bit → 16-bit'
+          value: isMixerManaged
+              ? BitPerfectIndicator.mixerBitDepthLabel(
+                  bitDepth,
+                  preservesHiRes: d?.mixerPreservesHiRes == true,
+                )
               : '$bitDepth-bit',
         ),
       );
@@ -1222,15 +1259,6 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
   }
 
   // ---- Helpers ----
-
-  static String _formatHz(int rate) {
-    if (rate >= 1000000) {
-      return '${(rate / 1000000).toStringAsFixed(2)} MHz';
-    } else if (rate >= 1000) {
-      return '${(rate / 1000).toStringAsFixed(1)} kHz';
-    }
-    return '$rate Hz';
-  }
 
   static String _formatVolumeMode(Uac2VolumeMode mode) {
     switch (mode) {
@@ -2413,4 +2441,15 @@ class _CheckPainter extends CustomPainter {
       old.verified != verified ||
       old.pending != pending ||
       old.color != color;
+}
+
+/// Compact human label for a PCM sample rate (48.0 kHz / 5.64 MHz style),
+/// shared by the signal-path rows and the mixer output-rate display.
+String _formatHz(int rate) {
+  if (rate >= 1000000) {
+    return '${(rate / 1000000).toStringAsFixed(2)} MHz';
+  } else if (rate >= 1000) {
+    return '${(rate / 1000).toStringAsFixed(1)} kHz';
+  }
+  return '$rate Hz';
 }

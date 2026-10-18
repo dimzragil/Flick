@@ -91,6 +91,8 @@ class AudioOutputDiagnostics {
     required this.trackSampleRate,
     required this.requestedOutputSampleRate,
     required this.reportedOutputSampleRate,
+    this.mixerNativeSampleRate,
+    this.mixerPreservesHiRes = false,
     required this.resamplerActive,
     required this.passthroughAllowed,
     required this.activeOutputSignature,
@@ -119,6 +121,19 @@ class AudioOutputDiagnostics {
   final int? trackSampleRate;
   final int? requestedOutputSampleRate;
   final int? reportedOutputSampleRate;
+
+  /// The real mixer output rate reported by Android
+  /// (`AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE`). Null when the platform
+  /// query failed or on non-Android; the signal-path UI then falls back to an
+  /// explicitly assumed 48 kHz instead of a measured value.
+  final int? mixerNativeSampleRate;
+
+  /// Capability-based inference, NOT a measured value: the device advertises
+  /// native `hiResInternal` output (>48 kHz internally), which suggests the
+  /// Android mixer path keeps 24-bit depth. Android exposes no API for the
+  /// mixer's actual output bit depth.
+  final bool mixerPreservesHiRes;
+
   final bool resamplerActive;
   final bool passthroughAllowed;
   final String? activeOutputSignature;

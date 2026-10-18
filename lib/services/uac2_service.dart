@@ -113,6 +113,25 @@ class Uac2DeviceCapabilities {
   });
 }
 
+/// Real Android mixer output facts queried from the platform channel
+/// (`getAudioCapabilities` in MainActivity.kt).
+class AndroidMixerOutputInfo {
+  /// The device's real mixer rate
+  /// (`AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE`); null when unavailable.
+  final int? nativeSampleRate;
+
+  /// Whether the device advertises the native `hiResInternal` capability
+  /// (>48 kHz internal output). Used only as a capability-based inference
+  /// that the mixer path likely preserves 24-bit depth — Android has no API
+  /// for the mixer's actual output bit depth.
+  final bool preservesHiRes;
+
+  const AndroidMixerOutputInfo({
+    this.nativeSampleRate,
+    this.preservesHiRes = false,
+  });
+}
+
 class Uac2DeviceStatus {
   final Uac2DeviceInfo device;
   final Uac2State state;
@@ -1535,18 +1554,10 @@ Future<void> stopPriorityAnchor() async {
       return frozenCapabilityInfo;
     }
 
-    final resolvedPreferredDevice = await _resolvePreferredAndroidDevice(null);
     try {
-      final raw = await _channel
-          .invokeMapMethod<dynamic, dynamic>('getAudioCapabilities', {
-            'deviceName': resolvedPreferredDevice?.deviceName,
-            'productName': resolvedPreferredDevice?.productName,
-            'vendorId': resolvedPreferredDevice?.vendorId,
-            'productId': resolvedPreferredDevice?.productId,
-            'serial': resolvedPreferredDevice?.serial,
-          });
+      final map = await _fetchAndroidAudioCapabilitiesRaw();
 
-      if (raw == null) {
+      if (map == null) {
         return const rust_audio.AudioCapabilityInfo(
           capabilities: [rust_audio.AudioCapabilityType.standard],
           routeType: 'unknown',
@@ -1555,7 +1566,6 @@ Future<void> stopPriorityAnchor() async {
         );
       }
 
-      final map = raw.map((key, value) => MapEntry(key.toString(), value));
       final rawCapabilities =
           (map['capabilities'] as List<dynamic>? ?? const <dynamic>[])
               .whereType<String>()
@@ -1599,6 +1609,52 @@ Future<void> stopPriorityAnchor() async {
           currentStatus.currentFormat?.sampleRate ??
           _lastKnownFormat?.sampleRate,
     );
+  }
+
+  /// Raw `getAudioCapabilities` map from the Android platform channel, or
+  /// null when the platform returned nothing. Shared by the Rust capability
+  /// info and the honest mixer output display.
+  Future<Map<String, dynamic>?> _fetchAndroidAudioCapabilitiesRaw() async {
+    final resolvedPreferredDevice = await _resolvePreferredAndroidDevice(null);
+    final raw = await _channel
+        .invokeMapMethod<dynamic, dynamic>('getAudioCapabilities', {
+          'deviceName': resolvedPreferredDevice?.deviceName,
+          'productName': resolvedPreferredDevice?.productName,
+          'vendorId': resolvedPreferredDevice?.vendorId,
+          'productId': resolvedPreferredDevice?.productId,
+          'serial': resolvedPreferredDevice?.serial,
+        });
+    if (raw == null) {
+      return null;
+    }
+    return raw.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  /// Device facts for the Android-managed mixer output path, so the signal
+  /// path UI can show the real mixer rate instead of a hardcoded 48 kHz.
+  ///
+  /// Returns null on non-Android, while a direct-USB session is frozen, or
+  /// when the query fails; callers must then fall back to an explicitly
+  /// assumed value rather than presenting one as measured.
+  Future<AndroidMixerOutputInfo?> getAndroidMixerOutputInfo() async {
+    if (!Platform.isAndroid) return null;
+    if (_hasFrozenAndroidDirectUsbSession()) return null;
+
+    try {
+      final map = await _fetchAndroidAudioCapabilitiesRaw();
+      if (map == null) return null;
+
+      final capabilities =
+          (map['capabilities'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>();
+      return AndroidMixerOutputInfo(
+        nativeSampleRate: (map['nativeSampleRate'] as num?)?.toInt(),
+        preservesHiRes: capabilities.contains('hiResInternal'),
+      );
+    } catch (e) {
+      devLog('Uac2Service.getAndroidMixerOutputInfo failed: $e');
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> getAndroidPlaybackDebugState() async {

@@ -2951,6 +2951,14 @@ class PlayerService {
         pathManagement != AudioPathManagement.directUsbExperimental &&
         pathManagement != AudioPathManagement.alsaDirectDap &&
         pathManagement != AudioPathManagement.managedDirectExclusive;
+    // Real Android mixer facts for the signal path UI: the device's native
+    // output rate from AudioManager and its hiResInternal capability (a
+    // 24-bit preservation inference, not a measurement). Null when the
+    // platform query is unavailable; the UI then labels its fallback as
+    // assumed instead of presenting it as measured.
+    final mixerOutputInfo = isMixerManaged
+        ? await _uac2Service.getAndroidMixerOutputInfo()
+        : null;
     final requestedOutputSampleRate =
         (!usesRustDiagnostics ? trackFormat?.sampleRate : null) ??
         engineRequestedSampleRate ??
@@ -3219,6 +3227,8 @@ class PlayerService {
       trackSampleRate: trackFormat?.sampleRate,
       requestedOutputSampleRate: requestedOutputSampleRate,
       reportedOutputSampleRate: reportedOutputSampleRate,
+      mixerNativeSampleRate: mixerOutputInfo?.nativeSampleRate,
+      mixerPreservesHiRes: mixerOutputInfo?.preservesHiRes ?? false,
       resamplerActive: resamplerActive,
       passthroughAllowed: passthroughAllowed,
       activeOutputSignature: usesRustDiagnostics ? outputSignature : null,
@@ -3238,6 +3248,8 @@ class PlayerService {
       'usbRegistered=$directUsbRegistered, usbClaimed=$usbInterfaceClaimed, '
       'usbStreamStable=$usbStreamStable, '
       'mixerManaged=$isMixerManaged, signature=${outputSignature ?? 'none'}, '
+      'mixerNativeRate=${mixerOutputInfo?.nativeSampleRate ?? -1}, '
+      'mixerPreservesHiRes=${mixerOutputInfo?.preservesHiRes ?? false}, '
       'alt=${activeAltSetting ?? -1}, endpoint=${activeEndpointAddress ?? -1}, '
       'sync=${activeSyncType ?? 'none'}, usage=${activeUsageType ?? 'none'}, '
       'refresh=${activeRefresh ?? -1}, '
