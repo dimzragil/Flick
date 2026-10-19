@@ -107,6 +107,7 @@ class MainActivity: FlutterActivity() {
     private val OVERLAY_CHANNEL = "com.mossapps.flick/overlay"
     private val BLUETOOTH_CHANNEL = "com.mossapps.flick/bluetooth"
     private val BLUETOOTH_EVENT_CHANNEL = "com.mossapps.flick/bluetooth_events"
+    private val SYSTEM_VOLUME_EVENT_CHANNEL = "com.mossapps.flick/system_volume_events"
     private val CAST_CHANNEL = "com.mossapps.flick/cast"
     private val CAST_EVENT_CHANNEL = "com.mossapps.flick/cast_events"
     private val DLNA_ROUTE_CHANNEL = "com.mossapps.flick/dlna_route"
@@ -173,6 +174,7 @@ class MainActivity: FlutterActivity() {
     private var a2dpProxy: BluetoothA2dp? = null
     private var developerMode: Boolean = false
     private var bluetoothEventSink: EventChannel.EventSink? = null
+    private var systemVolumeEventSink: EventChannel.EventSink? = null
     private var aclReceiver: BroadcastReceiver? = null
     private var castController: CastController? = null
     private var castEventSink: EventChannel.EventSink? = null
@@ -1046,6 +1048,52 @@ class MainActivity: FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {
                     bluetoothEventSink = null
+                }
+            }
+        )
+
+        // System volume: notify Dart when the user changes volume via hardware keys.
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, SYSTEM_VOLUME_EVENT_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                private var volumeObserver: android.database.ContentObserver? = null
+
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    systemVolumeEventSink = events
+                    // Send current volume immediately so Dart has a baseline.
+                    sendSystemVolume()
+                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                    volumeObserver = object : android.database.ContentObserver(handler) {
+                        override fun onChange(selfChange: Boolean) {
+                            sendSystemVolume()
+                        }
+                    }
+                    contentResolver.registerContentObserver(
+                        android.provider.Settings.System.CONTENT_URI,
+                        true,
+                        volumeObserver!!
+                    )
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    volumeObserver?.let { contentResolver.unregisterContentObserver(it) }
+                    volumeObserver = null
+                    systemVolumeEventSink = null
+                }
+
+                private fun sendSystemVolume() {
+                    try {
+                        val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val normalized = if (max > 0) current.toDouble() / max.toDouble() else 1.0
+                        systemVolumeEventSink?.success(mapOf(
+                            "volume" to normalized,
+                            "current" to current,
+                            "max" to max
+                        ))
+                    } catch (e: Exception) {
+                        // Don't crash on audio service issues; Dart keeps last known value.
+                    }
                 }
             }
         )

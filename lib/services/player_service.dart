@@ -1031,6 +1031,11 @@ class PlayerService {
   final PlaybackPositionTracker _positionTracker = PlaybackPositionTracker();
   double _currentVolume = 1.0;
 
+  /// Notifies listeners when the effective volume changes — including when
+  /// the user presses hardware volume keys (system volume changes bypass
+  /// [setVolume], so the slider would otherwise stay stale).
+  final ValueNotifier<double> volumeNotifier = ValueNotifier<double>(1.0);
+
   /// Default volume for bit-perfect mode (25 %, safety level).
   /// Mapped to ~0.01 linear gain by Rust's volume_to_gain curve.
   static const double _bitPerfectDefaultVolume = 0.25;
@@ -2349,6 +2354,9 @@ class PlayerService {
     final future = _initializeAudio();
     _audioInitInFlight = future;
     await future;
+    // Listen for hardware volume key changes so the UI slider stays in sync
+    // when the user adjusts system volume outside the app.
+    startSystemVolumeListener();
   }
 
   Future<void> prepareForAppLaunch() async {
@@ -7169,6 +7177,7 @@ class PlayerService {
       return;
     }
     _currentVolume = clampedVolume;
+    volumeNotifier.value = _currentVolume;
     if (currentEngineType == AudioEngineType.usbDacExperimental ||
         currentEngineType == AudioEngineType.dapInternalHighRes) {
       unawaited(_preferencesService.setUsbSoftwareVolume(clampedVolume));
@@ -7258,6 +7267,44 @@ class PlayerService {
     const step = 0.03;
     final next = (_currentVolume + direction * step).clamp(0.0, 1.0);
     await setVolume(next);
+  }
+
+  StreamSubscription<dynamic>? _systemVolumeSubscription;
+
+  /// Start listening for Android system volume changes (hardware keys).
+  /// When the user presses volume keys on speaker, Android changes the system
+  /// volume directly — this keeps [_currentVolume] and [volumeNotifier] in sync
+  /// so the UI slider reflects reality. Only applies to the system tier;
+  /// hardware/DAC volume is managed separately.
+  void startSystemVolumeListener() {
+    if (_systemVolumeSubscription != null) return;
+    const channel = EventChannel('com.mossapps.flick/system_volume_events');
+    _systemVolumeSubscription = channel.receiveBroadcastStream().listen(
+      (event) {
+        if (event is Map) {
+          final volume = (event['volume'] as num?)?.toDouble();
+          if (volume != null) _syncVolumeFromSystem(volume.clamp(0.0, 1.0));
+        }
+      },
+      onError: (_) {
+        // System volume events unavailable — slider keeps last known value.
+      },
+    );
+  }
+
+  void stopSystemVolumeListener() {
+    _systemVolumeSubscription?.cancel();
+    _systemVolumeSubscription = null;
+  }
+
+  /// Update [_currentVolume] from a system volume change (hardware keys).
+  /// Only applies when the system tier is active — DAC/hardware volume
+  /// is authoritative on its own path and must not be overwritten.
+  void _syncVolumeFromSystem(double systemVolume) {
+    if (_determineCurrentTier() != VolumeTier.system) return;
+    if ((systemVolume - _currentVolume).abs() < 0.001) return;
+    _currentVolume = systemVolume;
+    volumeNotifier.value = _currentVolume;
   }
 
   // ==================== ReplayGain ====================

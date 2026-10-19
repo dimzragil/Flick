@@ -39,6 +39,39 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
   /// Optimistic volume while the user is dragging the slider.
   double? _draggingVolume;
 
+  @override
+  void initState() {
+    super.initState();
+    // Rebuild when PlayerService.volumeNotifier changes (e.g. hardware
+    // volume keys pressed on speaker) so the slider reflects reality.
+    // The listener is attached after the first frame to ensure the provider
+    // is available.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(playerServiceProvider)
+          .volumeNotifier
+          .addListener(_onVolumeChanged);
+    });
+  }
+
+  @override
+  void dispose() {
+    try {
+      ref
+          .read(playerServiceProvider)
+          .volumeNotifier
+          .removeListener(_onVolumeChanged);
+    } catch (_) {
+      // Provider may already be disposed; safe to ignore.
+    }
+    super.dispose();
+  }
+
+  void _onVolumeChanged() {
+    if (mounted && _draggingVolume == null) setState(() {});
+  }
+
   /// Called on every slider tick during drag — optimistic UI only, no platform call.
   void _onSliderChanged(double volume) {
     setState(() => _draggingVolume = volume);
@@ -99,7 +132,7 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
     final isSoftwareVolume = deviceStatus.volumeMode == Uac2VolumeMode.software;
     final playerService = ref.read(playerServiceProvider);
     final isAvailable = playerService.isVolumeAvailable;
-    final playerVolume = playerService.currentVolume;
+    final playerVolume = playerService.volumeNotifier.value;
     final hardwareAuthority = playerService.isHardwareVolumeAuthority;
     final effectiveVolume =
         _draggingVolume ??
