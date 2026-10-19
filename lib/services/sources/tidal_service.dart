@@ -2866,16 +2866,25 @@ class TidalService implements NetworkSourceService {
             'String',
       };
 
-      final res = await _client
-          .post(
-            Uri.parse(_eventCollectorUrl),
-            headers: {
-              'Authorization': 'Bearer ${creds.accessToken}',
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: formFields,
-          )
-          .timeout(const Duration(seconds: 10));
+      // Telemetry shares TIDAL's client_id rate-limit budget with the main
+      // API. Send it through the same gate and retry policy as every other
+      // call; otherwise each played song fires an unthrottled POST that can
+      // push the next catalog request into a 429. Failures stay non-fatal:
+      // this catch only logs, so playback never depends on telemetry.
+      await _throttle();
+      final res = await _with429Retry(
+        'POST playback session',
+        () => _client
+            .post(
+              Uri.parse(_eventCollectorUrl),
+              headers: {
+                'Authorization': 'Bearer ${creds.accessToken}',
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: formFields,
+            )
+            .timeout(const Duration(seconds: 10)),
+      );
 
       devLog(
         '[Tidal] reportPlayback for track $trackId ($sourceType:$sourceId) -> HTTP ${res.statusCode}',
