@@ -13,6 +13,7 @@ typedef AndroidAudioSourceBuilder =
     Future<just_audio.AudioSource> Function(Song track, {bool deferPump});
 typedef AndroidPlaylistProvider = List<Song> Function();
 typedef AndroidPlayerProvider = Future<just_audio.AudioPlayer> Function();
+typedef AndroidSecondaryPlayerProvider = just_audio.AudioPlayer Function();
 typedef AndroidPlayerConfigurator =
     Future<void> Function(just_audio.AudioPlayer player);
 typedef AndroidEngineDisposer = Future<void> Function();
@@ -118,6 +119,7 @@ class AndroidPlaybackError {
 class AndroidAudioEngine implements AudioEngine {
   AndroidAudioEngine({
     required AndroidPlayerProvider playerProvider,
+    AndroidSecondaryPlayerProvider? secondaryPlayerProvider,
     required AndroidAudioSourceBuilder sourceBuilder,
     required AndroidPlaylistProvider playlistProvider,
     required AndroidPlayerConfigurator configurePlayer,
@@ -130,6 +132,8 @@ class AndroidAudioEngine implements AudioEngine {
     AndroidTrackAdvancedCallback? onTrackAdvanced,
     this.backgroundFillDelay = defaultBackgroundFillDelay,
   }) : _playerProvider = playerProvider,
+       _secondaryPlayerProvider =
+           secondaryPlayerProvider ?? (() => just_audio.AudioPlayer()),
        _sourceBuilder = sourceBuilder,
        _playlistProvider = playlistProvider,
        _configurePlayer = configurePlayer,
@@ -147,6 +151,7 @@ class AndroidAudioEngine implements AudioEngine {
   final Duration backgroundFillDelay;
 
   final AndroidPlayerProvider _playerProvider;
+  final AndroidSecondaryPlayerProvider _secondaryPlayerProvider;
   final AndroidAudioSourceBuilder _sourceBuilder;
   final AndroidPlaylistProvider _playlistProvider;
   final AndroidPlayerConfigurator _configurePlayer;
@@ -182,6 +187,14 @@ class AndroidAudioEngine implements AudioEngine {
   just_audio.AudioPlayer? _secondary;
   Timer? _crossfadeTimer;
   bool _crossfadeArmed = false;
+  // True while _armCrossfade is still resolving/loading the incoming track.
+  // pause() uses this to abort an arm without touching an already-running
+  // ramp (which intentionally freezes and resumes).
+  bool _crossfadeArming = false;
+  // Monotonic token for _armCrossfade. Every pause/stop/load/seek/rearm/dispose
+  // bumps it; the async arm re-checks it after every await and bails out
+  // instead of starting audio or overwriting the newly selected track.
+  int _crossfadeGeneration = 0;
   bool _sinkNeedsRearmOnPlay = false;
   Future<void>? _rearmInFlight;
   double _rampUserVolume = 1.0;
@@ -210,7 +223,7 @@ class AndroidAudioEngine implements AudioEngine {
   Future<just_audio.AudioPlayer> _ensureSecondary() async {
     final existing = _secondary;
     if (existing != null) return existing;
-    final player = just_audio.AudioPlayer();
+    final player = _secondaryPlayerProvider();
     _secondary = player;
     _attachListeners(player);
     await player.setVolume(0);
@@ -614,6 +627,13 @@ class AndroidAudioEngine implements AudioEngine {
   @override
   Future<void> pause() async {
     final player = await _ensurePlayer();
+    if (_crossfadeArming) {
+      // The arm is still resolving/loading the incoming track. Abort it
+      // before pausing, otherwise it would resume after its awaits and start
+      // phantom audio while the UI says "paused". An already-running ramp is
+      // left alone: it is frozen (and later resumed) by the block below.
+      await _cancelCrossfade();
+    }
     await player.pause();
     if (_crossfadeArmed) {
       // Freeze the ramp where it is; play() resumes from [_rampElapsed].
@@ -753,28 +773,59 @@ class AndroidAudioEngine implements AudioEngine {
   void _armCrossfade(AndroidCrossfadeConfig cfg, int fadeMs) {
     // Set synchronously so the next position tick can't re-enter.
     _crossfadeArmed = true;
+    _crossfadeArming = true;
+    final generation = ++_crossfadeGeneration;
+    final outgoing = _player;
+    final outgoingTrack = _loadedTrack;
     unawaited(() async {
-      final outgoing = _player;
       if (outgoing == null) {
-        _crossfadeArmed = false;
+        _abandonCrossfadeArm(generation);
         return;
       }
       final next = _onNextSong?.call();
-      if (next == null || next.id == _loadedTrack?.id) {
+      if (next == null || next.id == outgoingTrack?.id) {
         // Nothing to crossfade into (end of list / loop-one): let the track
         // end naturally so onTrackEnded handles it.
-        _crossfadeArmed = false;
+        _abandonCrossfadeArm(generation);
         return;
       }
       try {
         final incoming = await _ensureSecondary();
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         final source = await _sourceBuilder(next);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         _rampUserVolume = outgoing.volume <= 0 ? 1.0 : outgoing.volume;
         await incoming.setAudioSource(source, preload: true);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         await incoming.seek(Duration.zero);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         await incoming.setVolume(0);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         await incoming.setSpeed(outgoing.speed);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         await incoming.setLoopMode(just_audio.LoopMode.off);
+        if (!_isCrossfadeArmCurrent(generation, outgoing, outgoingTrack)) {
+          _abandonCrossfadeArm(generation);
+          return;
+        }
         unawaited(
           incoming.play().catchError((Object error, StackTrace stackTrace) {
             devLog('[crossfade] incoming play() failed: $error');
@@ -791,6 +842,7 @@ class AndroidAudioEngine implements AudioEngine {
         // idle slot and is faded out by the ramp.
         _player = incoming;
         _secondary = outgoing;
+        _crossfadeArming = false;
         _startRampTimer(outgoing, incoming);
         // The emitted state drives PlayerService's track-change bookkeeping
         // (index sync, notification, replay tracking, position save).
@@ -808,15 +860,45 @@ class AndroidAudioEngine implements AudioEngine {
       } catch (error, stackTrace) {
         devLog('[crossfade] arm failed: $error');
         debugPrintStack(stackTrace: stackTrace);
-        _crossfadeArmed = false;
-        final active = _player;
-        if (active != null) {
-          try {
-            await active.setVolume(_rampUserVolume);
-          } catch (_) {}
+        // When the generation moved on, the cancelling operation already
+        // stopped the secondary slot and restored the active volume; touching
+        // the players here could stomp the newly selected track.
+        if (generation == _crossfadeGeneration) {
+          _crossfadeArming = false;
+          _crossfadeArmed = false;
+          final active = _player;
+          if (active != null) {
+            try {
+              await active.setVolume(_rampUserVolume);
+            } catch (_) {}
+          }
         }
       }
     }());
+  }
+
+  /// True while [generation] still owns the crossfade arm: nothing cancelled
+  /// it and the active player / loaded track are still the ones it started
+  /// from. Checked after every await in [_armCrossfade].
+  bool _isCrossfadeArmCurrent(
+    int generation,
+    just_audio.AudioPlayer outgoing,
+    Song? outgoingTrack,
+  ) {
+    return !_disposed &&
+        generation == _crossfadeGeneration &&
+        _crossfadeArmed &&
+        identical(_player, outgoing) &&
+        _loadedTrack?.id == outgoingTrack?.id;
+  }
+
+  /// Clears arm state only when [generation] still owns it. If a cancelling
+  /// operation moved the generation on, that operation has already reset the
+  /// flags and silenced the secondary slot.
+  void _abandonCrossfadeArm(int generation) {
+    if (generation != _crossfadeGeneration) return;
+    _crossfadeArming = false;
+    _crossfadeArmed = false;
   }
 
   void _startRampTimer(
@@ -859,6 +941,11 @@ class AndroidAudioEngine implements AudioEngine {
   }
 
   Future<void> _cancelCrossfade() async {
+    // Invalidate any in-flight _armCrossfade before the awaits below. The arm
+    // re-checks this token after each of its own awaits and bails without
+    // starting audio or touching the newly selected track.
+    _crossfadeGeneration++;
+    _crossfadeArming = false;
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
     final wasArmed = _crossfadeArmed;
@@ -891,9 +978,12 @@ class AndroidAudioEngine implements AudioEngine {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    // Invalidate an in-flight arm before its players are torn down.
+    _crossfadeGeneration++;
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
     _crossfadeArmed = false;
+    _crossfadeArming = false;
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
