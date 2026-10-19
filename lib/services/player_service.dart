@@ -611,6 +611,61 @@ bool shouldSkipSpeakerSinkRearmForTrivialBackground({
   return now.difference(backgroundedAt) < threshold;
 }
 
+/// True when [info] describes an active USB audio route: the Android media
+/// route is USB, UsbManager sees a DAC, or the UAC2 probe found one.
+@visibleForTesting
+bool isUsbAudioDeviceInfo(AndroidPlaybackDeviceInfo info) =>
+    info.isUsbRoute ||
+    info.hasUsbDac ||
+    info.hasAttachedUac2Device ||
+    info.looksLikeUsbAudioRoute;
+
+/// True when [current] is the route state observed right after the USB DAC was
+/// unplugged: the previous route was USB audio and the new one is not.
+///
+/// Deliberately narrow — plugging in headphones (speaker -> wired), switching
+/// to Bluetooth, or any route change that never involved USB audio is not a
+/// DAC unplug and must not pause playback.
+@visibleForTesting
+bool isUsbDacUnplugTransition({
+  required AndroidPlaybackDeviceInfo? previous,
+  required AndroidPlaybackDeviceInfo current,
+}) {
+  if (previous == null) return false;
+  return isUsbAudioDeviceInfo(previous) && !isUsbAudioDeviceInfo(current);
+}
+
+/// Whether the direct-USB engine fallback (mid-stream USB error, or a dead
+/// Rust engine recovery) may re-attach and start playback on the replacement
+/// engine.
+///
+/// A session the user paused must never be started by the fallback. That was
+/// the "manually paused, unplug the DAC, music starts by itself" bug: the
+/// fallback decided auto-play from the pause-on-disconnect preference and a
+/// (possibly stale) `listDevices()` probe, and never consulted the user's
+/// pause state — so a paused session was replayed on the speaker.
+@visibleForTesting
+bool shouldAutoResumeAfterUsbEngineFallback({
+  required bool wasPlayingAtFailure,
+  required bool wasPlayingAtUnplug,
+  required bool usbDacUnplugActive,
+  required bool pauseOnDisconnect,
+  required bool dacStillAttached,
+}) {
+  // While the unplug window is open the state captured at unplug time is
+  // authoritative: a late failure must not replay a session that was already
+  // paused when the DAC vanished.
+  final wasPlaying = usbDacUnplugActive
+      ? wasPlayingAtUnplug
+      : wasPlayingAtFailure;
+  if (!wasPlaying) return false;
+  // Pref off: the user asked playback to continue on the new route.
+  if (!pauseOnDisconnect) return true;
+  // A DAC that is provably still attached is a transient USB suspension
+  // (userspace transfers frozen while backgrounded), not a real unplug.
+  return dacStillAttached;
+}
+
 @visibleForTesting
 void updateFifoBoundedMap<K, V>({
   required Map<K, V> map,
@@ -667,6 +722,8 @@ class PlayerService {
           .deviceInfoNotifier
           .value
           .routeSummary;
+      _lastAndroidDeviceInfo =
+          AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
     }
     _bindPlaybackState();
     _init();
@@ -712,6 +769,18 @@ class PlayerService {
   // 'audio route changed' rearm trigger; used to detect spurious
   // notifications where the route demonstrably did not change.
   String? _lastEvaluatedAudioRouteSignature;
+  // Last device info observed by the route listener, used to detect the
+  // USB-audio -> non-USB-audio transition that identifies a DAC unplug.
+  AndroidPlaybackDeviceInfo? _lastAndroidDeviceInfo;
+  // USB DAC unplug window. Armed the moment a detach is observed so every
+  // auto-resume path (direct-USB fallback, dead-engine recovery, audio focus
+  // regain) refuses to restart playback on the fallback route; cleared on
+  // re-attach or an explicit user play request. The playback snapshot taken
+  // at arm time distinguishes "user was paused" (never resume) from "user was
+  // playing" (honour pause-on-disconnect).
+  bool _usbDacUnplugActive = false;
+  bool _wasPlayingWhenUsbDacUnplugged = false;
+  bool _usbDacUnplugPauseRequested = false;
   // Timestamp of the last app-background transition; consumed once by the
   // next 'app resumed' rearm evaluation to skip trivial backgrounding.
   DateTime? _appBackgroundedAt;
@@ -1069,6 +1138,14 @@ class PlayerService {
     AndroidAudioDeviceService.instance.deviceInfoNotifier.addListener(() {
       unawaited(_refreshAudioOutputDiagnostics(reason: 'audio route changed'));
       final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+      final previousInfo = _lastAndroidDeviceInfo;
+      _lastAndroidDeviceInfo = info;
+      if (isUsbDacUnplugTransition(previous: previousInfo, current: info)) {
+        _onUsbDacUnplugDetected(
+          reason: 'audio route change',
+          routeAlreadyGone: true,
+        );
+      }
       final isSpeaker =
           info.isInternalRoute ||
           (!info.isUsbRoute && !info.isBluetoothRoute && !info.isWiredRoute);
@@ -1133,13 +1210,9 @@ class PlayerService {
   }
 
   void _initUsbDacDisconnectHandling() {
-    _usbDacDetachSubscription = _uac2Service.deviceDetachedEvents.listen((
-      _,
-    ) async {
+    _usbDacDetachSubscription = _uac2Service.deviceDetachedEvents.listen((_) {
       _pendingHardwareVolumeRestore = true;
-      if (!isPlayingNotifier.value) return;
-      final enabled = await _appPreferencesService.getPauseOnUsbDacDisconnect();
-      if (enabled) pause();
+      _onUsbDacUnplugDetected(reason: 'USB DAC detach event');
     });
   }
 
@@ -1148,10 +1221,90 @@ class PlayerService {
       _,
     ) async {
       _pendingHardwareVolumeRestore = true;
+      // A re-attached DAC ends the unplug window: the user can resume
+      // manually, and later unrelated failures may auto-recover again.
+      _endUsbDacUnplugWindow('DAC re-attached');
       if (!isPlayingNotifier.value) return;
       final enabled = await _appPreferencesService.getPauseOnUsbDacConnect();
       if (enabled) pause();
     });
+  }
+
+  /// True when the current session plausibly plays through a USB audio route,
+  /// so a USB detach broadcast is a DAC unplug rather than a storage stick.
+  bool _isUsbAudioContextActive() {
+    if (currentEngineType == AudioEngineType.usbDacExperimental) {
+      return true;
+    }
+    final info = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+    if (isUsbAudioDeviceInfo(info)) {
+      return true;
+    }
+    final previous = _lastAndroidDeviceInfo;
+    return previous != null && isUsbAudioDeviceInfo(previous);
+  }
+
+  /// A DAC unplug was observed (detach broadcast or USB-audio -> non-USB
+  /// route transition). Opens the unplug window, which suppresses every
+  /// automatic resume, then pauses immediately when the user's
+  /// pause-on-DAC-detach preference is enabled.
+  void _onUsbDacUnplugDetected({
+    required String reason,
+    bool routeAlreadyGone = false,
+  }) {
+    if (!Platform.isAndroid) return;
+    if (!routeAlreadyGone && !_isUsbAudioContextActive()) {
+      _debugLog(
+        '[USB] Ignoring USB detach outside a USB audio route ($reason)',
+      );
+      return;
+    }
+    final firstObservation = !_usbDacUnplugActive;
+    _usbDacUnplugActive = true;
+    if (firstObservation) {
+      _wasPlayingWhenUsbDacUnplugged = isPlayingNotifier.value;
+      _usbDacUnplugPauseRequested = false;
+      // A DAC unplug must not be undone by a transient focus regain.
+      _wasPlayingBeforeAudioInterruption = false;
+      _debugLog(
+        '[USB] DAC unplug observed ($reason): '
+        'wasPlaying=$_wasPlayingWhenUsbDacUnplugged',
+      );
+    }
+    unawaited(_pauseForUsbDacUnplugIfEnabled(reason: reason));
+  }
+
+  Future<void> _pauseForUsbDacUnplugIfEnabled({required String reason}) async {
+    if (_usbDacUnplugPauseRequested) return;
+    final enabled = await _appPreferencesService.getPauseOnUsbDacDisconnect();
+    if (!enabled) return;
+    if (!_usbDacUnplugActive) return; // DAC re-attached while we asked
+    if (!isPlayingNotifier.value) return; // already paused: stay paused
+    if (_usbDacUnplugPauseRequested) return;
+    _usbDacUnplugPauseRequested = true;
+    await _pauseForUsbFallback(reason: reason);
+  }
+
+  /// Pauses the live engine immediately (outside the playback queue) so a USB
+  /// fallback never blips on the speaker while the engine switch is in flight.
+  /// Clears pending focus auto-resume so nothing restarts playback later.
+  Future<void> _pauseForUsbFallback({required String reason}) async {
+    _wasPlayingBeforeAudioInterruption = false;
+    if (!isPlayingNotifier.value) return;
+    _debugLog('[USB] Pausing playback for USB fallback ($reason)');
+    try {
+      await _pauseInternal();
+    } catch (e) {
+      _debugLog('[USB] Pause for USB fallback failed: $e');
+    }
+  }
+
+  void _endUsbDacUnplugWindow(String reason) {
+    if (!_usbDacUnplugActive && !_usbDacUnplugPauseRequested) return;
+    _usbDacUnplugActive = false;
+    _wasPlayingWhenUsbDacUnplugged = false;
+    _usbDacUnplugPauseRequested = false;
+    _debugLog('[USB] Unplug window closed ($reason)');
   }
 
   /// Push the user's codec preference to the active A2DP device when codec
@@ -1542,6 +1695,8 @@ class PlayerService {
             initialPosition: capturedPosition > Duration.zero
                 ? capturedPosition
                 : positionNotifier.value,
+            // An unplug that lands mid-restore must not play on the fallback.
+            autoResumeAfterFallback: !_usbDacUnplugActive,
           );
           if (!recovered) rethrow;
         }
@@ -2168,6 +2323,8 @@ class PlayerService {
   /// is playing, re-attaches playback to the exclusive path.
   Future<bool> retryDirectUsbForCurrentDevice() async {
     if (!Platform.isAndroid) return false;
+    // Explicit user request: a previous unplug suppression no longer applies.
+    _endUsbDacUnplugWindow('explicit direct USB retry');
     await _sessionManager.retryExperimentalUsbForCurrentDevice();
     if (_sessionManager.selectedMode != AudioEngineType.usbDacExperimental) {
       return false;
@@ -2429,6 +2586,14 @@ class PlayerService {
   }
 
   Future<void> _resumeAfterAudioInterruption() async {
+    if (_usbDacUnplugActive) {
+      _debugLog(
+        '[AudioFocus] Auto-resume suppressed: USB DAC was unplugged; '
+        'waiting for an explicit play request',
+      );
+      _wasPlayingBeforeAudioInterruption = false;
+      return;
+    }
     // The audio session may have been deactivated while we were paused
     // (e.g. by a route change or by the system). Re-activate it before
     // attempting to resume the Rust engine.
@@ -2443,6 +2608,9 @@ class PlayerService {
         initialPosition: capturedPosition > Duration.zero
             ? capturedPosition
             : positionNotifier.value,
+        // A DAC unplug that lands mid-resume must not auto-play on the
+        // fallback route.
+        autoResumeAfterFallback: !_usbDacUnplugActive,
       );
       if (recovered) {
         return;
@@ -3615,13 +3783,19 @@ class PlayerService {
         _midStreamUsbFallbackActive = true;
         final song = currentSongNotifier.value;
         final position = _lastPlaybackState?.position ?? Duration.zero;
+        // Snapshot the user-visible playback intent synchronously, before any
+        // await: the async fallback below must never start a paused session.
+        final wasPlayingAtFailure = isPlayingNotifier.value;
+        final wasPlayingAtUnplug = _wasPlayingWhenUsbDacUnplugged;
+        final usbDacUnplugActive = _usbDacUnplugActive;
         unawaited(() async {
           try {
-            // Mid-stream USB error = DAC lost while playing. Respect the
-            // pause-on-disconnect pref instead of resuming on the fallback.
+            // Mid-stream USB error = DAC lost. Respect the pause-on-disconnect
+            // pref instead of resuming on the fallback, and never resume a
+            // session the user paused.
             final pauseOnDisconnect = await _appPreferencesService
                 .getPauseOnUsbDacDisconnect();
-            var autoResumeAfterFallback = !pauseOnDisconnect;
+            var dacStillAttached = false;
             if (pauseOnDisconnect) {
               // "USB DAC disconnected" is often a lie (e.g. Samsung One UI
               // suspends userspace USB transfers when the app is backgrounded
@@ -3629,16 +3803,28 @@ class PlayerService {
               // session first so listDevices() does a real UsbManager query,
               // then only honour pause-on-disconnect for a genuine unplug.
               await _uac2Service.releaseAndroidDirectUsbRuntime();
-              final stillAttached =
-                  (await _uac2Service.listDevices()).isNotEmpty;
-              if (stillAttached) {
-                _debugLog(
-                  '[Engine] Direct USB failed but DAC still attached; '
-                  'treating as transient USB suspension, auto-resuming on '
-                  'fallback',
+              dacStillAttached = (await _uac2Service.listDevices()).isNotEmpty;
+            }
+            final autoResumeAfterFallback =
+                shouldAutoResumeAfterUsbEngineFallback(
+                  wasPlayingAtFailure: wasPlayingAtFailure,
+                  wasPlayingAtUnplug: wasPlayingAtUnplug,
+                  usbDacUnplugActive: usbDacUnplugActive,
+                  pauseOnDisconnect: pauseOnDisconnect,
+                  dacStillAttached: dacStillAttached,
                 );
-                autoResumeAfterFallback = true;
-              }
+            if (dacStillAttached && autoResumeAfterFallback) {
+              _debugLog(
+                '[Engine] Direct USB failed but DAC still attached; '
+                'treating as transient USB suspension, auto-resuming on '
+                'fallback',
+              );
+            }
+            if (!autoResumeAfterFallback) {
+              _debugLog(
+                '[Engine] Direct USB failed with the session paused; '
+                'falling back without resuming playback',
+              );
             }
             final fellBack = await _handleDirectUsbStartupRefusal(
               message,
@@ -3664,6 +3850,9 @@ class PlayerService {
         final position = _lastPlaybackState?.position ?? Duration.zero;
         final failedGen = _playbackGeneration;
         final failedSongId = song?.id;
+        // A paused session (or a session whose DAC was just unplugged) must
+        // not be replayed on the replacement engine either.
+        final resumePlayback = isPlayingNotifier.value && !_usbDacUnplugActive;
         unawaited(() async {
           final revived = await _handleDeadRustEngineFailure(
             StateError(message),
@@ -3671,6 +3860,7 @@ class PlayerService {
             initialPosition: position,
             failedGen: failedGen,
             failedSongId: failedSongId,
+            resumePlayback: resumePlayback,
           );
           if (!revived) {
             await _refreshAudioOutputDiagnostics(
@@ -5363,6 +5553,8 @@ class PlayerService {
     PlaybackContext? context,
   }) {
     _debugLog('[UI] tap(${song.id})');
+    // Explicit user play: the DAC-unplug auto-resume suppression is lifted.
+    _endUsbDacUnplugWindow('explicit play request');
     final gen = ++_playbackGeneration;
     if (context != null) setPlaybackContext(context);
 
@@ -5637,6 +5829,9 @@ class PlayerService {
         e,
         song: song,
         initialPosition: Duration.zero,
+        // The user tapped play, but if the DAC vanished mid-startup the
+        // unplug window vetoes auto-play on the fallback route.
+        autoResumeAfterFallback: !_usbDacUnplugActive,
       );
       if (recovered) {
         return;
@@ -5647,6 +5842,7 @@ class PlayerService {
         initialPosition: Duration.zero,
         failedGen: _playbackGeneration,
         failedSongId: song.id,
+        resumePlayback: !_usbDacUnplugActive,
       );
       if (rustRecovered) {
         return;
@@ -5928,6 +6124,8 @@ class PlayerService {
   }
 
   Future<void> resume() {
+    // Explicit user resume: the DAC-unplug auto-resume suppression is lifted.
+    _endUsbDacUnplugWindow('explicit resume request');
     return _enqueuePlaybackRequest(_resumeInternal, label: 'resume');
   }
 
@@ -6109,6 +6307,12 @@ class PlayerService {
       }
     }
 
+    if (!autoResumeAfterFallback) {
+      // Pause BEFORE the fallback engine switch so nothing blips on the
+      // speaker and the replacement engine starts (and stays) paused.
+      await _pauseForUsbFallback(reason: 'direct USB fallback: $message');
+    }
+
     await _uac2Service.markAndroidDirectUsbFallback(message);
     await _uac2Service.releaseAndroidDirectUsbRuntime();
     await _rustAudioService.setHighResMode(false);
@@ -6165,6 +6369,7 @@ class PlayerService {
     required Duration initialPosition,
     int? failedGen,
     String? failedSongId,
+    bool resumePlayback = true,
   }) async {
     if (!Platform.isAndroid || !_usingRustBackend) {
       return false;
@@ -6222,6 +6427,17 @@ class PlayerService {
           );
           return true;
         }
+        if (!resumePlayback) {
+          // The session was paused when the engine died: recover the engine
+          // but never start playback on its behalf. The user resumes manually.
+          if (isPlayingNotifier.value) {
+            isPlayingNotifier.value = false;
+          }
+          _debugLog(
+            '[Engine] dead-rust recovery left paused (session was paused)',
+          );
+          return true;
+        }
         await _prepareImmediatePlaybackAsset(song);
         await _runWithSuppressedSequenceStateUpdates(() async {
           await _playbackManager.playTrack(
@@ -6248,6 +6464,10 @@ class PlayerService {
     _debugLog(
       '[PlayerService] togglePlayPause called, isPlaying=${!shouldPlay}, intent to play=$shouldPlay',
     );
+    if (shouldPlay) {
+      // Explicit user play intent: lift the DAC-unplug auto-resume suppression.
+      _endUsbDacUnplugWindow('explicit play intent (toggle)');
+    }
     return _enqueuePlaybackRequest(() async {
       _debugLog(
         '[PlayerService] togglePlayPause executing, intent shouldPlay=$shouldPlay, current isPlaying=${isPlayingNotifier.value}',
@@ -6276,6 +6496,9 @@ class PlayerService {
           initialPosition: capturedPosition > Duration.zero
               ? capturedPosition
               : positionNotifier.value,
+          // Only a play intent may auto-resume; a failed pause must not, and
+          // neither may anything while the DAC-unplug window is open.
+          autoResumeAfterFallback: shouldPlay && !_usbDacUnplugActive,
         );
         if (recovered) {
           return;
@@ -6329,6 +6552,8 @@ class PlayerService {
 
   Future<void> next() {
     _debugLog('[PlayerService] next() called');
+    // Explicit user navigation: the DAC-unplug auto-resume suppression is lifted.
+    _endUsbDacUnplugWindow('explicit next request');
     final gen = ++_playbackGeneration;
 
     // Immediately cancel in-flight network downloads & proxy sessions
@@ -6454,6 +6679,8 @@ class PlayerService {
 
   Future<void> previous({bool allowRestart = true}) {
     _debugLog('[PlayerService] previous() called (allowRestart=$allowRestart)');
+    // Explicit user navigation: the DAC-unplug auto-resume suppression is lifted.
+    _endUsbDacUnplugWindow('explicit previous request');
     final gen = ++_playbackGeneration;
 
     // Pause immediately so the current song stops the instant the button is
