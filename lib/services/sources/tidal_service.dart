@@ -2214,6 +2214,13 @@ class TidalService implements NetworkSourceService {
         query: query,
       );
     } catch (e) {
+      // A 429 is not "V2 unavailable": TIDAL is explicitly asking us to stop.
+      // Falling back would fire three more V1 requests (each with its own
+      // 429 retry chain) precisely when the server is rate-limiting, and the
+      // resulting empty feed would hide the 429 from TidalErrorWidget. Let
+      // the exception reach the UI so it can show the rate-limit state and
+      // a retry button.
+      if (_isTidalRateLimitFailure(e)) rethrow;
       devLog(
         '[Tidal] v2 home feed failed ($e), falling back to v1 multi-endpoints...',
       );
@@ -2258,6 +2265,9 @@ class TidalService implements NetworkSourceService {
           query: {'deviceType': 'BROWSER', 'locale': 'en_US'},
         );
       } catch (e) {
+        // Same rule as the V2 path: never hide a rate-limit behind a partial
+        // or empty feed. Surface it so the UI can back off and offer retry.
+        if (_isTidalRateLimitFailure(e)) rethrow;
         devLog('[Tidal] v1 $path failed: $e');
         return null;
       }
@@ -3717,6 +3727,17 @@ class TidalRateLimitedException extends TidalException {
             ? 'Too many TIDAL requests. Try again in ~$retryAfterSeconds seconds.'
             : 'Too many TIDAL requests. Wait a moment and try again.',
       );
+}
+
+/// Whether [error] is, or wraps, a TIDAL rate-limit failure.
+///
+/// The raw-body helpers throw [TidalRateLimitedException] directly. Higher
+/// layers may wrap it in a generic exception, so also recognize the canonical
+/// message rather than silently treating it as a transport failure.
+bool _isTidalRateLimitFailure(Object error) {
+  if (error is TidalRateLimitedException) return true;
+  final message = error is TidalException ? error.message : error.toString();
+  return message.contains('Too many TIDAL requests');
 }
 
 /// Resolved stream metadata and endpoint details for a TIDAL track.
