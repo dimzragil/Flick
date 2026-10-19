@@ -350,6 +350,47 @@ Future<QueueEndRadioOutcome> runRadioAutoplayForQueueEnd({
   return QueueEndRadioOutcome.started;
 }
 
+/// Outcome of a queue-item tap applied under the playback-generation guard.
+enum QueueNavigationOutcome {
+  /// The generation was still current; [apply] ran.
+  started,
+
+  /// A newer navigation (next/previous/play/another tap) claimed the
+  /// playback generation before the queued tap ran. Nothing was applied.
+  superseded,
+
+  /// The tapped index no longer exists in the queue/list.
+  invalidIndex,
+}
+
+/// Applies a queue-item tap only while [generation] is still current.
+///
+/// `playFromQueueIndex` / `playFromUpNextIndex` bump the playback generation
+/// synchronously at tap time — the same way `next()` / `previous()` do — and
+/// enqueue this work. If the user navigates again before the queued action
+/// runs, the generation has moved on and the tap is dropped without mutating
+/// queue or playback state. Without the synchronous bump, a late tap could
+/// overwrite the newer selection while the newer request was discarded as
+/// superseded, leaving the UI and the engine on different tracks.
+///
+/// Extracted so the guard can be tested without booting the audio engine.
+@visibleForTesting
+Future<QueueNavigationOutcome> runQueueNavigationForGeneration({
+  required int generation,
+  required int Function() currentGeneration,
+  required bool Function() hasValidTarget,
+  required Future<void> Function() apply,
+}) async {
+  if (generation != currentGeneration()) {
+    return QueueNavigationOutcome.superseded;
+  }
+  if (!hasValidTarget()) {
+    return QueueNavigationOutcome.invalidIndex;
+  }
+  await apply();
+  return QueueNavigationOutcome.started;
+}
+
 const Duration _audioPathTransitionLogWindow = Duration(minutes: 1);
 const int _audioPathTransitionLogMaxPerWindow = 30;
 
@@ -7365,27 +7406,43 @@ class PlayerService {
   }
 
   Future<void> playFromQueueIndex(int index) {
+    // Explicit user navigation: claim the playback generation synchronously
+    // so a later next()/previous()/play() (or another tap) supersedes this
+    // queued action instead of racing it.
+    final generation = ++_playbackGeneration;
     return _enqueuePlaybackRequest(
-      () => _playFromQueueIndexInternal(index),
+      () => _playFromQueueIndexInternal(index, generation: generation),
       label: 'playFromQueueIndex',
     );
   }
 
-  Future<void> _playFromQueueIndexInternal(int index) async {
-    if (index < 0 || index >= _queuedEntries.length) return;
-    final entry = _queuedEntries.removeAt(index);
-    final playlistIndex = _findPlaylistIndexForQueueEntry(entry.id);
-    if (playlistIndex != -1) {
-      _playlistQueueEntryIds[playlistIndex] = null;
-      _notifyQueueChanged();
-      _setCurrentIndex(playlistIndex);
-      await _playSongAtCurrentIndex();
-      return;
-    }
+  Future<void> _playFromQueueIndexInternal(
+    int index, {
+    required int generation,
+  }) async {
+    final outcome = await runQueueNavigationForGeneration(
+      generation: generation,
+      currentGeneration: () => _playbackGeneration,
+      hasValidTarget: () => index >= 0 && index < _queuedEntries.length,
+      apply: () async {
+        final entry = _queuedEntries.removeAt(index);
+        final playlistIndex = _findPlaylistIndexForQueueEntry(entry.id);
+        if (playlistIndex != -1) {
+          _playlistQueueEntryIds[playlistIndex] = null;
+          _notifyQueueChanged();
+          _setCurrentIndex(playlistIndex);
+          await _playSongAtCurrentIndex(generation: generation);
+          return;
+        }
 
-    _notifyQueueChanged();
-    _notifyUpNextChanged();
-    await _playInternal(entry.song);
+        _notifyQueueChanged();
+        _notifyUpNextChanged();
+        await _playInternal(entry.song, generation: generation);
+      },
+    );
+    if (outcome == QueueNavigationOutcome.superseded) {
+      _debugLog('[PlayerService] playFromQueueIndex superseded');
+    }
   }
 
   Future<void> clearQueue() async {
@@ -7488,20 +7545,35 @@ class PlayerService {
   }
 
   Future<void> playFromUpNextIndex(int index) {
+    // Same synchronous generation claim as playFromQueueIndex: the tap is
+    // explicit navigation and must supersede anything queued before it.
+    final generation = ++_playbackGeneration;
     return _enqueuePlaybackRequest(
-      () => _playFromUpNextIndexInternal(index),
+      () => _playFromUpNextIndexInternal(index, generation: generation),
       label: 'playFromUpNextIndex',
     );
   }
 
-  Future<void> _playFromUpNextIndexInternal(int index) async {
+  Future<void> _playFromUpNextIndexInternal(
+    int index, {
+    required int generation,
+  }) async {
+    // Resolve the target once so validation and application always refer to
+    // the same slot (this runs synchronously inside the queued action).
     final playlistIndex = _currentIndex + 1 + index;
-    if (playlistIndex < 0 || playlistIndex >= _playlist.length) {
-      return;
+    final outcome = await runQueueNavigationForGeneration(
+      generation: generation,
+      currentGeneration: () => _playbackGeneration,
+      hasValidTarget: () =>
+          playlistIndex >= 0 && playlistIndex < _playlist.length,
+      apply: () async {
+        _setCurrentIndex(playlistIndex);
+        await _playSongAtCurrentIndex(generation: generation);
+      },
+    );
+    if (outcome == QueueNavigationOutcome.superseded) {
+      _debugLog('[PlayerService] playFromUpNextIndex superseded');
     }
-
-    _setCurrentIndex(playlistIndex);
-    await _playSongAtCurrentIndex();
   }
 
   Future<void> moveQueueItemToNext(int index) async {
