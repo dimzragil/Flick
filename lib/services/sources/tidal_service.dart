@@ -71,6 +71,7 @@ class TidalService implements NetworkSourceService {
     Duration dashSegmentHeaderTimeout = const Duration(seconds: 15),
     Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
     int dashSegmentAttempts = 3,
+    Duration resolvedStreamTtl = const Duration(minutes: 30),
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
        _networkCache = networkCache,
@@ -79,7 +80,8 @@ class TidalService implements NetworkSourceService {
        _urlOpener = urlOpener ?? _defaultOpenUrl,
        _dashSegmentHeaderTimeout = dashSegmentHeaderTimeout,
        _dashSegmentIdleTimeout = dashSegmentIdleTimeout,
-       _dashSegmentAttempts = dashSegmentAttempts;
+       _dashSegmentAttempts = dashSegmentAttempts,
+       _resolvedStreamTtl = resolvedStreamTtl;
 
   static TidalService instance = TidalService._();
 
@@ -95,6 +97,7 @@ class TidalService implements NetworkSourceService {
     Duration dashSegmentHeaderTimeout = const Duration(seconds: 15),
     Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
     int dashSegmentAttempts = 3,
+    Duration resolvedStreamTtl = const Duration(minutes: 30),
   }) => TidalService._(
     client: client,
     songRepository: songRepository,
@@ -105,6 +108,7 @@ class TidalService implements NetworkSourceService {
     dashSegmentHeaderTimeout: dashSegmentHeaderTimeout,
     dashSegmentIdleTimeout: dashSegmentIdleTimeout,
     dashSegmentAttempts: dashSegmentAttempts,
+    resolvedStreamTtl: resolvedStreamTtl,
   );
 
   // ponytail: Tidal desktop/TV app OAuth2 client credentials, scraped from the
@@ -154,6 +158,15 @@ class TidalService implements NetworkSourceService {
   static const Duration _dashSegmentRetryBaseDelay = Duration(
     milliseconds: 400,
   );
+
+  /// How long a resolved stream (CDN url / DASH manifest) may be reused.
+  ///
+  /// TIDAL signs stream URLs with a limited lifetime. Reusing a resolution
+  /// avoids the duplicate `playbackinfopostpaywall` call made when playback
+  /// starts, but must not outlive the signed URL. Thirty minutes keeps a
+  /// comfortable margin while still serving replays and descriptor passes.
+  /// Overridable in tests via [create].
+  final Duration _resolvedStreamTtl;
 
   /// Max entries for in-memory caches before oldest-first eviction.
   /// Prevents unbounded growth during long listening sessions.
@@ -230,6 +243,34 @@ class TidalService implements NetworkSourceService {
     final codec = trackId == null ? null : _resolvedStreams[trackId]?.codec;
     if (codec == null || codec.isEmpty) return null;
     return codec.toUpperCase();
+  }
+
+  /// A resolved stream that is still safe to reuse for [trackId], or null.
+  ///
+  /// Entries expire with [_resolvedStreamTtl] because TIDAL signs CDN URLs
+  /// with a limited lifetime. They are also invalidated when the catalog
+  /// quality hint for the track changes: the hint controls which tier the
+  /// resolution cascade starts at, so a cached LOSSLESS stream must not be
+  /// served after the catalog starts advertising HI_RES (or vice versa).
+  TidalStreamResolution? _reusableResolution(String trackId) {
+    final cached = _resolvedStreams[trackId];
+    if (cached == null) return null;
+    final resolvedAt = cached.resolvedAt;
+    if (resolvedAt == null) return null;
+    final age = DateTime.now().difference(resolvedAt);
+    if (age.isNegative || age >= _resolvedStreamTtl) {
+      _resolvedStreams.remove(trackId);
+      return null;
+    }
+
+    final currentHint = _tierStartHintByTrackId[trackId];
+    if (currentHint != null &&
+        cached.tierHint != null &&
+        currentHint != cached.tierHint) {
+      _resolvedStreams.remove(trackId);
+      return null;
+    }
+    return cached;
   }
 
   /// Cancel in-flight download for a specific track.
@@ -1273,7 +1314,7 @@ class TidalService implements NetworkSourceService {
     // again to start playback. Reuse the active localhost session so that
     // second pass does not issue another playback-info API request.
     final activeBtsUrl = TidalStreamProxy.instance.activeBtsStreamUrl(remoteId);
-    final activeResolution = _resolvedStreams[remoteId];
+    final activeResolution = _reusableResolution(remoteId);
     if (activeBtsUrl != null && activeResolution != null) {
       return (
         url: activeBtsUrl,
@@ -1667,6 +1708,13 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     String trackId,
   ) async {
+    // PlayerService resolves once for display metadata and Rust resolves
+    // again to start playback. Reuse the first resolution (while the signed
+    // URL is still fresh) instead of paying for a second
+    // `playbackinfopostpaywall` call. This applies to both DASH and BTS.
+    final cached = _reusableResolution(trackId);
+    if (cached != null) return cached;
+
     const qualityTiers = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
     Object? lastError;
 
@@ -1729,6 +1777,8 @@ class TidalService implements NetworkSourceService {
               audioQuality: rawQuality,
               codec: rawCodec ?? dashInfo.codec ?? 'flac',
               bitrate: effectiveBandwidth,
+              resolvedAt: DateTime.now(),
+              tierHint: _tierStartHintByTrackId[trackId],
             );
             _resolvedStreams[trackId] = res;
             _evictOldestIfNeeded(_resolvedStreams);
@@ -1784,6 +1834,8 @@ class TidalService implements NetworkSourceService {
             bitrate: btsBitrate != null && btsBitrate > 10000
                 ? (btsBitrate / 1000).round()
                 : btsBitrate,
+            resolvedAt: DateTime.now(),
+            tierHint: _tierStartHintByTrackId[trackId],
           );
           _resolvedStreams[trackId] = res;
           _evictOldestIfNeeded(_resolvedStreams);
@@ -3755,6 +3807,14 @@ class TidalStreamResolution {
 
   final int? bitrate;
 
+  /// When this resolution was fetched. Used to expire signed CDN URLs.
+  final DateTime? resolvedAt;
+
+  /// Catalog quality hint in effect when this resolution was fetched.
+  /// A change invalidates the cached resolution because it changes which
+  /// tier the quality cascade started from.
+  final String? tierHint;
+
   int? get effectiveBitrate {
     if (bitrate != null && bitrate! > 0) return bitrate;
     if (dashInfo?.bandwidth != null) {
@@ -3778,6 +3838,8 @@ class TidalStreamResolution {
     required this.audioQuality,
     this.codec,
     this.bitrate,
+    this.resolvedAt,
+    this.tierHint,
   });
 
   String get resolutionString {
