@@ -54,13 +54,16 @@ void main() {
   testWidgets('motionEnabled false keeps AnimatedAlbumArt on Ken Burns', (
     tester,
   ) async {
+    final playing = ValueNotifier<bool>(false);
+    addTearDown(playing.dispose);
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: AnimatedAlbumArt(
             albumName: 'Midnights',
             artistName: 'Taylor Swift',
             motionEnabled: false,
+            playingOverride: playing,
           ),
         ),
       ),

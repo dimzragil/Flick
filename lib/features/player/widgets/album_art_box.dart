@@ -449,159 +449,175 @@ class _AlbumArtBoxState extends ConsumerState<AlbumArtBox>
         child: SizedBox(
           width: resolvedSize,
           height: resolvedSize,
-          child: AnimatedBuilder(
-            animation: Listenable.merge([
-              _morphController,
-              _spinController,
-              _seekAngleController,
-              _outlineController,
-              _userRotationOffset,
-            ]),
-            builder: (context, _) {
-              final rawT = Curves.easeInOutCubic.transform(
-                _morphController.value,
-              );
-              final t = rawT.isFinite ? rawT.clamp(0.0, 1.0) : 0.0;
-              final glass = (1.0 - t).clamp(0.0, 1.0);
-              final rawAngle =
-                  _spinController.value * 2 * math.pi * t +
-                  _seekAngleController.value +
-                  _userRotationOffset.value;
-              final spinAngle = rawAngle.isFinite ? rawAngle : 0.0;
+          // Perf (2026-10-19): the morph/vinyl spin animates every frame
+          // while playing; keep those repaints inside the art box's own
+          // layer so they don't recomposite the ambient/full-player stack
+          // behind it.
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([
+                _morphController,
+                _spinController,
+                _seekAngleController,
+                _outlineController,
+                _userRotationOffset,
+              ]),
+              builder: (context, _) {
+                final rawT = Curves.easeInOutCubic.transform(
+                  _morphController.value,
+                );
+                final t = rawT.isFinite ? rawT.clamp(0.0, 1.0) : 0.0;
+                final glass = (1.0 - t).clamp(0.0, 1.0);
+                final rawAngle =
+                    _spinController.value * 2 * math.pi * t +
+                    _seekAngleController.value +
+                    _userRotationOffset.value;
+                final spinAngle = rawAngle.isFinite ? rawAngle : 0.0;
 
-              final artSize = resolvedSize - (resolvedSize - labelSize) * t;
-              final artFramePadding = framePadding * glass;
-              final artOuterRadius =
-                  outerRadius + (labelRadius - outerRadius) * t;
-              final artInnerRadius =
-                  innerRadius + (labelRadius - innerRadius) * t;
+                final artSize = resolvedSize - (resolvedSize - labelSize) * t;
+                final artFramePadding = framePadding * glass;
+                final artOuterRadius =
+                    outerRadius + (labelRadius - outerRadius) * t;
+                final artInnerRadius =
+                    innerRadius + (labelRadius - innerRadius) * t;
 
-              return Transform.rotate(
-                angle: spinAngle,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (t > 0.001)
-                      Opacity(
-                        opacity: t,
-                        child: SizedBox(
-                          width: resolvedSize,
-                          height: resolvedSize,
-                          child: CustomPaint(
-                            painter: _VinylDiscPainter(labelRatio: _labelRatio),
+                return Transform.rotate(
+                  angle: spinAngle,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (t > 0.001)
+                        Opacity(
+                          opacity: t,
+                          child: SizedBox(
+                            width: resolvedSize,
+                            height: resolvedSize,
+                            child: CustomPaint(
+                              painter: _VinylDiscPainter(
+                                labelRatio: _labelRatio,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    widget.showFrame
-                        ? Container(
-                            width: artSize,
-                            height: artSize,
-                            padding: EdgeInsets.all(artFramePadding),
-                            decoration: BoxDecoration(
+                      widget.showFrame
+                          ? Container(
+                              width: artSize,
+                              height: artSize,
+                              padding: EdgeInsets.all(artFramePadding),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  artOuterRadius,
+                                ),
+                                gradient: glass > 0.01
+                                    ? LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          Colors.white.withValues(
+                                            alpha: 0.16 * glass,
+                                          ),
+                                          Colors.white.withValues(
+                                            alpha: 0.06 * glass,
+                                          ),
+                                          Colors.white.withValues(
+                                            alpha: 0.02 * glass,
+                                          ),
+                                        ],
+                                        stops: const [0.0, 0.4, 1.0],
+                                      )
+                                    : null,
+                                border: Border.all(
+                                  color: glass > 0.5
+                                      ? Colors.white.withValues(
+                                          alpha: 0.12 * glass,
+                                        )
+                                      : Colors.black.withValues(
+                                          alpha: 0.28 * t,
+                                        ),
+                                  width: 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(
+                                      alpha: 0.32 * (0.35 + 0.65 * glass),
+                                    ),
+                                    blurRadius:
+                                        shadowBlur * (0.45 + 0.55 * glass),
+                                    offset: Offset(
+                                      0,
+                                      shadowOffsetY * (0.25 + 0.75 * glass),
+                                    ),
+                                  ),
+                                  if (glass > 0.05)
+                                    BoxShadow(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.06 * glass,
+                                      ),
+                                      blurRadius: 1,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  artInnerRadius,
+                                ),
+                                child: _buildArtContent(
+                                  iconSize: iconSize,
+                                  t: t,
+                                  motionEnabled: motionEnabled,
+                                ),
+                              ),
+                            )
+                          : ClipRRect(
                               borderRadius: BorderRadius.circular(
                                 artOuterRadius,
                               ),
-                              gradient: glass > 0.01
-                                  ? LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        Colors.white.withValues(
-                                          alpha: 0.16 * glass,
-                                        ),
-                                        Colors.white.withValues(
-                                          alpha: 0.06 * glass,
-                                        ),
-                                        Colors.white.withValues(
-                                          alpha: 0.02 * glass,
-                                        ),
-                                      ],
-                                      stops: const [0.0, 0.4, 1.0],
-                                    )
-                                  : null,
-                              border: Border.all(
-                                color: glass > 0.5
-                                    ? Colors.white.withValues(
-                                        alpha: 0.12 * glass,
-                                      )
-                                    : Colors.black.withValues(alpha: 0.28 * t),
-                                width: 1,
+                              child: SizedBox(
+                                width: artSize,
+                                height: artSize,
+                                child: _buildArtContent(
+                                  iconSize: iconSize,
+                                  t: t,
+                                  motionEnabled: motionEnabled,
+                                ),
                               ),
+                            ),
+                      if (t > 0.35)
+                        IgnorePointer(
+                          child: Container(
+                            width: resolvedSize * 0.045,
+                            height: resolvedSize * 0.045,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(
+                                0xFF050505,
+                              ).withValues(alpha: t),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withValues(
-                                    alpha: 0.32 * (0.35 + 0.65 * glass),
+                                    alpha: 0.55 * t,
                                   ),
-                                  blurRadius:
-                                      shadowBlur * (0.45 + 0.55 * glass),
-                                  offset: Offset(
-                                    0,
-                                    shadowOffsetY * (0.25 + 0.75 * glass),
-                                  ),
+                                  blurRadius: 2,
+                                  offset: const Offset(0, 0.5),
                                 ),
-                                if (glass > 0.05)
-                                  BoxShadow(
-                                    color: Colors.white.withValues(
-                                      alpha: 0.06 * glass,
-                                    ),
-                                    blurRadius: 1,
-                                    offset: const Offset(0, 1),
-                                  ),
                               ],
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(
-                                artInnerRadius,
-                              ),
-                              child: _buildArtContent(
-                                iconSize: iconSize,
-                                t: t,
-                                motionEnabled: motionEnabled,
-                              ),
-                            ),
-                          )
-                        : ClipRRect(
-                            borderRadius: BorderRadius.circular(artOuterRadius),
-                            child: SizedBox(
-                              width: artSize,
-                              height: artSize,
-                              child: _buildArtContent(
-                                iconSize: iconSize,
-                                t: t,
-                                motionEnabled: motionEnabled,
-                              ),
-                            ),
-                          ),
-                    if (t > 0.35)
-                      IgnorePointer(
-                        child: Container(
-                          width: resolvedSize * 0.045,
-                          height: resolvedSize * 0.045,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF050505).withValues(alpha: t),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.55 * t),
-                                blurRadius: 2,
-                                offset: const Offset(0, 0.5),
-                              ),
-                            ],
                           ),
                         ),
-                      ),
-                    if (_isVinyl && _outlineController.value > 0)
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: _VinylOutlinePainter(
-                            progress: _outlineController.value,
+                      if (_isVinyl && _outlineController.value > 0)
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _VinylOutlinePainter(
+                              progress: _outlineController.value,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              );
-            },
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),

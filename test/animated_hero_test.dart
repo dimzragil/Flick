@@ -45,9 +45,16 @@ void main() {
   testWidgets('AnimatedAlbumArt builds and ticks without error', (
     tester,
   ) async {
+    final playing = ValueNotifier<bool>(false);
+    addTearDown(playing.dispose);
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: AnimatedAlbumArt(dominantColor: Colors.red)),
+      MaterialApp(
+        home: Scaffold(
+          body: AnimatedAlbumArt(
+            dominantColor: Colors.red,
+            playingOverride: playing,
+          ),
+        ),
       ),
     );
     expect(find.byType(AnimatedAlbumArt), findsOneWidget);

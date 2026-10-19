@@ -205,7 +205,11 @@ class AppPreferences {
     this.autoFocusSearch = false,
     this.searchPlaybackMode = 'results',
     this.refreshRateMode = 'high',
-    this.visualizerEnabled = true,
+    // Perf (2026-10-19): the visualizer is a per-frame CustomPainter running
+    // in the mini player/full player while audio plays (phantom always-on
+    // rasters); default off — users can re-enable in visualizer settings.
+    // Stored preferences always win this fallback.
+    this.visualizerEnabled = false,
     this.orbitRadiusRatio = 1.0,
     this.orbitCenterOffsetRatio = -0.5,
     this.orbitCenterYRatio = 0.42,
@@ -759,7 +763,7 @@ class AppPreferencesService {
       autoFocusSearch: prefs.getBool(_autoFocusSearchKey) ?? false,
       searchPlaybackMode: prefs.getString(_searchPlaybackModeKey) ?? 'results',
       refreshRateMode: prefs.getString(_refreshRateModeKey) ?? 'high',
-      visualizerEnabled: prefs.getBool(_visualizerEnabledKey) ?? true,
+      visualizerEnabled: prefs.getBool(_visualizerEnabledKey) ?? false,
       orbitRadiusRatio: prefs.getDouble(_orbitRadiusRatioKey) ?? 1.0,
       orbitCenterOffsetRatio:
           prefs.getDouble(_orbitCenterOffsetRatioKey) ?? -0.5,
@@ -1724,7 +1728,7 @@ class AppPreferencesService {
 
   Future<bool> getVisualizerEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_visualizerEnabledKey) ?? true;
+    return prefs.getBool(_visualizerEnabledKey) ?? false;
   }
 
   Future<void> setVisualizerEnabled(bool value) async {
