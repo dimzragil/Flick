@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/src/rust/frb_generated.dart';
 import 'package:flick/app/app.dart';
 import 'package:flick/data/database.dart';
+import 'package:flick/services/audio_cache_maintenance.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/services/player_service.dart';
@@ -23,9 +24,7 @@ import 'package:flick/src/rust/api/logging.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   await AppLog.instance.initializePersistence();
 
@@ -49,12 +48,16 @@ Future<void> main() async {
 
     await Database.init();
 
-    final externalPlaybackHandled = await ExternalPlaybackService().initialize();
+    final externalPlaybackHandled = await ExternalPlaybackService()
+        .initialize();
     if (!externalPlaybackHandled) {
       await _restoreLastPlayedSong();
     }
   } catch (error, stack) {
-    AppLog.instance.add('Startup error: $error\n$stack', source: LogSource.crash);
+    AppLog.instance.add(
+      'Startup error: $error\n$stack',
+      source: LogSource.crash,
+    );
     debugPrint('Startup initialization failed: $error\n$stack');
     runApp(
       MaterialApp(
@@ -81,22 +84,27 @@ Future<void> main() async {
     return;
   }
 
-  runZonedGuarded(() {
-    runApp(const ProviderScope(child: FlickPlayerApp()));
+  runZonedGuarded(
+    () {
+      runApp(const ProviderScope(child: FlickPlayerApp()));
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_bootstrapAppAfterFirstFrame());
-    });
-  }, (error, stack) {
-    AppLog.instance.add('$error\n$stack', source: LogSource.zone);
-  });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_bootstrapAppAfterFirstFrame());
+      });
+    },
+    (error, stack) {
+      AppLog.instance.add('$error\n$stack', source: LogSource.zone);
+    },
+  );
 }
 
 void _subscribeRustLogs() {
   registerLogSink().listen(
     (msg) => AppLog.instance.add(msg, source: LogSource.rust),
-    onError: (Object e) =>
-        AppLog.instance.add('rust log stream error: $e', source: LogSource.rust),
+    onError: (Object e) => AppLog.instance.add(
+      'rust log stream error: $e',
+      source: LogSource.rust,
+    ),
   );
 }
 
@@ -118,9 +126,9 @@ Future<void> _bootstrapAppAfterFirstFrame() async {
     ),
   );
   unawaited(
-    Uac2Service.instance
-        .initializeAndroidRouteMonitoring()
-        .catchError((Object e) => devLog('USB route probe failed: $e')),
+    Uac2Service.instance.initializeAndroidRouteMonitoring().catchError(
+      (Object e) => devLog('USB route probe failed: $e'),
+    ),
   );
   unawaited(
     PlayerService().prepareForAppLaunch().catchError(
@@ -132,6 +140,7 @@ Future<void> _bootstrapAppAfterFirstFrame() async {
       (Object e) => devLog('Playback cache maintenance failed: $e'),
     ),
   );
+  unawaited(runAudioCacheOrphanCleanup());
 }
 
 Future<void> _setOptimalDisplayMode() async {

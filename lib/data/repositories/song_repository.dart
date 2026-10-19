@@ -175,16 +175,31 @@ class SongRepository {
     });
   }
 
+  /// Delete waveform/analysis cache rows for [songIds]. Must be called inside
+  /// a write transaction so cache and song rows disappear atomically.
+  Future<void> _deleteAudioCacheRows(Iterable<Id> songIds) async {
+    final ids = songIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return;
+    await _isar.songAudioCacheEntitys.deleteAll(ids);
+  }
+
   /// Delete a song by ID.
   Future<void> deleteSong(int id) async {
     await _isar.writeTxn(() async {
       await _isar.songEntitys.delete(id);
+      await _deleteAudioCacheRows([id]);
     });
   }
 
   /// Delete all songs for a specific folder.
   Future<void> deleteSongsForFolder(String folderUri) async {
     await _isar.writeTxn(() async {
+      final songIds = await _isar.songEntitys
+          .where()
+          .folderUriEqualTo(folderUri)
+          .idProperty()
+          .findAll();
+      await _deleteAudioCacheRows(songIds);
       await _isar.songEntitys.where().folderUriEqualTo(folderUri).deleteAll();
     });
   }
@@ -208,6 +223,12 @@ class SongRepository {
   /// Delete all songs synced from a network server.
   Future<void> deleteSongsForRemoteServer(int remoteServerId) async {
     await _isar.writeTxn(() async {
+      final songIds = await _isar.songEntitys
+          .where()
+          .remoteServerIdEqualTo(remoteServerId)
+          .idProperty()
+          .findAll();
+      await _deleteAudioCacheRows(songIds);
       await _isar.songEntitys
           .where()
           .remoteServerIdEqualTo(remoteServerId)
@@ -234,25 +255,37 @@ class SongRepository {
     if (uniquePaths.isEmpty) return;
 
     await _isar.writeTxn(() async {
+      final songIds = <Id>{};
       for (final path in uniquePaths) {
-        await _isar.songEntitys
-            .where()
-            .filePathEqualToAnyStartOffsetMs(path)
-            .deleteAll();
+        songIds.addAll(
+          await _isar.songEntitys
+              .where()
+              .filePathEqualToAnyStartOffsetMs(path)
+              .idProperty()
+              .findAll(),
+        );
       }
+      await _deleteAudioCacheRows(songIds);
+      await _isar.songEntitys.deleteAll(songIds.toList(growable: false));
     });
   }
 
   /// Delete raw (non-CUE) songs by file path.
   Future<void> deleteRawSongsByPath(List<String> paths) async {
-    final uniquePaths = paths.where((path) => path.isNotEmpty).toList();
+    final uniquePaths = paths.where((path) => path.isNotEmpty).toSet();
     if (uniquePaths.isEmpty) return;
 
     await _isar.writeTxn(() async {
-      await _isar.songEntitys.deleteAllByFilePathStartOffsetMs(
-        uniquePaths,
+      final entities = await _isar.songEntitys.getAllByFilePathStartOffsetMs(
+        uniquePaths.toList(growable: false),
         List<int?>.filled(uniquePaths.length, null),
       );
+      final songIds = entities
+          .whereType<SongEntity>()
+          .map((entity) => entity.id)
+          .toList(growable: false);
+      await _deleteAudioCacheRows(songIds);
+      await _isar.songEntitys.deleteAll(songIds);
     });
   }
 
@@ -262,14 +295,20 @@ class SongRepository {
     if (uniquePaths.isEmpty) return;
 
     await _isar.writeTxn(() async {
+      final songIds = <Id>{};
       for (final path in uniquePaths) {
-        await _isar.songEntitys
-            .where()
-            .filePathEqualToAnyStartOffsetMs(path)
-            .filter()
-            .startOffsetMsIsNotNull()
-            .deleteAll();
+        songIds.addAll(
+          await _isar.songEntitys
+              .where()
+              .filePathEqualToAnyStartOffsetMs(path)
+              .filter()
+              .startOffsetMsIsNotNull()
+              .idProperty()
+              .findAll(),
+        );
       }
+      await _deleteAudioCacheRows(songIds);
+      await _isar.songEntitys.deleteAll(songIds.toList(growable: false));
     });
   }
 
@@ -277,6 +316,7 @@ class SongRepository {
     if (ids.isEmpty) return;
 
     await _isar.writeTxn(() async {
+      await _deleteAudioCacheRows(ids);
       await _isar.songEntitys.deleteAll(ids);
     });
   }
@@ -413,9 +453,10 @@ class SongRepository {
         .count();
   }
 
-  /// Delete all songs.
+  /// Delete all songs and their audio-cache rows.
   Future<void> deleteAllSongs() async {
     await _isar.writeTxn(() async {
+      await _isar.songAudioCacheEntitys.clear();
       await _isar.songEntitys.clear();
     });
   }
@@ -717,6 +758,29 @@ class SongRepository {
     if (entities.isEmpty) return;
     await _isar.writeTxn(() async {
       await _isar.songAudioCacheEntitys.putAll(entities);
+    });
+  }
+
+  /// Delete `song_audio_cache` rows whose [SongAudioCacheEntity.songId] no
+  /// longer matches a song. Returns the number of removed rows.
+  ///
+  /// Idempotent: startup maintenance runs this sweep to purge orphans created
+  /// by older releases that deleted songs without touching the cache table.
+  /// Normal deletion paths clean up their cache rows inline.
+  Future<int> deleteOrphanedAudioCache() async {
+    return _isar.writeTxn(() async {
+      final songIds = (await _isar.songEntitys.where().idProperty().findAll())
+          .toSet();
+      final cacheSongIds = await _isar.songAudioCacheEntitys
+          .where()
+          .songIdProperty()
+          .findAll();
+      final orphanIds = cacheSongIds
+          .where((songId) => !songIds.contains(songId))
+          .toList(growable: false);
+      if (orphanIds.isEmpty) return 0;
+      await _isar.songAudioCacheEntitys.deleteAll(orphanIds);
+      return orphanIds.length;
     });
   }
 }
