@@ -302,6 +302,54 @@ bool shouldHandleManualCompletion({
       loopMode == LoopMode.stopAfterCurrent;
 }
 
+/// Outcome of the TIDAL Radio continuation attempted at a genuine queue end.
+enum QueueEndRadioOutcome {
+  /// Radio tracks were fetched and handed to [playRadio].
+  started,
+
+  /// The playback generation moved on while the fetch was in flight. The
+  /// result was dropped; nothing was added to the queue or played.
+  superseded,
+
+  /// The fetch completed but yielded no usable tracks. The caller should
+  /// stop at the queue end instead.
+  unavailable,
+}
+
+/// Runs the queue-end TIDAL Radio continuation under a playback-generation
+/// guard.
+///
+/// A radio fetch can take seconds — or hang until the playback watchdog
+/// detaches the queue. If the user navigates meanwhile (next/previous/play),
+/// `_playbackGeneration` moves on. Applying the orphaned result then would
+/// replace the playlist and start a radio track in the engine while the UI
+/// shows the user's new selection. Both before and after the fetch, the
+/// generation is compared against [currentGeneration]; a mismatch drops the
+/// result as [QueueEndRadioOutcome.superseded].
+///
+/// Extracted from `_handleQueueEnd` so this guard can be tested without
+/// booting the audio engine.
+@visibleForTesting
+Future<QueueEndRadioOutcome> runRadioAutoplayForQueueEnd({
+  required int generation,
+  required int Function() currentGeneration,
+  required Future<List<Song>> Function() fetchRadio,
+  required Future<void> Function(List<Song> radioSongs) playRadio,
+}) async {
+  if (generation != currentGeneration()) {
+    return QueueEndRadioOutcome.superseded;
+  }
+  final radioSongs = await fetchRadio();
+  if (generation != currentGeneration()) {
+    return QueueEndRadioOutcome.superseded;
+  }
+  if (radioSongs.isEmpty) {
+    return QueueEndRadioOutcome.unavailable;
+  }
+  await playRadio(radioSongs);
+  return QueueEndRadioOutcome.started;
+}
+
 const Duration _audioPathTransitionLogWindow = Duration(minutes: 1);
 const int _audioPathTransitionLogMaxPerWindow = 30;
 
@@ -4298,6 +4346,9 @@ class PlayerService {
 
   Future<void> _handleGaplessTrackEnded() async {
     if (_playlist.isEmpty) return;
+    // Capture before any await: a category/radio fetch below may outlive a
+    // user navigation, and its result must not take over the new playback.
+    final generation = _playbackGeneration;
 
     if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
       await _pauseInternal();
@@ -4311,15 +4362,15 @@ class PlayerService {
       _setCurrentIndex(_currentIndex + 1);
     } else if (shuffleModeNotifier.value == ShuffleMode.songsAndCategories ||
         shuffleModeNotifier.value == ShuffleMode.categories) {
-      await _advanceToRandomCategory();
+      await _advanceToRandomCategory(generation: generation);
       return;
     } else if (loopModeNotifier.value == LoopMode.all) {
       _setCurrentIndex(0);
     } else if (loopModeNotifier.value.isAdvanceMode) {
-      await _advanceForMode(loopModeNotifier.value);
+      await _advanceForMode(loopModeNotifier.value, generation: generation);
       return;
     } else {
-      await _handleQueueEnd();
+      await _handleQueueEnd(generation: generation);
       return;
     }
 
@@ -4335,7 +4386,7 @@ class PlayerService {
       final expectedPath = await _resolveRustPath(currentSong);
       final enginePath = _rustAudioService.currentPath;
       if (expectedPath != null && enginePath != expectedPath) {
-        await _playSongAtCurrentIndex();
+        await _playSongAtCurrentIndex(generation: generation);
         return;
       }
     }
@@ -6654,7 +6705,7 @@ class PlayerService {
       _debugLog(
         'next(): category shuffle active, advancing to random category',
       );
-      await _advanceToRandomCategory();
+      await _advanceToRandomCategory(generation: generation);
       return;
     }
 
@@ -6669,12 +6720,12 @@ class PlayerService {
       _debugLog(
         'next(): ${loopModeNotifier.value}, advancing to next category',
       );
-      await _advanceForMode(loopModeNotifier.value);
+      await _advanceForMode(loopModeNotifier.value, generation: generation);
       return;
     }
 
     _debugLog('next(): End of playlist');
-    await _handleQueueEnd();
+    await _handleQueueEnd(generation: generation);
   }
 
   Future<void> previous({bool allowRestart = true}) {
@@ -7868,23 +7919,53 @@ class PlayerService {
   // autoplay a random library track instead of stopping. Mirrors the
   // "autoplay" behaviour of mainstream players. Falls back to pause+rewind
   // when disabled, the library is empty, or the only song is the current one.
-  Future<void> _handleQueueEnd() async {
+  //
+  // [generation] is the playback generation captured by the caller. The radio
+  // fetch may outlive the queue watchdog, so the result is only applied while
+  // that generation is still current — otherwise it would overwrite the
+  // playlist after the user already navigated elsewhere.
+  Future<void> _handleQueueEnd({int? generation}) async {
+    final gen = generation ?? _playbackGeneration;
     if (autoplayOnQueueEndNotifier.value) {
-      final seed = currentSongNotifier.value ?? _songAtCurrentIndex();
-      final radioSongs = await _fetchTidalRadio(seed);
-      if (radioSongs.isNotEmpty) {
+      final outcome = await runRadioAutoplayForQueueEnd(
+        generation: gen,
+        currentGeneration: () => _playbackGeneration,
+        fetchRadio: () {
+          final seed = currentSongNotifier.value ?? _songAtCurrentIndex();
+          return _fetchTidalRadio(seed);
+        },
+        playRadio: (radioSongs) async {
+          _debugLog(
+            '[Radio] queue end: continuing with ${radioSongs.length} TIDAL Radio tracks',
+          );
+          for (final s in radioSongs) {
+            _radioTrackIds.add(s.id);
+            final rid = s.remoteId;
+            if (rid != null && rid.isNotEmpty) _radioPlayedIds.add(rid);
+          }
+          await _playInternal(
+            radioSongs.first,
+            playlist: radioSongs,
+            generation: gen,
+          );
+        },
+      );
+      if (outcome == QueueEndRadioOutcome.superseded) {
         _debugLog(
-          '[Radio] queue end: continuing with ${radioSongs.length} TIDAL Radio tracks',
+          '[Radio] queue end: superseded during radio fetch — dropping result',
         );
-        for (final s in radioSongs) {
-          _radioTrackIds.add(s.id);
-          final rid = s.remoteId;
-          if (rid != null && rid.isNotEmpty) _radioPlayedIds.add(rid);
-        }
-        await _playInternal(radioSongs.first, playlist: radioSongs);
         return;
       }
+      if (outcome == QueueEndRadioOutcome.started) return;
       _debugLog('[Radio] queue end: no radio tracks available, stopping');
+    }
+    // The fetch above can take longer than the watchdog. If the user moved on
+    // while it was in flight, do not pause or rewind their new track.
+    if (gen != _playbackGeneration) {
+      _debugLog(
+        '[Radio] queue end: superseded before stopping — leaving state',
+      );
+      return;
     }
     await _pauseInternal();
     // Already inside the playback queue (queued _nextInternal /
@@ -7963,10 +8044,10 @@ class PlayerService {
     }
   }
 
-  Future<void> _advanceForMode(LoopMode mode) async {
+  Future<void> _advanceForMode(LoopMode mode, {int? generation}) async {
     final song = currentSongNotifier.value;
     if (song == null) {
-      await _handleQueueEnd();
+      await _handleQueueEnd(generation: generation);
       return;
     }
 
@@ -7987,13 +8068,17 @@ class PlayerService {
 
       if (nextSongs == null || nextSongs.isEmpty) {
         _debugLog('_advanceForMode($mode): no next category found');
-        await _handleQueueEnd();
+        await _handleQueueEnd(generation: generation);
         return;
       }
-      await _playInternal(nextSongs.first, playlist: nextSongs);
+      await _playInternal(
+        nextSongs.first,
+        playlist: nextSongs,
+        generation: generation,
+      );
     } catch (e) {
       _debugLog('_advanceForMode($mode): error: $e');
-      await _handleQueueEnd();
+      await _handleQueueEnd(generation: generation);
     }
   }
 
@@ -8095,11 +8180,11 @@ class PlayerService {
     return sorted[idx + 1];
   }
 
-  Future<void> _advanceToRandomCategory() async {
+  Future<void> _advanceToRandomCategory({int? generation}) async {
     final ctx = _playbackContext;
     if (ctx.source == PlaybackSource.unknown ||
         ctx.source == PlaybackSource.allSongs) {
-      await _handleQueueEnd();
+      await _handleQueueEnd(generation: generation);
       return;
     }
 
@@ -8118,7 +8203,7 @@ class PlayerService {
               .toList();
         }
         if (available.isEmpty) {
-          await _handleQueueEnd();
+          await _handleQueueEnd(generation: generation);
           return;
         }
       }
@@ -8127,7 +8212,7 @@ class PlayerService {
       final nextId = available[rng.nextInt(available.length)];
       final songs = await _getCategorySongsById(ctx.source, nextId);
       if (songs == null || songs.isEmpty) {
-        await _handleQueueEnd();
+        await _handleQueueEnd(generation: generation);
         return;
       }
 
@@ -8136,10 +8221,14 @@ class PlayerService {
       final ordered = shouldShuffle
           ? (List<Song>.of(songs)..shuffle(rng))
           : songs;
-      await _playInternal(ordered.first, playlist: ordered);
+      await _playInternal(
+        ordered.first,
+        playlist: ordered,
+        generation: generation,
+      );
     } catch (e) {
       _debugLog('_advanceToRandomCategory error: $e');
-      await _handleQueueEnd();
+      await _handleQueueEnd(generation: generation);
     }
   }
 
