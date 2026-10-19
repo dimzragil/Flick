@@ -67,21 +67,21 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
       final server = await ref.read(tidalServerProvider.future);
       if (server == null) throw StateError('TIDAL session not found');
 
-      final tidal = ref.read(tidalServiceProvider);
-      for (final s in widget.songs) {
-        final cleanTrackId = (s.remoteId != null && s.remoteId!.isNotEmpty)
-            ? s.remoteId!
-            : (s.id.contains('_') ? s.id.split('_').last : s.id);
-
-        await tidal.addTrackToPlaylist(
-          server,
-          playlistId: playlistId,
-          trackId: cleanTrackId,
-        );
-      }
-
-      ref.invalidate(tidalUserPlaylistsProvider);
-      ref.invalidate(tidalPlaylistDetailsProvider(playlistId));
+      final trackIds = widget.songs
+          .map((s) {
+            return (s.remoteId != null && s.remoteId!.isNotEmpty)
+                ? s.remoteId!
+                : (s.id.contains('_') ? s.id.split('_').last : s.id);
+          })
+          .where((id) => id.trim().isNotEmpty)
+          .toList();
+      await ref
+          .read(tidalPlaylistMutationsProvider)
+          .addTracksToPlaylist(
+            server,
+            playlistId: playlistId,
+            trackIds: trackIds,
+          );
 
       if (mounted) {
         Navigator.pop(context);
@@ -180,18 +180,13 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
         final server = await ref.read(tidalServerProvider.future);
         if (server == null) throw StateError('TIDAL session not found');
 
-        final tidal = ref.read(tidalServiceProvider);
-        final created = await tidal.createPlaylist(
-          server,
-          title: name,
-          description: desc,
-        );
+        final created = await ref
+            .read(tidalPlaylistMutationsProvider)
+            .createPlaylist(server, title: name, description: desc);
         final playlistId =
             created['id']?.toString() ??
             created['uuid']?.toString() ??
             (created['data'] as Map?)?['id']?.toString();
-
-        ref.invalidate(tidalUserPlaylistsProvider);
 
         if (playlistId != null && playlistId.isNotEmpty) {
           await _addSongsToTidalPlaylist(playlistId, name);
@@ -202,7 +197,8 @@ class _AddToPlaylistSheetState extends ConsumerState<AddToPlaylistSheet> {
         if (mounted) {
           setState(() {
             _isProcessing = false;
-            _statusMessage = 'Could not create playlist: ${friendlyErrorMessage(e)}';
+            _statusMessage =
+                'Could not create playlist: ${friendlyErrorMessage(e)}';
           });
         }
       }

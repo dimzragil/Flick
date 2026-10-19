@@ -564,7 +564,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                                 return;
                               }
                               final result = await ref
-                                  .read(tidalServiceProvider)
+                                  .read(tidalPlaylistMutationsProvider)
                                   .createPlaylist(
                                     server,
                                     title: title,
@@ -573,7 +573,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                               if (dialogCtx.mounted) {
                                 Navigator.pop(dialogCtx, true);
                               }
-                              ref.invalidate(tidalUserPlaylistsProvider);
 
                               final plId =
                                   result['uuid']?.toString() ??
@@ -694,14 +693,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       if (defaultName.isEmpty) defaultName = 'Imported Playlist';
 
       if (mounted) {
-        final success = await TidalImportPlaylistDialog.show(
+        await TidalImportPlaylistDialog.show(
           context,
           tracks: parsedTracks,
           defaultPlaylistName: defaultName,
         );
-        if (success == true && mounted) {
-          ref.invalidate(tidalUserPlaylistsProvider);
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -912,9 +908,13 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       color: const Color(0xD9FFFFFF),
       backgroundColor: AppColors.surface,
       onRefresh: () async {
+        // Manual refresh is an explicit request for fresh data: clear the
+        // active feed's TTL entry and let the mutations helper bypass the
+        // playlist cache before rebuilding.
+        invalidateTidalHubCache(feedSlug: _activeFeedSlug);
         await Future.wait([
           ref.refresh(tidalHomeFeedProvider(_activeFeedSlug).future),
-          ref.refresh(tidalUserPlaylistsProvider.future),
+          ref.read(tidalPlaylistMutationsProvider).refreshUserPlaylists(),
           ref.refresh(tidalLikedSongsProvider.future),
         ]);
       },
@@ -1093,7 +1093,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                     ),
                     tooltip: 'Refresh Playlists',
                     onPressed: () {
-                      ref.invalidate(tidalUserPlaylistsProvider);
+                      unawaited(
+                        ref
+                            .read(tidalPlaylistMutationsProvider)
+                            .refreshUserPlaylists(),
+                      );
                       ref.invalidate(tidalLikedSongsProvider);
                     },
                   ),
@@ -1117,7 +1121,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   error: err,
                   contextLabel: 'Could not load playlists',
                   onRetry: () {
-                    invalidateTidalHubCache();
+                    invalidateTidalPlaylistsCache();
                     ref.invalidate(tidalUserPlaylistsProvider);
                   },
                 ),

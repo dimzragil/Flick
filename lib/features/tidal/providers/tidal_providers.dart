@@ -18,6 +18,17 @@ final _homeFeedCache = TtlCache<TidalHomeFeed>(
 final _playlistsCache = TtlCache<List<Map<String, dynamic>>>(
   ttl: const Duration(minutes: 30),
 );
+const _userPlaylistsCacheKey = 'user_playlists';
+
+/// Clears only the cached user-playlist list.
+///
+/// Playlist mutations and explicit user refreshes must call this: without it
+/// the next provider rebuild is served the same stale list for up to the
+/// 30-minute TTL. This deliberately leaves the home feed cache warm — a
+/// playlist change must not force an unrelated (and expensive) feed refetch.
+void invalidateTidalPlaylistsCache() {
+  _playlistsCache.invalidate(_userPlaylistsCacheKey);
+}
 
 /// Clears the Hub TTL caches, forcing fresh API fetches on next read.
 /// Call this from manual retry/refresh actions so they actually hit the API.
@@ -27,7 +38,7 @@ void invalidateTidalHubCache({String? feedSlug}) {
   } else {
     _homeFeedCache.invalidateAll();
   }
-  _playlistsCache.invalidateAll();
+  invalidateTidalPlaylistsCache();
 }
 
 /// Provider for the singleton [TidalService] instance.
@@ -91,6 +102,10 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
     });
     await tidal.migrateServerToken(server);
 
+    // A fresh session may belong to a different account — never serve the
+    // previous account's cached Hub data.
+    invalidateTidalHubCache();
+
     // New account — drop stale optimistic favorite adjustments.
     ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
     ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
@@ -109,6 +124,9 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
         await Database.networkServers.put(server);
       });
       await ref.read(tidalServiceProvider).forgetToken(server.id);
+      // Never let the signed-out account's Hub data survive into the next
+      // session (playlists are account-specific).
+      invalidateTidalHubCache();
       // Drop optimistic adjustments so they can't leak into another account.
       ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
       ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
@@ -280,13 +298,99 @@ final tidalUserPlaylistsProvider = FutureProvider<List<Map<String, dynamic>>>((
   }
   // Serve from TTL cache when fresh — avoids re-hitting the API on every
   // Hub visit and keeps us clear of TIDAL's rate limits.
-  final cached = _playlistsCache.get('user_playlists');
+  final cached = _playlistsCache.get(_userPlaylistsCacheKey);
   if (cached != null) return cached;
   final tidal = ref.read(tidalServiceProvider);
   final result = await tidal.getUserPlaylists(server);
-  _playlistsCache.set('user_playlists', result);
+  _playlistsCache.set(_userPlaylistsCacheKey, result);
   return result;
 });
+
+/// Cache-coherent wrapper around TIDAL playlist mutations.
+///
+/// The TTL cache sits *in front of* [tidalUserPlaylistsProvider]'s builder, so
+/// invalidating only the provider would rebuild it straight back into the
+/// same cached list. Every successful write therefore drops the playlist TTL
+/// entry as well as the provider state, making the next read hit the API.
+class TidalPlaylistMutations {
+  TidalPlaylistMutations(this._ref);
+
+  final Ref _ref;
+
+  Future<Map<String, dynamic>> createPlaylist(
+    NetworkServerEntity server, {
+    required String title,
+    String description = '',
+  }) async {
+    final created = await _ref
+        .read(tidalServiceProvider)
+        .createPlaylist(server, title: title, description: description);
+    _invalidate(
+      playlistId:
+          created['id']?.toString() ?? created['uuid']?.toString() ?? '',
+    );
+    return created;
+  }
+
+  Future<bool> deletePlaylist(
+    NetworkServerEntity server,
+    String playlistId,
+  ) async {
+    final deleted = await _ref
+        .read(tidalServiceProvider)
+        .deletePlaylist(server, playlistId);
+    if (deleted) _invalidate(playlistId: playlistId);
+    return deleted;
+  }
+
+  Future<void> addTrackToPlaylist(
+    NetworkServerEntity server, {
+    required String playlistId,
+    required String trackId,
+  }) async {
+    await _ref
+        .read(tidalServiceProvider)
+        .addTrackToPlaylist(server, playlistId: playlistId, trackId: trackId);
+    _invalidate(playlistId: playlistId);
+  }
+
+  Future<void> addTracksToPlaylist(
+    NetworkServerEntity server, {
+    required String playlistId,
+    required List<String> trackIds,
+  }) async {
+    if (trackIds.isEmpty) return;
+    await _ref
+        .read(tidalServiceProvider)
+        .addTracksToPlaylist(
+          server,
+          playlistId: playlistId,
+          trackIds: trackIds,
+        );
+    _invalidate(playlistId: playlistId);
+  }
+
+  /// Explicit user refresh (pull-to-refresh / refresh button).
+  ///
+  /// Bypasses the TTL entry by design: a manual refresh is a request for
+  /// fresh data, so it must never be answered from cache.
+  Future<List<Map<String, dynamic>>> refreshUserPlaylists() {
+    invalidateTidalPlaylistsCache();
+    return _ref.refresh(tidalUserPlaylistsProvider.future);
+  }
+
+  void _invalidate({required String playlistId}) {
+    invalidateTidalPlaylistsCache();
+    _ref.invalidate(tidalUserPlaylistsProvider);
+    if (playlistId.isNotEmpty) {
+      _ref.invalidate(tidalPlaylistDetailsProvider(playlistId));
+    }
+  }
+}
+
+final tidalPlaylistMutationsProvider = Provider<TidalPlaylistMutations>(
+  (ref) => TidalPlaylistMutations(ref),
+);
 
 /// TIDAL browse-detail providers are autoDispose: their payloads are large
 /// (album/playlist/artist/mix track lists, raw home-feed item maps, the

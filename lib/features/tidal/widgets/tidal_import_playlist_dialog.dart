@@ -177,11 +177,13 @@ class _TidalImportPlaylistDialogState
             'Creating playlist "${_titleController.text.trim()}"...';
       });
 
-      final created = await tidal.createPlaylist(
-        server,
-        title: _titleController.text.trim(),
-        description: _descController.text.trim(),
-      );
+      final created = await ref
+          .read(tidalPlaylistMutationsProvider)
+          .createPlaylist(
+            server,
+            title: _titleController.text.trim(),
+            description: _descController.text.trim(),
+          );
 
       final playlistId =
           created['id']?.toString() ?? created['uuid']?.toString();
@@ -192,7 +194,9 @@ class _TidalImportPlaylistDialogState
       // Cancelled between create and add: delete the orphan playlist so the
       // user's TIDAL account isn't left with an empty shell.
       if (_isCancelled || !mounted) {
-        await tidal.deletePlaylist(server, playlistId);
+        await ref
+            .read(tidalPlaylistMutationsProvider)
+            .deletePlaylist(server, playlistId);
         if (mounted) {
           Navigator.of(context).pop(false);
         }
@@ -205,14 +209,13 @@ class _TidalImportPlaylistDialogState
             'Adding ${_matchedTrackIds.length} tracks to TIDAL...';
       });
 
-      await tidal.addTracksToPlaylist(
-        server,
-        playlistId: playlistId,
-        trackIds: _matchedTrackIds,
-      );
-
-      // Invalidate playlist provider so it updates immediately in UI
-      ref.invalidate(tidalUserPlaylistsProvider);
+      await ref
+          .read(tidalPlaylistMutationsProvider)
+          .addTracksToPlaylist(
+            server,
+            playlistId: playlistId,
+            trackIds: _matchedTrackIds,
+          );
 
       if (mounted) {
         setState(() {
@@ -236,14 +239,14 @@ class _TidalImportPlaylistDialogState
     return PopScope(
       canPop: _step != _ImportStep.importing,
       child: AlertDialog(
-      backgroundColor: AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-        side: const BorderSide(color: AppColors.glassBorder),
-      ),
-      title: _buildTitle(),
-      content: _buildContent(),
-      actions: _buildActions(),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+          side: const BorderSide(color: AppColors.glassBorder),
+        ),
+        title: _buildTitle(),
+        content: _buildContent(),
+        actions: _buildActions(),
       ),
     );
   }

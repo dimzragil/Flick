@@ -30,6 +30,11 @@ String _validToken() => jsonEncode({
 });
 
 void main() {
+  // The Hub TTL caches are process-global; reset them around every test so a
+  // leftover entry can never mask a missing invalidation.
+  setUp(() => invalidateTidalHubCache());
+  tearDown(() => invalidateTidalHubCache());
+
   group('tidalAuthStateProvider', () {
     test('returns false when server is null', () async {
       final container = ProviderContainer(
@@ -273,6 +278,176 @@ void main() {
       final playlists = await container.read(tidalUserPlaylistsProvider.future);
       expect(playlists.length, 1);
       expect(playlists.first['title'], 'Chill Vibes');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Playlist cache coherency (U-HIGH-1).
+  //
+  // The 30-minute TTL cache is consulted *inside* the provider builder, so
+  // `ref.invalidate(tidalUserPlaylistsProvider)` alone rebuilt straight back
+  // into the stale entry. Each mutation must also drop the TTL entry, and an
+  // explicit refresh must bypass it entirely.
+  // ---------------------------------------------------------------------------
+  group('Tidal playlist mutations invalidate the TTL cache', () {
+    late int listRequests;
+    late List<String> remoteTitles;
+    late ProviderContainer container;
+
+    late NetworkServerEntity server;
+
+    setUp(() {
+      invalidateTidalHubCache();
+      listRequests = 0;
+      remoteTitles = ['Original'];
+      server = _testServer(token: _validToken());
+
+      final client = MockClient((request) async {
+        final path = request.url.path;
+
+        if (request.method == 'GET' &&
+            path.contains('/users/user-1/playlists')) {
+          listRequests++;
+          return http.Response(
+            jsonEncode({
+              'items': [
+                for (final title in remoteTitles)
+                  {'uuid': 'pl-$title', 'title': title},
+              ],
+            }),
+            200,
+          );
+        }
+
+        // createPlaylist (OpenAPI POST /v2/playlists).
+        if (request.method == 'POST' &&
+            path.contains('/playlists') &&
+            !path.endsWith('/items')) {
+          return http.Response(
+            jsonEncode({
+              'data': {'id': 'pl-new', 'title': 'New'},
+            }),
+            200,
+          );
+        }
+
+        // deletePlaylist and addTracksToPlaylist / addTrackToPlaylist.
+        if (request.method == 'DELETE' || path.endsWith('/items')) {
+          return http.Response('', 200);
+        }
+
+        // _getPlaylistWithEtag and any other metadata read.
+        return http.Response('{}', 200);
+      });
+
+      container = ProviderContainer(
+        overrides: [
+          tidalServiceProvider.overrideWithValue(
+            TidalService.create(client: client),
+          ),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(server),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+    });
+
+    Future<List<Map<String, dynamic>>> readPlaylists() {
+      return container.read(tidalUserPlaylistsProvider.future);
+    }
+
+    test('non-mutation rebuilds still use the TTL cache', () async {
+      final first = await readPlaylists();
+      expect(first.single['title'], 'Original');
+      expect(listRequests, 1);
+
+      // A rebuild that is not a mutation or explicit refresh must stay cached
+      // (no regression in API-call reduction).
+      container.invalidate(tidalUserPlaylistsProvider);
+      final second = await readPlaylists();
+      expect(second.single['title'], 'Original');
+      expect(listRequests, 1);
+    });
+
+    test('createPlaylist invalidates the cache', () async {
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      remoteTitles = ['Original', 'New'];
+      await container
+          .read(tidalPlaylistMutationsProvider)
+          .createPlaylist(server, title: 'New');
+
+      final playlists = await readPlaylists();
+      expect(listRequests, 2);
+      expect(
+        playlists.map((p) => p['title']),
+        containsAll(['Original', 'New']),
+      );
+    });
+
+    test('addTrackToPlaylist invalidates the cache', () async {
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      await container
+          .read(tidalPlaylistMutationsProvider)
+          .addTrackToPlaylist(
+            server,
+            playlistId: 'pl-Original',
+            trackId: '12345',
+          );
+
+      await readPlaylists();
+      expect(listRequests, 2);
+    });
+
+    test('addTracksToPlaylist (import) invalidates the cache', () async {
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      await container
+          .read(tidalPlaylistMutationsProvider)
+          .addTracksToPlaylist(
+            server,
+            playlistId: 'pl-Original',
+            trackIds: ['12345', '67890'],
+          );
+
+      await readPlaylists();
+      expect(listRequests, 2);
+    });
+
+    test('deletePlaylist invalidates the cache', () async {
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      remoteTitles = [];
+      final deleted = await container
+          .read(tidalPlaylistMutationsProvider)
+          .deletePlaylist(server, 'pl-Original');
+      expect(deleted, isTrue);
+
+      final playlists = await readPlaylists();
+      expect(listRequests, 2);
+      expect(playlists, isEmpty);
+    });
+
+    test('refreshUserPlaylists bypasses the TTL cache', () async {
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      // Sanity check: a plain rebuild would be served from the TTL entry.
+      container.invalidate(tidalUserPlaylistsProvider);
+      await readPlaylists();
+      expect(listRequests, 1);
+
+      // Explicit refresh must force a real fetch even inside the TTL window.
+      await container
+          .read(tidalPlaylistMutationsProvider)
+          .refreshUserPlaylists();
+      expect(listRequests, 2);
     });
   });
 

@@ -58,12 +58,13 @@ class _TidalAddToPlaylistDialogState
       final server = await ref.read(tidalServerProvider.future);
       if (server == null) throw StateError('TIDAL session not found');
 
-      final tidal = ref.read(tidalServiceProvider);
-      await tidal.addTrackToPlaylist(
-        server,
-        playlistId: playlistId,
-        trackId: widget.trackId,
-      );
+      await ref
+          .read(tidalPlaylistMutationsProvider)
+          .addTrackToPlaylist(
+            server,
+            playlistId: playlistId,
+            trackId: widget.trackId,
+          );
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -155,16 +156,11 @@ class _TidalAddToPlaylistDialogState
           final server = await ref.read(tidalServerProvider.future);
           if (server == null) throw StateError('TIDAL session not found');
 
-          final tidal = ref.read(tidalServiceProvider);
-          final created = await tidal.createPlaylist(
-            server,
-            title: name,
-            description: desc,
-          );
+          final created = await ref
+              .read(tidalPlaylistMutationsProvider)
+              .createPlaylist(server, title: name, description: desc);
           final playlistId =
               created['id']?.toString() ?? created['uuid']?.toString();
-
-          ref.invalidate(tidalUserPlaylistsProvider);
 
           if (playlistId != null && playlistId.isNotEmpty) {
             await _addToPlaylist(playlistId, name);
