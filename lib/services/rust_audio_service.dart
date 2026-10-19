@@ -55,11 +55,73 @@ class RustAudioService {
 
   Timer? _progressTimer;
   Timer? _eventPollTimer;
+  Duration? _currentEventInterval;
   bool _appInBackground = false;
   bool _initialized = false;
   bool _highResModeEnabled = false;
   String? _currentPath;
   String? _nextPath;
+
+  // ---------------------------------------------------------------------------
+  // Polling cadences (perf: cut FFI/mutex contention with the audio thread).
+  // Each FFI poll takes the parking_lot::Mutex shared with the audio thread, so
+  // the fewer wakeups, the less contention. Cadences are split per purpose:
+  // - position: 50ms while playing in the foreground (smooth progress bar /
+  //   lyric sync), 250ms when paused, 1500ms when backgrounded
+  //   (notification-driven only).
+  // - events: rare (state/track/crossfade transitions), so steady-state
+  //   foreground drops to 250ms, background 500ms. Within the last 3s of the
+  //   track (the `trackEnded` window drives auto-advance latency) or during a
+  //   crossfade, events race back to 50ms so track switching stays tight.
+  // ---------------------------------------------------------------------------
+  static const Duration _fastProgressInterval = Duration(milliseconds: 50);
+  static const Duration _slowProgressInterval = Duration(milliseconds: 250);
+  static const Duration _backgroundProgressInterval = Duration(
+    milliseconds: 1500,
+  );
+  static const Duration _fastEventInterval = Duration(milliseconds: 50);
+  static const Duration _slowEventInterval = Duration(milliseconds: 250);
+  static const Duration _backgroundEventInterval = Duration(milliseconds: 500);
+  static const Duration _trackEndWindow = Duration(seconds: 3);
+
+  /// Foreground playing progress cadence (UI smoothness contract).
+  @visibleForTesting
+  static Duration progressInterval({
+    required bool playing,
+    required bool appInBackground,
+  }) {
+    if (appInBackground) return _backgroundProgressInterval;
+    return playing ? _fastProgressInterval : _slowProgressInterval;
+  }
+
+  /// Whether the event poll must run at the fast cadence to keep auto-advance
+  /// (and crossfade bookkeeping) latency tight. True during the last
+  /// [window] of the track — or always while crossfading, since the
+  /// crossfade's `trackEnded` bookend arrives through the same event pump.
+  @visibleForTesting
+  static bool isTrackEndImminent({
+    required Duration position,
+    required Duration duration,
+    required bool crossfading,
+    Duration window = _trackEndWindow,
+  }) {
+    if (crossfading) return true;
+    final durationMs = duration.inMilliseconds;
+    if (durationMs <= 0) return false;
+    final remainingMs = durationMs - position.inMilliseconds;
+    return remainingMs > 0 && remainingMs <= window.inMilliseconds;
+  }
+
+  /// Event poll cadence for a given app/target state.
+  @visibleForTesting
+  static Duration eventInterval({
+    required bool appInBackground,
+    required bool trackEndImminent,
+  }) {
+    if (appInBackground) return _backgroundEventInterval;
+    if (trackEndImminent) return _fastEventInterval;
+    return _slowEventInterval;
+  }
 
   /// Check if native audio engine is available on this platform.
   bool get isNativeAvailable => rust_audio.audioIsNativeAvailable();
@@ -246,7 +308,9 @@ class RustAudioService {
       return await call();
     } catch (e) {
       if (!_isDeadEngineError(e)) rethrow;
-      devLog('[RustAudio] Command channel dead; respawning engine and retrying');
+      devLog(
+        '[RustAudio] Command channel dead; respawning engine and retrying',
+      );
       await prepareEngine();
       return await call();
     }
@@ -436,7 +500,9 @@ class RustAudioService {
   /// source keeps its own gain. Used when pre-queueing the next gapless track.
   Future<void> setReplayGainDefault(double gainDb) async {
     if (!_initialized) return;
-    await rust_audio.audioSetReplaygainDefault(gainDb: gainDb.clamp(-60.0, 30.0));
+    await rust_audio.audioSetReplaygainDefault(
+      gainDb: gainDb.clamp(-60.0, 30.0),
+    );
   }
 
   /// Select the callback's base pipeline mode.
@@ -543,11 +609,10 @@ class RustAudioService {
   void _startProgressUpdates({bool fast = true}) {
     _stopProgressUpdates();
 
-    // Update progress every 50ms for smooth UI updates when playing
-    // Update slower (250ms) when paused to keep UI in sync without waste
-    final interval = fast
-        ? const Duration(milliseconds: 50)
-        : const Duration(milliseconds: 250);
+    final interval = progressInterval(
+      playing: fast,
+      appInBackground: _appInBackground,
+    );
     _progressTimer = Timer.periodic(interval, (_) {
       _updateProgress();
     });
@@ -562,6 +627,11 @@ class RustAudioService {
 
   /// Update progress from the Rust engine.
   void _updateProgress() {
+    // Keep the event cadence aligned with playback phase (e.g. the last
+    // seconds of a track go to the fast interval so auto-advance stays
+    // immediate). Cheap: interval comparison only.
+    _syncEventPolling();
+
     final progress = rust_audio.audioGetProgress();
     if (progress != null) {
       final positionSecs = progress.positionSecs;
@@ -600,9 +670,6 @@ class RustAudioService {
         bufferLevelNotifier.value = newBufferLevel;
       }
     }
-
-    // Also update state
-    _updateState();
   }
 
   /// Update playback state from the Rust engine.
@@ -631,14 +698,48 @@ class RustAudioService {
 
   /// Start polling for events from the Rust engine.
   void _startEventPolling() {
-    _stopEventPolling();
+    _startEventPollTimer(
+      eventInterval(
+        appInBackground: _appInBackground,
+        trackEndImminent: _trackEndImminent(),
+      ),
+    );
+  }
 
-    final eventInterval = _appInBackground
-        ? const Duration(milliseconds: 500)
-        : const Duration(milliseconds: 50);
-    _eventPollTimer = Timer.periodic(eventInterval, (_) {
+  void _startEventPollTimer(Duration interval) {
+    _stopEventPolling();
+    _currentEventInterval = interval;
+    _eventPollTimer = Timer.periodic(interval, (_) {
       _pollEvents();
+      // State sync rides on the event cadence (was baked into every 50ms
+      // progress tick). pause()/resume()/play() still force an immediate
+      // `_updateState()` for responsive UI, so slower polling here only
+      // affects engine-internal transitions (buffering/crossfade/error),
+      // which the event drain covers too.
+      _updateState();
     });
+  }
+
+  /// Re-align the event poll cadence with the current playback phase.
+  /// No-op unless the desired interval changed.
+  void _syncEventPolling() {
+    final desired = eventInterval(
+      appInBackground: _appInBackground,
+      trackEndImminent: _trackEndImminent(),
+    );
+    if (desired == _currentEventInterval) return;
+    _startEventPollTimer(desired);
+  }
+
+  /// Fast track of the event poll; each FFI call takes the audio thread's
+  /// mutex, so the cadence is split: fast only right before a track boundary
+  /// or while crossfading.
+  bool _trackEndImminent() {
+    return isTrackEndImminent(
+      position: positionNotifier.value,
+      duration: durationNotifier.value,
+      crossfading: stateNotifier.value == RustPlaybackState.crossfading,
+    );
   }
 
   /// Stop event polling.
@@ -648,19 +749,24 @@ class RustAudioService {
   }
 
   /// Throttle polling when the app is backgrounded to save CPU/battery.
-  /// Foreground: 50ms progress + 50ms events (smooth UI).
-  /// Background: 1500ms progress + 500ms events (notification only).
+  /// Foreground: 50ms position + 250ms events (50ms events near track end).
+  /// Background: 1500ms position + 500ms events (notification only).
   void setAppInBackground(bool inBackground) {
     if (_appInBackground == inBackground) return;
     _appInBackground = inBackground;
     if (!_initialized) return;
-    // Restart timers at the appropriate frequency
+    // Restart timers at the appropriate frequency. A paused engine keeps its
+    // slow sync while backgrounded instead of idling at the foreground-paused
+    // rate; a stopped engine (no timer) stays stopped.
     final state = stateNotifier.value;
-    if (state == RustPlaybackState.playing ||
-        state == RustPlaybackState.crossfading) {
-      _startProgressUpdates(fast: !inBackground);
+    final playing =
+        state == RustPlaybackState.playing ||
+        state == RustPlaybackState.crossfading;
+    if (playing) {
+      _startProgressUpdates(fast: true);
+    } else if (_progressTimer != null) {
+      _startProgressUpdates(fast: false);
     }
-    _stopEventPolling();
     _startEventPolling();
   }
 
@@ -682,6 +788,8 @@ class RustAudioService {
               newState == RustPlaybackState.idle) {
             _stopProgressUpdates();
           }
+          // Crossfade started/stopped changes the desired event cadence.
+          _syncEventPolling();
         },
         progress: (positionSecs, durationSecs, bufferLevel) {
           final newPositionMs = (positionSecs * 1000).round();
@@ -749,5 +857,26 @@ class RustAudioService {
     crossfeedLevelNotifier.dispose();
     playbackSpeedNotifier.dispose();
     positionLabelNotifier.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test hooks (no FFI access) for polling cadence wiring.
+  // ---------------------------------------------------------------------------
+
+  /// Re-evaluates the event poll cadence without touching the engine.
+  @visibleForTesting
+  void debugSyncEventPolling() => _syncEventPolling();
+
+  /// Current event timer interval (null while no timer is running).
+  @visibleForTesting
+  Duration? get debugEventPollInterval => _currentEventInterval;
+
+  /// Cancels the polling timers without disposing [stateNotifier] etc. For
+  /// tests: [dispose] would poison the notifiers of this process-wide
+  /// singleton for later tests.
+  @visibleForTesting
+  void debugCancelPollTimers() {
+    _stopProgressUpdates();
+    _stopEventPolling();
   }
 }
