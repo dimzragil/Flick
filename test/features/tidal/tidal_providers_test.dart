@@ -274,7 +274,248 @@ void main() {
       expect(playlists.length, 1);
       expect(playlists.first['title'], 'Chill Vibes');
     });
+  });
 
+  // ---------------------------------------------------------------------------
+  // autoDispose behavior (Tier 3 of the progressive-slowdown fix).
+  //
+  // The detail providers were keepAlive: every visited album/playlist/artist/
+  // mix/feed retained its parsed payload for the process lifetime. They are
+  // now autoDispose, so closing the last listener must DISPOSE the instance
+  // and a re-listen must REBUILD (fresh fetch).
+  //
+  // The discriminating probe is the HTTP request count against the mock
+  // client: under keepAlive a re-listen would return the retained state and
+  // fire zero further requests; under autoDispose the rebuild hits the client
+  // again. A canned error response is fine for this: the build still ran and
+  // called the service, ending in an error state.
+  // ---------------------------------------------------------------------------
+  group('TIDAL detail providers autoDispose', () {
+    setUp(() {
+      // The Hub TTL caches are process-global: drop any leftovers so the
+      // probes below never read a stale cached entry instead of refetching.
+      invalidateTidalHubCache();
+    });
+
+    /// Subscribes via [subscribe] (which starts the provider build), awaits
+    /// [resolve] (the provider's build future — a thrown error state is
+    /// fine), closes the subscription, waits for the scheduled disposal to
+    /// flush, then re-subscribes. Fails unless the re-listen triggered a new
+    /// fetch ([requestCount] advanced), which only happens when the provider
+    /// actually disposed between the two listeners.
+    Future<void> expectRefetchAfterDispose<T>({
+      required ProviderSubscription<T> Function() subscribe,
+      required Future<void> Function() resolve,
+      required int Function() requestCount,
+      void Function()? beforeRelisten,
+      String? reason,
+    }) async {
+      Future<void> awaitQuietly(Future<void> future) async {
+        try {
+          await future;
+        } catch (_) {
+          // Error state (canned non-200/invalid mock body) — fine: the
+          // build still ran and reached the counting client.
+        }
+      }
+
+      final first = subscribe();
+      await awaitQuietly(resolve());
+      first.close();
+      // Flush the container's scheduled disposal (microtask queue) so the
+      // re-listen below observes disposal, not retention.
+      await Future<void>.delayed(Duration.zero);
+
+      final beforeRelistenCount = requestCount();
+      beforeRelisten?.call();
+
+      final second = subscribe();
+      await awaitQuietly(resolve());
+      second.close();
+
+      expect(
+        requestCount(),
+        greaterThan(beforeRelistenCount),
+        reason:
+            reason ??
+            're-listen must rebuild (autoDispose), not return the retained '
+                'keepAlive state',
+      );
+    }
+
+    ProviderContainer probedContainer(MockClient client) {
+      final container = ProviderContainer(
+        // Riverpod 3 auto-retries failed providers with backoff timers; an
+        // error-state probe would flood and `provider.future` would never
+        // settle. Retries are not what these tests verify — disable them.
+        retry: (_, _) => null,
+        overrides: [
+          tidalServiceProvider.overrideWithValue(
+            TidalService.create(client: client),
+          ),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_testServer(token: _validToken())),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test(
+      'tidalAlbumDetailsProvider disposes after the last listener',
+      () async {
+        var requests = 0;
+        final client = MockClient((request) async {
+          requests++;
+          return http.Response('', 500);
+        });
+        final container = probedContainer(client);
+
+        await expectRefetchAfterDispose(
+          subscribe: () =>
+              container.listen(tidalAlbumDetailsProvider('album-1'), (_, _) {}),
+          resolve: () async =>
+              container.read(tidalAlbumDetailsProvider('album-1').future),
+          requestCount: () => requests,
+        );
+      },
+    );
+
+    test(
+      'tidalPlaylistDetailsProvider disposes after the last listener',
+      () async {
+        var requests = 0;
+        final client = MockClient((request) async {
+          requests++;
+          return http.Response('', 500);
+        });
+        final container = probedContainer(client);
+
+        await expectRefetchAfterDispose(
+          subscribe: () => container.listen(
+            tidalPlaylistDetailsProvider('playlist-1'),
+            (_, _) {},
+          ),
+          resolve: () async =>
+              container.read(tidalPlaylistDetailsProvider('playlist-1').future),
+          requestCount: () => requests,
+        );
+      },
+    );
+
+    test(
+      'tidalArtistDetailsProvider disposes after the last listener',
+      () async {
+        var requests = 0;
+        final client = MockClient((request) async {
+          requests++;
+          return http.Response('', 500);
+        });
+        final container = probedContainer(client);
+
+        await expectRefetchAfterDispose(
+          subscribe: () => container.listen(
+            tidalArtistDetailsProvider('artist-1'),
+            (_, _) {},
+          ),
+          resolve: () async =>
+              container.read(tidalArtistDetailsProvider('artist-1').future),
+          requestCount: () => requests,
+        );
+      },
+    );
+
+    test(
+      'tidalArtistAlbumsProvider disposes after the last listener',
+      () async {
+        var requests = 0;
+        final client = MockClient((request) async {
+          requests++;
+          return http.Response('', 500);
+        });
+        final container = probedContainer(client);
+
+        await expectRefetchAfterDispose(
+          subscribe: () => container.listen(
+            tidalArtistAlbumsProvider('artist-1'),
+            (_, _) {},
+          ),
+          resolve: () async =>
+              container.read(tidalArtistAlbumsProvider('artist-1').future),
+          requestCount: () => requests,
+        );
+      },
+    );
+
+    test('tidalArtistBioProvider disposes after the last listener', () async {
+      var requests = 0;
+      final client = MockClient((request) async {
+        requests++;
+        return http.Response('', 500);
+      });
+      final container = probedContainer(client);
+
+      await expectRefetchAfterDispose(
+        subscribe: () =>
+            container.listen(tidalArtistBioProvider('artist-1'), (_, _) {}),
+        resolve: () async =>
+            container.read(tidalArtistBioProvider('artist-1').future),
+        requestCount: () => requests,
+      );
+    });
+
+    test('tidalHomeFeedProvider disposes after the last listener', () async {
+      var requests = 0;
+      final client = MockClient((request) async {
+        requests++;
+        return http.Response('', 500);
+      });
+      final container = probedContainer(client);
+
+      await expectRefetchAfterDispose(
+        subscribe: () =>
+            container.listen(tidalHomeFeedProvider('static'), (_, _) {}),
+        resolve: () async =>
+            container.read(tidalHomeFeedProvider('static').future),
+        requestCount: () => requests,
+        // The feed itself has a TTL cache; drop it so the re-listen must not
+        // only rebuild but also defer to the cache path hitting the client.
+        beforeRelisten: () => invalidateTidalHubCache(feedSlug: 'static'),
+      );
+    });
+
+    test('tidalMixDetailsProvider disposes after the last listener', () async {
+      var requests = 0;
+      final client = MockClient((request) async {
+        requests++;
+        return http.Response('', 500);
+      });
+      final container = probedContainer(client);
+
+      await expectRefetchAfterDispose(
+        subscribe: () =>
+            container.listen(tidalMixDetailsProvider('mix-1'), (_, _) {}),
+        resolve: () async =>
+            container.read(tidalMixDetailsProvider('mix-1').future),
+        requestCount: () => requests,
+      );
+    });
+
+    test('tidalLikedSongsProvider disposes after the last listener', () async {
+      var requests = 0;
+      final client = MockClient((request) async {
+        requests++;
+        return http.Response('', 500);
+      });
+      final container = probedContainer(client);
+
+      await expectRefetchAfterDispose(
+        subscribe: () => container.listen(tidalLikedSongsProvider, (_, _) {}),
+        resolve: () async => container.read(tidalLikedSongsProvider.future),
+        requestCount: () => requests,
+      );
+    });
   });
 }
 
