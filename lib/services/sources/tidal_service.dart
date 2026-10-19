@@ -72,6 +72,7 @@ class TidalService implements NetworkSourceService {
     Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
     int dashSegmentAttempts = 3,
     Duration resolvedStreamTtl = const Duration(minutes: 30),
+    Duration retryDeadline = const Duration(seconds: 75),
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
        _networkCache = networkCache,
@@ -81,7 +82,8 @@ class TidalService implements NetworkSourceService {
        _dashSegmentHeaderTimeout = dashSegmentHeaderTimeout,
        _dashSegmentIdleTimeout = dashSegmentIdleTimeout,
        _dashSegmentAttempts = dashSegmentAttempts,
-       _resolvedStreamTtl = resolvedStreamTtl;
+       _resolvedStreamTtl = resolvedStreamTtl,
+       _retryDeadline = retryDeadline;
 
   static TidalService instance = TidalService._();
 
@@ -98,6 +100,7 @@ class TidalService implements NetworkSourceService {
     Duration dashSegmentIdleTimeout = const Duration(seconds: 20),
     int dashSegmentAttempts = 3,
     Duration resolvedStreamTtl = const Duration(minutes: 30),
+    Duration retryDeadline = const Duration(seconds: 75),
   }) => TidalService._(
     client: client,
     songRepository: songRepository,
@@ -109,6 +112,7 @@ class TidalService implements NetworkSourceService {
     dashSegmentIdleTimeout: dashSegmentIdleTimeout,
     dashSegmentAttempts: dashSegmentAttempts,
     resolvedStreamTtl: resolvedStreamTtl,
+    retryDeadline: retryDeadline,
   );
 
   // ponytail: Tidal desktop/TV app OAuth2 client credentials, scraped from the
@@ -167,6 +171,12 @@ class TidalService implements NetworkSourceService {
   /// comfortable margin while still serving replays and descriptor passes.
   /// Overridable in tests via [create].
   final Duration _resolvedStreamTtl;
+
+  /// Total wall-clock budget for one logical API call including all 429
+  /// retries. Without this, four attempts with a 120s `Retry-After` could
+  /// block the caller for roughly six minutes before the UI sees an error.
+  /// Overridable in tests via [create].
+  final Duration _retryDeadline;
 
   /// Max entries for in-memory caches before oldest-first eviction.
   /// Prevents unbounded growth during long listening sessions.
@@ -754,18 +764,42 @@ class TidalService implements NetworkSourceService {
   /// Honors the server's `Retry-After` header when present, otherwise backs
   /// off exponentially (1s, 2s, 4s). After [maxAttempts] the 429 response is
   /// returned as-is so the caller can throw a proper exception.
+  ///
+  /// The retry loop is bounded by [_retryDeadline] across all attempts. A
+  /// `Retry-After: 120` therefore no longer parks a user-facing call for
+  /// minutes: once the next backoff would exceed the remaining budget, the
+  /// 429 response is returned immediately and the caller surfaces the
+  /// rate-limit state.
   Future<http.Response> _with429Retry(
     String label,
     Future<http.Response> Function() send, {
     int maxAttempts = 4, // 1 initial + 3 retries
   }) async {
+    final deadline = DateTime.now().add(_retryDeadline);
+    http.Response? lastResponse;
     for (var attempt = 0; ; attempt++) {
+      // A previous attempt may have consumed the whole budget (slow HTTP).
+      if (attempt > 0 && !DateTime.now().isBefore(deadline)) {
+        devLog(
+          '[Tidal] 429 $label — retry deadline (${_retryDeadline.inSeconds}s) '
+          'reached, giving up',
+        );
+        return lastResponse!;
+      }
       final response = await send();
+      lastResponse = response;
       if (response.statusCode != 429) return response;
       if (attempt + 1 >= maxAttempts) return response;
       final retryAfter = _parseRetryAfter(response.headers['retry-after']);
       final backoff = Duration(seconds: 1 << attempt);
       final delay = retryAfter > backoff ? retryAfter : backoff;
+      if (!DateTime.now().add(delay).isBefore(deadline)) {
+        devLog(
+          '[Tidal] 429 $label — next backoff ${delay.inSeconds}s exceeds '
+          'retry deadline (${_retryDeadline.inSeconds}s), giving up',
+        );
+        return response;
+      }
       devLog(
         '[Tidal] 429 $label — backing off ${delay.inSeconds}s '
         '(attempt ${attempt + 1}/$maxAttempts)',
