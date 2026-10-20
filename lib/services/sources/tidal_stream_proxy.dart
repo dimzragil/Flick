@@ -486,6 +486,48 @@ class TidalStreamSession {
 
   File? _partFile;
   RandomAccessFile? _writeRaf;
+
+  /// Serializes every operation on [_writeRaf]. Writes from the download /
+  /// pump path and the close issued by [cancel] or [_finalizeDownload] all
+  /// pass through this chain, so the handle can never be closed while a
+  /// write is in flight (the race that failed the deferred-session test
+  /// under full-suite load and could tear a .part file on device).
+  Future<void> _writeRafChain = Future<void>.value();
+
+  /// Runs [op] on the write handle after all previously queued operations
+  /// complete. Throws [StateError] if the handle is already closed.
+  Future<void> _enqueueWriteRafOp(
+    Future<void> Function(RandomAccessFile raf) op,
+  ) {
+    final result = _writeRafChain.then((_) async {
+      final raf = _writeRaf;
+      if (raf == null) throw StateError('Write handle already closed');
+      await op(raf);
+    });
+    // A failed op must not poison the chain for the close that follows.
+    _writeRafChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// Flushes and closes the write handle once all queued writes drain.
+  /// Idempotent: safe from both finalize and cancel; errors are swallowed
+  /// because no caller can act on them.
+  Future<void> _closeWriteRaf() {
+    final result = _writeRafChain.then((_) async {
+      final raf = _writeRaf;
+      _writeRaf = null;
+      if (raf == null) return;
+      try {
+        await raf.flush();
+      } catch (_) {}
+      try {
+        await raf.close();
+      } catch (_) {}
+    });
+    _writeRafChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   int _bytesWritten = 0;
   bool _isFinished = false;
   bool _isCancelled = false;
@@ -554,7 +596,7 @@ class TidalStreamSession {
     }
     if (_isCancelled) throw StateError('Stream cancelled');
 
-    await _writeRaf!.writeFrom(initResp.bodyBytes);
+    await _enqueueWriteRafOp((raf) => raf.writeFrom(initResp.bodyBytes));
     _bytesWritten += initResp.bodyBytes.length;
 
     if (seg0Future != null) {
@@ -566,9 +608,11 @@ class TidalStreamSession {
       }
       if (_isCancelled) throw StateError('Stream cancelled');
 
-      await _writeRaf!.writeFrom(seg0Resp.bodyBytes);
+      await _enqueueWriteRafOp((raf) async {
+        await raf.writeFrom(seg0Resp.bodyBytes);
+        await raf.flush();
+      });
       _bytesWritten += seg0Resp.bodyBytes.length;
-      await _writeRaf!.flush();
     }
 
     _segmentStartOffsets.add(_bytesWritten);
@@ -654,9 +698,12 @@ class TidalStreamSession {
         if (_isCancelled) break;
 
         if (_writeRaf != null && !_isCancelled) {
-          await _writeRaf!.writeFrom(resp.bodyBytes);
-          await _writeRaf!.flush();
-          _bytesWritten += resp.bodyBytes.length;
+          final segBytes = resp.bodyBytes;
+          await _enqueueWriteRafOp((raf) async {
+            await raf.writeFrom(segBytes);
+            await raf.flush();
+          });
+          _bytesWritten += segBytes.length;
           _segmentStartOffsets.add(_bytesWritten);
           _notifyWaiters();
         }
@@ -705,9 +752,7 @@ class TidalStreamSession {
     if (_isFinished || _isCancelled || _isFinalizing) return;
     _isFinalizing = true;
     try {
-      await _writeRaf?.flush();
-      await _writeRaf?.close();
-      _writeRaf = null;
+      await _closeWriteRaf();
 
       final target = File(targetPath);
       if (await target.exists()) {
@@ -1027,10 +1072,7 @@ class TidalStreamSession {
       _needMoreCompleter!.complete();
     }
 
-    try {
-      _writeRaf?.close();
-    } catch (_) {}
-    _writeRaf = null;
+    unawaited(_closeWriteRaf());
 
     if (!_isFinished && _partFile != null) {
       try {
@@ -1079,6 +1121,45 @@ class TidalBtsStreamSession {
   /// Null until the parallel tail download completes.
   int? _tailReadyStart;
   RandomAccessFile? _writer;
+
+  /// Serializes every operation on [_writer]; same close-while-writing
+  /// race protection as the DASH session's write chain.
+  Future<void> _writerChain = Future<void>.value();
+
+  /// Runs [op] on the writer after all previously queued operations
+  /// complete. Throws [StateError] if the writer is already closed.
+  Future<void> _enqueueWriterOp(
+    Future<void> Function(RandomAccessFile raf) op,
+  ) {
+    final result = _writerChain.then((_) async {
+      final raf = _writer;
+      if (raf == null) throw StateError('Writer already closed');
+      await op(raf);
+    });
+    // A failed op must not poison the chain for the close that follows.
+    _writerChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// Flushes and closes the writer once all queued writes drain.
+  /// Idempotent: safe from both the consume loop's finalize and [cancel];
+  /// errors are swallowed because no caller can act on them.
+  Future<void> _closeWriter() {
+    final result = _writerChain.then((_) async {
+      final raf = _writer;
+      _writer = null;
+      if (raf == null) return;
+      try {
+        await raf.flush();
+      } catch (_) {}
+      try {
+        await raf.close();
+      } catch (_) {}
+    });
+    _writerChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   final Completer<void> _ready = Completer<void>();
   final Completer<void> _finalizingFile = Completer<void>();
   final List<({int requiredBytes, Completer<void> completer})> _waiters = [];
@@ -1252,8 +1333,10 @@ class TidalBtsStreamSession {
       await for (final bytes in stream) {
         if (_cancelled) break;
         if (_writer != null) {
-          await _writer!.writeFrom(bytes);
-          await _writer!.flush();
+          await _enqueueWriterOp((raf) async {
+            await raf.writeFrom(bytes);
+            await raf.flush();
+          });
           _written += bytes.length;
           _notifyWaiters();
         }
@@ -1264,9 +1347,7 @@ class TidalBtsStreamSession {
         }
       }
       if (!_cancelled) {
-        await _writer?.flush();
-        await _writer?.close();
-        _writer = null;
+        await _closeWriter();
         final target = File(targetPath);
         if (await target.exists()) await target.delete();
         _isFinalizing = true;
@@ -1532,10 +1613,7 @@ class TidalBtsStreamSession {
 
   void cancel() {
     _cancelled = true;
-    try {
-      _writer?.close();
-    } catch (_) {}
-    _writer = null;
+    unawaited(_closeWriter());
     try {
       File('$targetPath.part').deleteSync();
     } catch (_) {}
