@@ -1799,6 +1799,8 @@ class TidalService implements NetworkSourceService {
                 '[Tidal] DASH track $trackId omitted explicit sample rate; omitting x-flick-sample-rate header to let audio decoder probe authoritative rate',
               );
             }
+            final dashCodecRaw = rawCodec ?? dashInfo.codec;
+            final dashCodec = _normalizeCodec(dashCodecRaw, null) ?? 'flac';
             final res = TidalStreamResolution(
               url: '',
               ext: 'mp4',
@@ -1809,7 +1811,7 @@ class TidalService implements NetworkSourceService {
               isSampleRateExplicit: explicitSampleRate != null,
               isBitDepthExplicit: explicitBitDepth != null,
               audioQuality: rawQuality,
-              codec: rawCodec ?? dashInfo.codec ?? 'flac',
+              codec: dashCodec,
               bitrate: effectiveBandwidth,
               resolvedAt: DateTime.now(),
               tierHint: _tierStartHintByTrackId[trackId],
@@ -1854,6 +1856,12 @@ class TidalService implements NetworkSourceService {
             );
           }
 
+          final btsCodecRaw = rawCodec ??
+              (decoded['codecs'] as String?) ??
+              (decoded['codec'] as String?);
+          final btsCodec =
+              _normalizeCodec(btsCodecRaw, decoded['mimeType'] as String?);
+
           final res = TidalStreamResolution(
             url: urls.first as String,
             ext: _extFromMime(decoded['mimeType'] as String?),
@@ -1864,7 +1872,7 @@ class TidalService implements NetworkSourceService {
             isSampleRateExplicit: explicitSampleRate != null,
             isBitDepthExplicit: explicitBitDepth != null,
             audioQuality: rawQuality,
-            codec: rawCodec ?? (decoded['codec'] as String?),
+            codec: btsCodec,
             bitrate: btsBitrate != null && btsBitrate > 10000
                 ? (btsBitrate / 1000).round()
                 : btsBitrate,
@@ -1905,6 +1913,27 @@ class TidalService implements NetworkSourceService {
       default:
         return null;
     }
+  }
+
+  @visibleForTesting
+  static String? normalizeCodec(String? codec, String? mime) =>
+      _normalizeCodec(codec, mime);
+  static String? _normalizeCodec(String? codec, String? mime) {
+    final c = codec?.trim().toLowerCase();
+    if (c != null && c.isNotEmpty) {
+      if (c.startsWith('mp4a')) return 'aac';
+      if (c.contains('flac')) return 'flac';
+      if (c.contains('alac')) return 'alac';
+      if (c.contains('mp3') || c == 'mpeg') return 'mp3';
+      return c;
+    }
+    final m = mime?.trim().toLowerCase();
+    if (m != null) {
+      if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a') return 'aac';
+      if (m == 'audio/flac' || m == 'audio/x-flac') return 'flac';
+      if (m == 'audio/mpeg') return 'mp3';
+    }
+    return null;
   }
 
   // --- Sync --------------------------------------------------------------
@@ -3858,14 +3887,27 @@ class TidalStreamResolution {
   /// tier the quality cascade started from.
   final String? tierHint;
 
+  bool get isLossy {
+    final c = codec?.toLowerCase();
+    return audioQuality == 'HIGH' ||
+        audioQuality == 'LOW' ||
+        c == 'aac' ||
+        c == 'mp3' ||
+        ext == 'm4a' ||
+        ext == 'mp3';
+  }
+
   int? get effectiveBitrate {
     if (bitrate != null && bitrate! > 0) return bitrate;
     if (dashInfo?.bandwidth != null) {
       return (dashInfo!.bandwidth! / 1000).round();
     }
-    if ((audioQuality == 'LOSSLESS' || bitDepth <= 16) && sampleRate == 44100) {
+    if (audioQuality == 'HIGH') return 320;
+    if (audioQuality == 'LOW') return 96;
+    if (audioQuality == 'LOSSLESS' && sampleRate == 44100 && bitDepth <= 16) {
       return 1411;
     }
+    if (isLossy && (ext == 'm4a' || codec == 'aac')) return 320;
     return null;
   }
 
@@ -3886,6 +3928,14 @@ class TidalStreamResolution {
   });
 
   String get resolutionString {
+    final kbps = effectiveBitrate;
+    if (isLossy) {
+      if (kbps != null && kbps > 0) {
+        return '${kbps}kbps';
+      }
+      return 'Lossy';
+    }
+
     final parts = <String>[];
     parts.add('$bitDepth-bit');
     final khz = sampleRate / 1000;
@@ -3893,7 +3943,6 @@ class TidalStreamResolution {
         ? khz.toStringAsFixed(0)
         : khz.toStringAsFixed(1);
     parts.add('${khzStr}kHz');
-    final kbps = effectiveBitrate;
     if (kbps != null && kbps > 0) {
       parts.add('${kbps}kbps');
     }

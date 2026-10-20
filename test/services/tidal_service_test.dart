@@ -947,6 +947,41 @@ void main() {
       );
       expect(res3.effectiveBitrate, 1411);
       expect(res3.resolutionString, '16-bit / 44.1kHz / 1411kbps');
+
+      const resHigh = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'HIGH',
+        codec: 'aac',
+        ext: 'm4a',
+      );
+      expect(resHigh.isLossy, isTrue);
+      expect(resHigh.effectiveBitrate, 320);
+      expect(resHigh.resolutionString, '320kbps');
+
+      const resLow = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOW',
+        codec: 'aac',
+        ext: 'm4a',
+      );
+      expect(resLow.isLossy, isTrue);
+      expect(resLow.effectiveBitrate, 96);
+      expect(resLow.resolutionString, '96kbps');
+    });
+
+    test('normalizeCodec maps mp4a, flac, alac, and mimes correctly', () {
+      expect(TidalService.normalizeCodec('mp4a.40.2', 'audio/mp4'), 'aac');
+      expect(TidalService.normalizeCodec('mp4a.40.5', null), 'aac');
+      expect(TidalService.normalizeCodec('flac', 'audio/flac'), 'flac');
+      expect(TidalService.normalizeCodec(null, 'audio/mp4'), 'aac');
+      expect(TidalService.normalizeCodec(null, 'audio/x-m4a'), 'aac');
+      expect(TidalService.normalizeCodec(null, 'audio/flac'), 'flac');
     });
 
     test(

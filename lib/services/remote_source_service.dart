@@ -135,9 +135,8 @@ class RemoteSourceService {
   }
 
   /// Format resolution for network sources (Tidal etc.) without downloading.
-  ({int sampleRate, int bitDepth, String? resolution})? getAudioFormat(
-    Song song,
-  ) {
+  ({int sampleRate, int bitDepth, String? resolution, String? fileType})?
+  getAudioFormat(Song song) {
     if (!song.isNetworkSource) return null;
     final remoteId = song.remoteId;
     if (remoteId == null) return null;
@@ -150,6 +149,7 @@ class RemoteSourceService {
             sampleRate: res.sampleRate,
             bitDepth: res.bitDepth,
             resolution: res.resolutionString,
+            fileType: res.codec != null ? res.codec! : (res.ext ?? 'flac'),
           );
         }
       }

@@ -5856,11 +5856,15 @@ class PlayerService {
               (song.sampleRate != fmt.sampleRate ||
                   song.bitDepth != fmt.bitDepth ||
                   (fmt.resolution != null &&
-                      song.resolution != fmt.resolution))) {
+                      song.resolution != fmt.resolution) ||
+                  (fmt.fileType != null &&
+                      song.fileType.toLowerCase() !=
+                          fmt.fileType!.toLowerCase()))) {
             song = song.copyWith(
               sampleRate: fmt.sampleRate,
               bitDepth: fmt.bitDepth,
               resolution: fmt.resolution ?? song.resolution,
+              fileType: fmt.fileType ?? song.fileType,
             );
             currentSongNotifier.value = song;
             final idx = _playlist.indexWhere((s) => s.id == song.id);
@@ -6010,11 +6014,15 @@ class PlayerService {
               (nextSong.sampleRate != fmt.sampleRate ||
                   nextSong.bitDepth != fmt.bitDepth ||
                   (fmt.resolution != null &&
-                      nextSong.resolution != fmt.resolution))) {
+                      nextSong.resolution != fmt.resolution) ||
+                  (fmt.fileType != null &&
+                      nextSong.fileType.toLowerCase() !=
+                          fmt.fileType!.toLowerCase()))) {
             final updatedNext = nextSong.copyWith(
               sampleRate: fmt.sampleRate,
               bitDepth: fmt.bitDepth,
               resolution: fmt.resolution ?? nextSong.resolution,
+              fileType: fmt.fileType ?? nextSong.fileType,
             );
             if (nextIndex < _playlist.length) {
               _playlist[nextIndex] = updatedNext;

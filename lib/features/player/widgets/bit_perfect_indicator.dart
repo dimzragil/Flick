@@ -36,82 +36,101 @@ class BitPerfectIndicator extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
     final prefs = ref.watch(appPreferencesProvider);
+    final tidal = ref.watch(tidalServiceProvider);
 
-    var state = _resolveState(
-      diagnostics,
-      suppressVerified: prefs.replaceAlbumWithBitPerfectCapsule,
-    );
-    final label = _getSongQuality(song);
-    if (label == 'HR') {
-      // Hi-Res: grey background like the FLAC badge, but keep gold
-      // border, text, and glow for the Hi-Res identity.
-      state = _IndicatorState(
-        bgColor: AppColors.glassBackgroundStrong,
-        textColor: const Color(0xFFE5A93C),
-        borderColor: const Color(0xFFE5A93C),
-        glowColor: const Color(0xFFE5A93C).withValues(alpha: 0.12),
-        icon: state.icon,
-      );
-    }
+    return ValueListenableBuilder<int>(
+      valueListenable: tidal.streamResolutionVersion,
+      builder: (context, _, __) {
+        final resolved = song.remoteId != null
+            ? tidal.getResolvedStream(song.remoteId!)
+            : null;
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: context.responsive(4.0, 5.0, 6.0),
-          vertical: 2,
-        ),
-        decoration: BoxDecoration(
-          color: state.bgColor,
-          borderRadius: BorderRadius.circular(3),
-          border: state.borderColor != null
-              ? Border.all(color: state.borderColor!, width: 1)
-              : null,
-          boxShadow: state.glowColor != null
-              ? [
-                  BoxShadow(
-                    color: state.glowColor!,
-                    blurRadius: 6,
-                    spreadRadius: -2,
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (state.icon != null) ...[
-              Icon(
-                state.icon!,
-                size: context.responsive(8.0, 9.0, 10.0),
-                color: state.textColor,
-              ),
-              SizedBox(width: context.responsive(2.0, 2.5, 3.0)),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'ProductSans',
-                fontSize: context.responsive(9.0, 10.0, 11.0),
-                fontWeight: FontWeight.w600,
-                color: state.textColor,
-              ),
+        var state = _resolveState(
+          diagnostics,
+          suppressVerified: prefs.replaceAlbumWithBitPerfectCapsule,
+        );
+        final label = _getSongQuality(song, resolved);
+        if (label == 'HR') {
+          // Hi-Res: grey background like the FLAC badge, but keep gold
+          // border, text, and glow for the Hi-Res identity.
+          state = _IndicatorState(
+            bgColor: AppColors.glassBackgroundStrong,
+            textColor: const Color(0xFFE5A93C),
+            borderColor: const Color(0xFFE5A93C),
+            glowColor: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+            icon: state.icon,
+          );
+        }
+
+        return GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: context.responsive(4.0, 5.0, 6.0),
+              vertical: 2,
             ),
-          ],
-        ),
-      ),
+            decoration: BoxDecoration(
+              color: state.bgColor,
+              borderRadius: BorderRadius.circular(3),
+              border: state.borderColor != null
+                  ? Border.all(color: state.borderColor!, width: 1)
+                  : null,
+              boxShadow: state.glowColor != null
+                  ? [
+                      BoxShadow(
+                        color: state.glowColor!,
+                        blurRadius: 6,
+                        spreadRadius: -2,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (state.icon != null) ...[
+                  Icon(
+                    state.icon!,
+                    size: context.responsive(8.0, 9.0, 10.0),
+                    color: state.textColor,
+                  ),
+                  SizedBox(width: context.responsive(2.0, 2.5, 3.0)),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: context.responsive(9.0, 10.0, 11.0),
+                    fontWeight: FontWeight.w600,
+                    color: state.textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  static String _getSongQuality(Song song) {
+  @visibleForTesting
+  static String getSongQuality(Song song, [TidalStreamResolution? resolved]) =>
+      _getSongQuality(song, resolved);
+
+  static String _getSongQuality(Song song, [TidalStreamResolution? resolved]) {
     if (song.isDsd) return 'HR';
-    final fileType = song.fileType.toUpperCase();
+    final codecLabel = resolved?.codec;
+    final fileType = (codecLabel != null && codecLabel.isNotEmpty
+            ? codecLabel
+            : (resolved?.ext ?? song.fileType))
+        .toUpperCase();
     const lossless = {'FLAC', 'WAV', 'ALAC', 'AIFF', 'APE', 'WV'};
     // Lossy of any bitrate is plain High Quality.
-    if (!lossless.contains(fileType)) return 'HQ';
+    if (!lossless.contains(fileType) || resolved?.isLossy == true) return 'HQ';
+    final bitDepth = resolved?.bitDepth ?? song.bitDepth ?? 0;
     // 24-bit and above is Hi-Res Audio regardless of sample rate.
-    if ((song.bitDepth ?? 0) >= 24) return 'HR';
+    if (bitDepth >= 24) return 'HR';
     // 16-bit lossless is CD quality.
     return 'CD';
   }
@@ -692,8 +711,10 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
       );
     }
 
-    final bitDepth =
-        widget.deviceStatus?.currentFormat?.bitDepth ?? widget.song.bitDepth;
+    final isLossy = resolved?.isLossy == true ||
+        const {'MP3', 'AAC', 'M4A', 'OGG', 'OPUS'}.contains(formatValue);
+    final bitDepth = widget.deviceStatus?.currentFormat?.bitDepth ??
+        (isLossy ? null : widget.song.bitDepth);
     if (bitDepth != null) {
       // Android has no API for the mixer's output bit depth: this is
       // capability-based inference (see `mixerBitDepthLabel`), not a
