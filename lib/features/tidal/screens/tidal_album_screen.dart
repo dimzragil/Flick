@@ -25,6 +25,7 @@ import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
 import '../widgets/tidal_detail_theme.dart';
 import '../widgets/tidal_shimmer.dart';
+import '../widgets/tidal_volume_header.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_artist_screen.dart';
 
@@ -35,11 +36,20 @@ class TidalAlbumScreen extends ConsumerStatefulWidget {
   /// Matches the tag of the hub card's cover [Hero], when opened from one.
   final String? heroTag;
 
+  /// Overrides the dispatch of a tapped track.
+  ///
+  /// When set, the tapped song and the full ordered album playlist are
+  /// handed to this callback instead of [PlayerService]. Tests use it to
+  /// assert which song a tap resolves to — and at which position in the
+  /// album — without driving real playback.
+  final void Function(Song song, List<Song> playlist)? onPlayTrack;
+
   const TidalAlbumScreen({
     super.key,
     required this.albumId,
     this.initialAlbumData,
     this.heroTag,
+    this.onPlayTrack,
   });
 
   @override
@@ -56,6 +66,11 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
   }
 
   void _playSong(Song song, List<Song> playlist) {
+    final onPlayTrack = widget.onPlayTrack;
+    if (onPlayTrack != null) {
+      onPlayTrack(song, playlist);
+      return;
+    }
     PlayerService().play(song, playlist: playlist);
     NavigationHelper.navigateToFullPlayer(
       context,
@@ -399,6 +414,9 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
         ? releaseDate.substring(0, 4)
         : null;
     final aboutText = _albumAboutText(album);
+    // Flattened track rows: volume headers interleaved with tracks for
+    // multi-disc albums, a plain track list for single-disc ones.
+    final listItems = buildTidalAlbumListItems(tracks);
 
     final coverSize = context.scaleSize(180);
 
@@ -538,15 +556,31 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                 ),
               ),
             ),
-          // Tracklist
+          // Tracklist. Multi-disc albums are grouped by volume with a header
+          // before each volume; single-disc albums render exactly as before.
           SliverPadding(
             padding: EdgeInsets.symmetric(
               horizontal: context.scaleSize(AppConstants.spacingMd),
             ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate((context, index) {
-                final song = tracks[index];
-                final trackNum = song.trackNumber ?? (index + 1);
+                final item = listItems[index];
+                if (item is TidalVolumeHeaderItem) {
+                  return StaggeredEntrance(
+                    index: index,
+                    child: TidalVolumeHeaderRow(
+                      volume: item.volume,
+                      trackCount: item.trackCount,
+                      accentColor: dominantColor,
+                    ),
+                  );
+                }
+                final track = item as TidalAlbumTrackItem;
+                final song = track.song;
+                // Numbering follows the track's place in the whole album, so
+                // the per-volume track numbers of a multi-disc album stay
+                // aligned with the headers above them.
+                final trackNum = song.trackNumber ?? (track.globalIndex + 1);
 
                 return StaggeredEntrance(
                   index: index,
@@ -558,7 +592,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                         vertical: 2,
                       ),
                       leading: SizedBox(
-                        width: 28,
+                        width: kTidalTrackNumberColumnWidth,
                         child: Center(
                           child: Text(
                             '$trackNum',
@@ -643,7 +677,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                     ),
                   ),
                 );
-              }, childCount: tracks.length),
+              }, childCount: listItems.length),
             ),
           ),
           if (artistId != null && artistId.isNotEmpty)
