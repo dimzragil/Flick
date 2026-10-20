@@ -14,6 +14,7 @@ import '../../../models/song.dart';
 import '../../../providers/app_preferences_provider.dart';
 import '../../../providers/favorites_provider.dart';
 import '../../../services/player_service.dart';
+import '../../../services/sources/tidal_album_deduplication.dart';
 import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/detail_header.dart';
@@ -235,27 +236,66 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
     );
   }
 
-  /// "More from `artist`" rail: other albums by the same artist, fetched from
-  /// the TIDAL catalog. Hidden while loading, on error, and when the
-  /// preference is disabled.
-  Widget _buildMoreFromArtistSliver(
+  /// "Other versions" rail: alternative releases/editions of the current album
+  /// (e.g. standard vs deluxe, remastered vs original, or alternate distributor releases).
+  Widget _buildOtherVersionsSliver(
     BuildContext context, {
-    required String artistId,
-    required String artistName,
-    required String currentAlbumId,
+    required List<Map<String, dynamic>> versions,
   }) {
-    if (!ref.watch(appPreferencesProvider).showMoreFromArtist) {
+    if (versions.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
-    final otherAlbums =
-        ref
-            .watch(tidalArtistAlbumsProvider(artistId))
-            .value
-            ?.where((album) => album['id']?.toString() != currentAlbumId)
-            .take(10)
-            .toList() ??
-        const <Map<String, dynamic>>[];
-    if (otherAlbums.isEmpty) {
+
+    final cardSize = context.scaleSize(140);
+    return SliverToBoxAdapter(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          StaggeredEntrance(
+            index: 2,
+            child: _sectionTitle(context, 'Other versions'),
+          ),
+          SizedBox(
+            height: cardSize + context.scaleSize(64),
+            child: ListView.separated(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.scaleSize(AppConstants.spacingLg),
+              ),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: versions.length,
+              separatorBuilder: (_, __) =>
+                  SizedBox(width: context.scaleSize(AppConstants.spacingSm)),
+              itemBuilder: (context, index) {
+                final album = versions[index];
+                return StaggeredEntrance(
+                  index: 3 + index,
+                  child: PressScale(
+                    child: _MoreAlbumCard(
+                      album: album,
+                      size: cardSize,
+                      onTap: () => _openAlbum(album),
+                      showQualityBadge: true,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "More from `artist`" rail: other distinct albums by the same artist.
+  /// Hidden while loading, on error, and when the preference is disabled.
+  Widget _buildMoreFromArtistSliver(
+    BuildContext context, {
+    required String artistName,
+    required List<Map<String, dynamic>> albums,
+  }) {
+    if (!ref.watch(appPreferencesProvider).showMoreFromArtist ||
+        albums.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
 
@@ -269,18 +309,18 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
             child: _sectionTitle(context, 'More from $artistName'),
           ),
           SizedBox(
-            height: cardSize + context.scaleSize(60),
+            height: cardSize + context.scaleSize(64),
             child: ListView.separated(
               padding: EdgeInsets.symmetric(
                 horizontal: context.scaleSize(AppConstants.spacingLg),
               ),
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
-              itemCount: otherAlbums.length,
+              itemCount: albums.length,
               separatorBuilder: (_, __) =>
                   SizedBox(width: context.scaleSize(AppConstants.spacingSm)),
               itemBuilder: (context, index) {
-                final album = otherAlbums[index];
+                final album = albums[index];
                 return StaggeredEntrance(
                   index: 3 + index,
                   child: PressScale(
@@ -288,6 +328,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                       album: album,
                       size: cardSize,
                       onTap: () => _openAlbum(album),
+                      showQualityBadge: true,
                     ),
                   ),
                 );
@@ -399,6 +440,18 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
     final artistMap = album['artist'] as Map<String, dynamic>?;
     final artist = (artistMap?['name'] as String?) ?? 'Unknown Artist';
     final artistId = artistMap?['id']?.toString();
+    final allArtistAlbums = artistId != null && artistId.isNotEmpty
+        ? (ref.watch(tidalArtistAlbumsProvider(artistId)).value ??
+            const <Map<String, dynamic>>[])
+        : const <Map<String, dynamic>>[];
+    final otherVersions = allArtistAlbums.isNotEmpty
+        ? TidalAlbumDeduplication.findOtherVersions(album, allArtistAlbums)
+        : const <Map<String, dynamic>>[];
+    final moreFromArtist = allArtistAlbums.isNotEmpty
+        ? TidalAlbumDeduplication.filterMoreFromArtist(album, allArtistAlbums)
+            .take(10)
+            .toList()
+        : const <Map<String, dynamic>>[];
     final coverUuid = album['cover'] as String?;
     // Perf (2026-10-13): header displays at 180px; 320px is plenty
     // for retina. 1280px was 7x oversize — wasted bandwidth, decode
@@ -680,12 +733,16 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
               }, childCount: listItems.length),
             ),
           ),
-          if (artistId != null && artistId.isNotEmpty)
+          if (otherVersions.isNotEmpty)
+            _buildOtherVersionsSliver(
+              context,
+              versions: otherVersions,
+            ),
+          if (artistId != null && artistId.isNotEmpty && moreFromArtist.isNotEmpty)
             _buildMoreFromArtistSliver(
               context,
-              artistId: artistId,
               artistName: artist,
-              currentAlbumId: widget.albumId,
+              albums: moreFromArtist,
             ),
           SliverToBoxAdapter(
             child: SizedBox(
@@ -703,11 +760,13 @@ class _MoreAlbumCard extends StatelessWidget {
     required this.album,
     required this.size,
     required this.onTap,
+    this.showQualityBadge = false,
   });
 
   final Map<String, dynamic> album;
   final double size;
   final VoidCallback onTap;
+  final bool showQualityBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -720,6 +779,14 @@ class _MoreAlbumCard extends StatelessWidget {
     final year = releaseDate != null && releaseDate.length >= 4
         ? releaseDate.substring(0, 4)
         : null;
+
+    final mediaMeta = album['mediaMetadata'] as Map<String, dynamic>?;
+    final tags =
+        (mediaMeta?['tags'] as List<dynamic>?)?.cast<String>() ?? const [];
+    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
+        tags.contains('HIRES_LOSSLESS_MQA');
+    final isLossless =
+        tags.contains('LOSSLESS') || album['audioQuality'] == 'LOSSLESS';
 
     return GestureDetector(
       onTap: onTap,
@@ -754,16 +821,72 @@ class _MoreAlbumCard extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            if (year != null)
-              Text(
-                year,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
-                ),
-              ),
+            Row(
+              children: [
+                if (year != null)
+                  Text(
+                    year,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                if (showQualityBadge && (isHiRes || isLossless)) ...[
+                  if (year != null) const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isHiRes
+                          ? const Color(0xFFE5A93C).withValues(alpha: 0.15)
+                          : AppColors.glassBackgroundStrong,
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(
+                        color: isHiRes
+                            ? const Color(0xFFE5A93C).withValues(alpha: 0.5)
+                            : AppColors.glassBorder,
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      isHiRes ? 'HI-RES' : 'CD',
+                      style: TextStyle(
+                        color: isHiRes
+                            ? const Color(0xFFE5A93C)
+                            : AppColors.textSecondary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+                if (showQualityBadge && album['explicit'] == true) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 3,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.glassBackgroundStrong,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: const Text(
+                      'E',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),

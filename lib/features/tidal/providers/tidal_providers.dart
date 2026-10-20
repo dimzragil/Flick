@@ -7,6 +7,7 @@ import '../../../data/database.dart';
 import '../../../models/song.dart';
 import '../../../models/sources/tidal_models.dart';
 import '../../../services/sources/network_source_service.dart';
+import '../../../services/sources/tidal_album_deduplication.dart';
 import '../../../services/sources/tidal_api_cache.dart';
 import '../../../services/sources/tidal_service.dart';
 
@@ -267,7 +268,9 @@ class TidalSearchNotifier extends Notifier<TidalSearchResults> {
 
       state = TidalSearchResults(
         tracks: tracks,
-        albums: rawAlbums.whereType<Map<String, dynamic>>().toList(),
+        albums: TidalAlbumDeduplication.deduplicate(
+          rawAlbums.whereType<Map<String, dynamic>>().toList(),
+        ),
         artists: rawArtists.whereType<Map<String, dynamic>>().toList(),
         playlists: rawPlaylists.whereType<Map<String, dynamic>>().toList(),
         isLoading: false,
@@ -505,14 +508,14 @@ final tidalArtistDetailsProvider = FutureProvider.autoDispose
       return (
         artist: artist,
         topTracks: topTracks,
-        albums: albums,
-        singlesAndEPs: singlesAndEPs,
-        compilations: compilations,
+        albums: TidalAlbumDeduplication.deduplicate(albums),
+        singlesAndEPs: TidalAlbumDeduplication.deduplicate(singlesAndEPs),
+        compilations: TidalAlbumDeduplication.deduplicate(compilations),
       );
     });
 
-/// Fetches an artist's albums for the "More from `artist`" rail on the TIDAL
-/// album screen. The rail filters out the album being viewed.
+/// Fetches an artist's full releases for the "Other versions" and
+/// "More from `artist`" rails on the TIDAL album screen.
 final tidalArtistAlbumsProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, artistId) async {
       final server = await ref.watch(tidalServerProvider.future);
@@ -520,7 +523,18 @@ final tidalArtistAlbumsProvider = FutureProvider.autoDispose
         throw StateError('Tidal server not found');
       }
       final tidal = ref.read(tidalServiceProvider);
-      return tidal.getArtistAlbums(server, artistId, limit: 10);
+      final results = await Future.wait([
+        tidal.getArtistAlbums(server, artistId, limit: 50),
+        tidal.getArtistAlbums(
+          server,
+          artistId,
+          filter: 'EPSANDSINGLES',
+          limit: 50,
+        ),
+      ]);
+      final albums = results[0];
+      final singles = results[1];
+      return [...albums, ...singles];
     });
 
 /// Fetches an artist's biography text (TIDAL v2), or null when unavailable.

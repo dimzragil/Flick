@@ -718,6 +718,14 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
         ? releaseDate.substring(0, 4)
         : null;
 
+    final mediaMeta = album['mediaMetadata'] as Map<String, dynamic>?;
+    final tags =
+        (mediaMeta?['tags'] as List<dynamic>?)?.cast<String>() ?? const [];
+    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
+        tags.contains('HIRES_LOSSLESS_MQA');
+    final isLossless =
+        tags.contains('LOSSLESS') || album['audioQuality'] == 'LOSSLESS';
+
     return PressScale(
       child: GestureDetector(
         onTap: () => _openAlbum(album),
@@ -750,16 +758,72 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            if (year != null)
-              Text(
-                year,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
-                ),
-              ),
+            Row(
+              children: [
+                if (year != null)
+                  Text(
+                    year,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                if (isHiRes || isLossless) ...[
+                  if (year != null) const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isHiRes
+                          ? const Color(0xFFE5A93C).withValues(alpha: 0.15)
+                          : AppColors.glassBackgroundStrong,
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(
+                        color: isHiRes
+                            ? const Color(0xFFE5A93C).withValues(alpha: 0.5)
+                            : AppColors.glassBorder,
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      isHiRes ? 'HI-RES' : 'CD',
+                      style: TextStyle(
+                        color: isHiRes
+                            ? const Color(0xFFE5A93C)
+                            : AppColors.textSecondary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+                if (album['explicit'] == true) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 3,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.glassBackgroundStrong,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: const Text(
+                      'E',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),
