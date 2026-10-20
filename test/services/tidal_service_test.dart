@@ -664,6 +664,57 @@ void main() {
         expect(file.readAsBytesSync(), [1, 2, 3, 4, 5, 6, 7]);
       },
     );
+
+    test(
+      'null codec with an audio/mp4 BTS manifest normalizes to AAC and stays lossy',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'tidal_bts_aac_test',
+        );
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final manifest = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'mimeType': 'audio/mp4',
+              'encryptionType': 'NONE',
+              'urls': ['https://cdn.tidal.com/track/aac/abc'],
+            }),
+          ),
+        );
+        final client = MockClient((request) async {
+          if (request.url.host == 'cdn.tidal.com') {
+            return http.Response.bytes([1, 2, 3], 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/vnd.tidal.bts',
+              'assetPresentation': 'FULL',
+            }),
+            200,
+          );
+        });
+        final service = TidalService.create(
+          client: client,
+          networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
+
+        final desc = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '1234567',
+        );
+        expect(desc, isNotNull);
+
+        final resolved = service.getResolvedStream('1234567');
+        expect(resolved, isNotNull);
+        expect(resolved!.codec, 'aac');
+        expect(resolved.ext, 'm4a');
+        expect(resolved.isLossy, isTrue);
+        expect(resolved.effectiveBitrate, 320);
+        expect(resolved.resolutionString, '320kbps');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      },
+    );
   });
 
   group('stream (DASH cache extension)', () {
@@ -1010,6 +1061,149 @@ void main() {
 
         final empty = await service.getUserPlaylists(_server(token: null));
         expect(empty, isEmpty);
+      },
+    );
+  });
+
+  group('TidalStreamResolution codec-first classification', () {
+    test('FLAC in an MP4 container is lossless and keeps its real bitrate', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'm4a',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        codec: 'flac',
+        bitrate: 1005,
+      );
+      expect(res.isLossy, isFalse);
+      expect(res.effectiveBitrate, 1005);
+      expect(res.resolutionString, '16-bit / 44.1kHz / 1005kbps');
+    });
+
+    test(
+      'FLAC in an MP4 container without a manifest bitrate does not default to 320',
+      () {
+        const res = TidalStreamResolution(
+          url: 'http://test',
+          isDash: false,
+          ext: 'm4a',
+          sampleRate: 44100,
+          bitDepth: 16,
+          audioQuality: 'LOSSLESS',
+          codec: 'flac',
+        );
+        expect(res.isLossy, isFalse);
+        expect(res.effectiveBitrate, 1411);
+        expect(res.resolutionString, '16-bit / 44.1kHz / 1411kbps');
+      },
+    );
+
+    test('ALAC in an MP4 container is lossless', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'm4a',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        codec: 'alac',
+        bitrate: 1000,
+      );
+      expect(res.isLossy, isFalse);
+      expect(res.effectiveBitrate, 1000);
+      expect(res.resolutionString, '16-bit / 44.1kHz / 1000kbps');
+    });
+
+    test('AAC in an MP4 container stays lossy at 320 kbps', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'm4a',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'HIGH',
+        codec: 'aac',
+      );
+      expect(res.isLossy, isTrue);
+      expect(res.effectiveBitrate, 320);
+      expect(res.resolutionString, '320kbps');
+    });
+
+    test('raw mp4a codec string is classified as lossy AAC', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'm4a',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'HIGH',
+        codec: 'mp4a.40.2',
+      );
+      expect(res.isLossy, isTrue);
+      expect(res.effectiveBitrate, 320);
+    });
+
+    test('unknown codec with a HIGH catalog tier is lossy', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'HIGH',
+      );
+      expect(res.isLossy, isTrue);
+      expect(res.effectiveBitrate, 320);
+    });
+
+    test('FLAC in a FLAC container is unchanged', () {
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'flac',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        codec: 'flac',
+        bitrate: 1411,
+      );
+      expect(res.isLossy, isFalse);
+      expect(res.effectiveBitrate, 1411);
+    });
+
+    test('AAC downgrade outranks a lossless catalog tier hint', () {
+      // The cascade can request LOSSLESS while TIDAL answers with AAC and
+      // omits `audioQuality`, in which case the tier is used as the hint.
+      // The codec must still win, otherwise the stream poses as 1411 kbps.
+      const res = TidalStreamResolution(
+        url: 'http://test',
+        isDash: false,
+        ext: 'm4a',
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        codec: 'aac',
+      );
+      expect(res.isLossy, isTrue);
+      expect(res.effectiveBitrate, 320);
+      expect(res.resolutionString, '320kbps');
+    });
+
+    test(
+      'unknown codec with mp3 extension is lossy without inventing a rate',
+      () {
+        const res = TidalStreamResolution(
+          url: 'http://test',
+          isDash: false,
+          ext: 'mp3',
+          sampleRate: 44100,
+          bitDepth: 16,
+          audioQuality: 'LOSSLESS',
+        );
+        expect(res.isLossy, isTrue);
+        expect(res.effectiveBitrate, isNull);
+        expect(res.resolutionString, 'Lossy');
       },
     );
   });

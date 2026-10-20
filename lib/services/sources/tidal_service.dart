@@ -1856,11 +1856,14 @@ class TidalService implements NetworkSourceService {
             );
           }
 
-          final btsCodecRaw = rawCodec ??
+          final btsCodecRaw =
+              rawCodec ??
               (decoded['codecs'] as String?) ??
               (decoded['codec'] as String?);
-          final btsCodec =
-              _normalizeCodec(btsCodecRaw, decoded['mimeType'] as String?);
+          final btsCodec = _normalizeCodec(
+            btsCodecRaw,
+            decoded['mimeType'] as String?,
+          );
 
           final res = TidalStreamResolution(
             url: urls.first as String,
@@ -1929,7 +1932,8 @@ class TidalService implements NetworkSourceService {
     }
     final m = mime?.trim().toLowerCase();
     if (m != null) {
-      if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a') return 'aac';
+      if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a')
+        return 'aac';
       if (m == 'audio/flac' || m == 'audio/x-flac') return 'flac';
       if (m == 'audio/mpeg') return 'mp3';
     }
@@ -3864,6 +3868,9 @@ bool _isTidalRateLimitFailure(Object error) {
   return message.contains('Too many TIDAL requests');
 }
 
+/// Bitstream family implied by a manifest codec string.
+enum _StreamCodecFamily { lossless, lossy, unknown }
+
 /// Resolved stream metadata and endpoint details for a TIDAL track.
 class TidalStreamResolution {
   final String url;
@@ -3887,14 +3894,52 @@ class TidalStreamResolution {
   /// tier the quality cascade started from.
   final String? tierHint;
 
+  /// Bitstream family implied by [codec].
+  ///
+  /// The container is deliberately absent: an MP4/M4A container carries ALAC,
+  /// FLAC and AAC alike, so it says nothing about the payload.
+  _StreamCodecFamily get _codecFamily {
+    final c = codec?.trim().toLowerCase();
+    if (c == null || c.isEmpty) return _StreamCodecFamily.unknown;
+    // TidalService._normalizeCodec already collapses `mp4a.*` to `aac` and
+    // matches flac/alac substrings, but a directly constructed resolution may
+    // still carry a raw codec string, so classify defensively.
+    if (c.contains('flac') || c.contains('alac')) {
+      return _StreamCodecFamily.lossless;
+    }
+    if (c == 'wav' || c == 'pcm' || c == 'lpcm' || c == 'aiff' || c == 'dsd') {
+      return _StreamCodecFamily.lossless;
+    }
+    if (c.startsWith('mp4a') ||
+        c.contains('aac') ||
+        c.contains('mp3') ||
+        c == 'mpeg' ||
+        c.contains('opus') ||
+        c.contains('vorbis')) {
+      return _StreamCodecFamily.lossy;
+    }
+    return _StreamCodecFamily.unknown;
+  }
+
+  /// Whether the resolved stream is lossy, decided by evidence strength:
+  ///
+  /// 1. Codec from the manifest (ground truth): flac/alac/wav are lossless,
+  ///    aac/mp3/opus/vorbis are lossy.
+  /// 2. Catalog tier (`HIGH`/`LOW`) only when the codec is unknown.
+  /// 3. Container extension as a last resort — `mp3` only. `m4a`/`mp4` must
+  ///    never imply lossy: ALAC is always MP4-packaged and FLAC-in-MP4 is
+  ///    valid, so the extension would veto a lossless codec.
   bool get isLossy {
-    final c = codec?.toLowerCase();
-    return audioQuality == 'HIGH' ||
-        audioQuality == 'LOW' ||
-        c == 'aac' ||
-        c == 'mp3' ||
-        ext == 'm4a' ||
-        ext == 'mp3';
+    switch (_codecFamily) {
+      case _StreamCodecFamily.lossless:
+        return false;
+      case _StreamCodecFamily.lossy:
+        return true;
+      case _StreamCodecFamily.unknown:
+        break;
+    }
+    if (audioQuality == 'HIGH' || audioQuality == 'LOW') return true;
+    return ext == 'mp3';
   }
 
   int? get effectiveBitrate {
@@ -3902,12 +3947,32 @@ class TidalStreamResolution {
     if (dashInfo?.bandwidth != null) {
       return (dashInfo!.bandwidth! / 1000).round();
     }
+
+    // Same precedence as [isLossy]: codec evidence must not borrow another
+    // codec's nominal rate. A downgraded AAC stream reporting a lossless
+    // tier would otherwise claim FLAC's 1411 kbps.
+    switch (_codecFamily) {
+      case _StreamCodecFamily.lossy:
+        return audioQuality == 'LOW' ? 96 : 320;
+      case _StreamCodecFamily.lossless:
+        if (audioQuality == 'LOSSLESS' &&
+            sampleRate == 44100 &&
+            bitDepth <= 16) {
+          return 1411;
+        }
+        return null;
+      case _StreamCodecFamily.unknown:
+        break;
+    }
+
     if (audioQuality == 'HIGH') return 320;
     if (audioQuality == 'LOW') return 96;
-    if (audioQuality == 'LOSSLESS' && sampleRate == 44100 && bitDepth <= 16) {
+    if (!isLossy &&
+        audioQuality == 'LOSSLESS' &&
+        sampleRate == 44100 &&
+        bitDepth <= 16) {
       return 1411;
     }
-    if (isLossy && (ext == 'm4a' || codec == 'aac')) return 320;
     return null;
   }
 
