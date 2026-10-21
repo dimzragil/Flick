@@ -27,6 +27,17 @@ class RemoteSourceService {
   /// Progress (0..1) of the interactive playback download, null when idle.
   final ValueNotifier<double?> downloadProgressNotifier = ValueNotifier(null);
 
+  /// Transient, user-facing notice for a blocked track start (for example
+  /// TIDAL's resolve breaker being open). The UI shows it as a snackbar and
+  /// resets it to null; null means nothing to report.
+  final ValueNotifier<String?> playbackIssueNotifier = ValueNotifier(null);
+
+  void _reportPlaybackIssue(Object error) {
+    if (error is TidalUnavailableException) {
+      playbackIssueNotifier.value = error.message;
+    }
+  }
+
   /// Songs whose format probe failed (e.g. AAC-in-M4A Symphonia gap);
   /// skip retrying them every play.
   final Set<String> _probeFailed = {};
@@ -70,6 +81,11 @@ class RemoteSourceService {
       );
       unawaited(_backfillAudioFormat(song, path));
       return path;
+    } on TidalUnavailableException catch (e) {
+      // The resolve was refused fast (shared failure or open breaker); tell
+      // the user instead of leaving them with a dead spinner.
+      _reportPlaybackIssue(e);
+      rethrow;
     } finally {
       if (reportProgress) downloadProgressNotifier.value = null;
     }

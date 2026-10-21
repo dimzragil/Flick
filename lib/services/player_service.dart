@@ -6042,12 +6042,18 @@ class PlayerService {
       }
     }
 
-    final nextPath = await _resolveRustPath(nextSong);
-    if (nextPath != null) {
-      await _rustAudioService.setReplayGainDefault(
-        await _computeReplayGainDbFor(nextSong),
-      );
-      await _rustAudioService.queueNext(nextPath);
+    try {
+      final nextPath = await _resolveRustPath(nextSong);
+      if (nextPath != null) {
+        await _rustAudioService.setReplayGainDefault(
+          await _computeReplayGainDbFor(nextSong),
+        );
+        await _rustAudioService.queueNext(nextPath);
+      }
+    } catch (e) {
+      // Queue-next is best-effort and its callers are unawaited: a fast-failed
+      // TIDAL resolve must not surface as an unhandled async error.
+      _debugLog('Cache queue-next failed for "${nextSong.title}": $e');
     }
   }
 

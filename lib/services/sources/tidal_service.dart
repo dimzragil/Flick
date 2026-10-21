@@ -73,6 +73,10 @@ class TidalService implements NetworkSourceService {
     int dashSegmentAttempts = 3,
     Duration resolvedStreamTtl = const Duration(minutes: 30),
     Duration retryDeadline = const Duration(seconds: 75),
+    Duration streamResolveTimeout = defaultStreamResolveTimeout,
+    Duration resolveFailureTtl = defaultResolveFailureTtl,
+    int resolveTimeoutThreshold = defaultResolveTimeoutThreshold,
+    Duration resolveBreakerCooldown = defaultResolveBreakerCooldown,
   }) : _client = client ?? http.Client(),
        _songRepository = songRepository,
        _networkCache = networkCache,
@@ -83,7 +87,11 @@ class TidalService implements NetworkSourceService {
        _dashSegmentIdleTimeout = dashSegmentIdleTimeout,
        _dashSegmentAttempts = dashSegmentAttempts,
        _resolvedStreamTtl = resolvedStreamTtl,
-       _retryDeadline = retryDeadline;
+       _retryDeadline = retryDeadline,
+       _streamResolveTimeout = streamResolveTimeout,
+       _resolveFailureTtl = resolveFailureTtl,
+       _resolveTimeoutThreshold = resolveTimeoutThreshold,
+       _resolveBreakerCooldown = resolveBreakerCooldown;
 
   static TidalService instance = TidalService._();
 
@@ -101,6 +109,10 @@ class TidalService implements NetworkSourceService {
     int dashSegmentAttempts = 3,
     Duration resolvedStreamTtl = const Duration(minutes: 30),
     Duration retryDeadline = const Duration(seconds: 75),
+    Duration streamResolveTimeout = defaultStreamResolveTimeout,
+    Duration resolveFailureTtl = defaultResolveFailureTtl,
+    int resolveTimeoutThreshold = defaultResolveTimeoutThreshold,
+    Duration resolveBreakerCooldown = defaultResolveBreakerCooldown,
   }) => TidalService._(
     client: client,
     songRepository: songRepository,
@@ -113,6 +125,10 @@ class TidalService implements NetworkSourceService {
     dashSegmentAttempts: dashSegmentAttempts,
     resolvedStreamTtl: resolvedStreamTtl,
     retryDeadline: retryDeadline,
+    streamResolveTimeout: streamResolveTimeout,
+    resolveFailureTtl: resolveFailureTtl,
+    resolveTimeoutThreshold: resolveTimeoutThreshold,
+    resolveBreakerCooldown: resolveBreakerCooldown,
   );
 
   // ponytail: Tidal desktop/TV app OAuth2 client credentials, scraped from the
@@ -136,6 +152,26 @@ class TidalService implements NetworkSourceService {
 
   /// Tidal base url is fixed; baseUrl on the entity is cosmetic only.
   static const String tidalBaseUrl = 'https://tidal.com';
+
+  /// Timeout for the `playbackinfopostpaywall` resolve call.
+  ///
+  /// TIDAL sometimes accepts a connection and never answers. The general API
+  /// timeout (20s) turned that into 20s of dead air per resolver, doubled by
+  /// the cache-then-play fallback. Resolution metadata is cheap and small, so
+  /// abandoning a silent tier after 8s is safe; segment/media downloads keep
+  /// their own much longer budgets.
+  static const Duration defaultStreamResolveTimeout = Duration(seconds: 8);
+
+  /// How long a failed resolution for one track is remembered so both the
+  /// direct-descriptor and the `ensureLocal` fallback fail fast instead of
+  /// each paying for the same hung TIDAL endpoint.
+  static const Duration defaultResolveFailureTtl = Duration(seconds: 30);
+
+  /// Consecutive resolve timeouts (any track) that open the circuit breaker.
+  static const int defaultResolveTimeoutThreshold = 3;
+
+  /// How long the breaker refuses new resolutions before a half-open probe.
+  static const Duration defaultResolveBreakerCooldown = Duration(seconds: 30);
 
   final http.Client _client;
   SongRepository? _songRepository;
@@ -177,6 +213,24 @@ class TidalService implements NetworkSourceService {
   /// block the caller for roughly six minutes before the UI sees an error.
   /// Overridable in tests via [create].
   final Duration _retryDeadline;
+
+  /// Per-attempt timeout for the stream-resolution metadata call. Overridable
+  /// in tests via [create] so a hung endpoint is simulated in milliseconds.
+  final Duration _streamResolveTimeout;
+
+  /// Short-TTL negative cache: track id → the hang that blocked it.
+  final Map<String, _ResolveFailure> _resolveFailures = {};
+  final Duration _resolveFailureTtl;
+  final int _resolveTimeoutThreshold;
+  final Duration _resolveBreakerCooldown;
+
+  /// Consecutive resolution timeouts with no success in between.
+  int _consecutiveResolveTimeouts = 0;
+
+  /// Non-null while the resolve breaker is open (or half-open, once the
+  /// cooldown has elapsed — a single probe is then admitted).
+  DateTime? _resolveBreakerOpenedAt;
+  bool _resolveBreakerProbeInFlight = false;
 
   /// Max entries for in-memory caches before oldest-first eviction.
   /// Prevents unbounded growth during long listening sessions.
@@ -281,6 +335,82 @@ class TidalService implements NetworkSourceService {
       return null;
     }
     return cached;
+  }
+
+  @visibleForTesting
+  Duration get streamResolveTimeoutForTesting => _streamResolveTimeout;
+
+  @visibleForTesting
+  int get resolutionFailureCountForTesting => _resolveFailures.length;
+
+  @visibleForTesting
+  ({Duration header, Duration idle}) get dashSegmentTimeoutsForTesting =>
+      (header: _dashSegmentHeaderTimeout, idle: _dashSegmentIdleTimeout);
+
+  /// Faithful reproduction of the failure record: the same typed error is
+  /// rethrown so callers cannot tell a shared failure from a fresh hang
+  /// except by how fast it arrives.
+  void _throwIfRecentResolveFailure(String trackId) {
+    final failure = _resolveFailures[trackId];
+    if (failure == null) return;
+    final age = DateTime.now().difference(failure.at);
+    if (age.isNegative || age >= _resolveFailureTtl) {
+      _resolveFailures.remove(trackId);
+      return;
+    }
+    devLog(
+      '[Tidal] resolve($trackId) hung ${age.inMilliseconds}ms ago; '
+      'failing fast for the rest of the ${_resolveFailureTtl.inSeconds}s window',
+    );
+    throw failure.error;
+  }
+
+  /// Admits one resolution through the timeout breaker.
+  ///
+  /// Returns true when this call is the single half-open probe, so the caller
+  /// can release the probe slot in a `finally`.
+  bool _admitResolve() {
+    final openedAt = _resolveBreakerOpenedAt;
+    if (openedAt == null) return false;
+    final elapsed = DateTime.now().difference(openedAt);
+    if (elapsed.isNegative || elapsed < _resolveBreakerCooldown) {
+      final remaining = _resolveBreakerCooldown - elapsed;
+      throw TidalUnavailableException(remaining);
+    }
+    // Cooldown elapsed: half-open. Exactly one probe may touch the network.
+    if (_resolveBreakerProbeInFlight) {
+      throw TidalUnavailableException();
+    }
+    _resolveBreakerProbeInFlight = true;
+    return true;
+  }
+
+  void _onResolveSuccess() {
+    _consecutiveResolveTimeouts = 0;
+    _resolveBreakerOpenedAt = null;
+  }
+
+  /// Records a silent hang: negative-cache the track and advance the breaker.
+  ///
+  /// Permanent errors (404/entitlement/429) deliberately do not reach this
+  /// method: they are not a dead endpoint, so they must not masquerade as one.
+  void _onResolveTimeout(String trackId, Object cause) {
+    _resolveFailures[trackId] = _ResolveFailure(
+      TidalUnavailableException(),
+      DateTime.now(),
+    );
+    _evictOldestIfNeeded(_resolveFailures);
+
+    _consecutiveResolveTimeouts++;
+    if (_resolveBreakerOpenedAt != null ||
+        _consecutiveResolveTimeouts >= _resolveTimeoutThreshold) {
+      _resolveBreakerOpenedAt = DateTime.now();
+      devLog(
+        '[Tidal] resolve breaker OPEN after '
+        '$_consecutiveResolveTimeouts consecutive timeout(s); '
+        'failing fast for ${_resolveBreakerCooldown.inSeconds}s (last: $cause)',
+      );
+    }
   }
 
   /// Cancel in-flight download for a specific track.
@@ -816,27 +946,43 @@ class TidalService implements NetworkSourceService {
     String path, {
     Map<String, String>? query,
     bool retry = true,
+    Duration? timeout,
   }) async {
     final creds = await _ensureValidToken(server);
     final uri = Uri.parse(
       '$_apiBase$path',
     ).replace(queryParameters: {'countryCode': creds.countryCode, ...?query});
     await _throttle();
-    final response = await _with429Retry(
-      'GET $path',
-      () => _client
-          .get(
-            uri,
-            headers: {
-              'Authorization': 'Bearer ${creds.accessToken}',
-              'Accept': 'application/json',
-            },
-          )
-          .timeout(const Duration(seconds: 20)),
-    );
+    final http.Response response;
+    try {
+      response = await _with429Retry(
+        'GET $path',
+        () => _client
+            .get(
+              uri,
+              headers: {
+                'Authorization': 'Bearer ${creds.accessToken}',
+                'Accept': 'application/json',
+              },
+            )
+            .timeout(timeout ?? const Duration(seconds: 20)),
+      );
+    } on TimeoutException catch (e) {
+      // Only the callers that asked for a tighter budget (stream resolution)
+      // get the typed marker: a keystore/token timeout elsewhere must not be
+      // mistaken for a dead TIDAL endpoint.
+      if (timeout == null) rethrow;
+      throw _TidalHttpTimeout(e);
+    }
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
       await _refresh(server, creds);
-      return _apiGetRaw(server, path, query: query, retry: false);
+      return _apiGetRaw(
+        server,
+        path,
+        query: query,
+        retry: false,
+        timeout: timeout,
+      );
     }
     if (response.statusCode == 429) {
       throw TidalRateLimitedException(
@@ -854,8 +1000,15 @@ class TidalService implements NetworkSourceService {
     String path, {
     Map<String, String>? query,
     bool retry = true,
+    Duration? timeout,
   }) async {
-    final body = await _apiGetRaw(server, path, query: query, retry: retry);
+    final body = await _apiGetRaw(
+      server,
+      path,
+      query: query,
+      retry: retry,
+      timeout: timeout,
+    );
     return jsonDecode(body) as Map<String, dynamic>;
   }
 
@@ -1736,8 +1889,10 @@ class TidalService implements NetworkSourceService {
   }
 
   /// Resolve a directly streamable CDN url or DASH track info.
-  /// Uses a quality cascade (HI_RES_LOSSLESS -> HI_RES -> LOSSLESS -> HIGH)
-  /// to play at maximum available quality.
+  ///
+  /// Guarded by the short-TTL failure record and the timeout circuit breaker,
+  /// so a silent TIDAL hang is paid for once per track (and at most three
+  /// times per cooldown across tracks) instead of by every resolver pass.
   Future<TidalStreamResolution?> _resolveStreamable(
     NetworkServerEntity server,
     String trackId,
@@ -1747,8 +1902,36 @@ class TidalService implements NetworkSourceService {
     // URL is still fresh) instead of paying for a second
     // `playbackinfopostpaywall` call. This applies to both DASH and BTS.
     final cached = _reusableResolution(trackId);
-    if (cached != null) return cached;
+    if (cached != null) {
+      // A cache hit is not evidence that TIDAL is healthy, so it clears the
+      // per-track failure record but leaves the breaker untouched.
+      _resolveFailures.remove(trackId);
+      return cached;
+    }
 
+    // The direct `streamDescriptor` path and the `ensureLocal`/`stream`
+    // fallback both land here on the same service instance; sharing the
+    // failure is what prevents the second 20s hang the log showed.
+    _throwIfRecentResolveFailure(trackId);
+    final isProbe = _admitResolve();
+    try {
+      final resolved = await _resolveStreamableCascade(server, trackId);
+      _resolveFailures.remove(trackId);
+      _onResolveSuccess();
+      return resolved;
+    } on _TidalHttpTimeout catch (e) {
+      _onResolveTimeout(trackId, e.error);
+      throw TidalUnavailableException();
+    } finally {
+      if (isProbe) _resolveBreakerProbeInFlight = false;
+    }
+  }
+
+  /// The unguarded HI_RES_LOSSLESS → HI_RES → LOSSLESS → HIGH cascade.
+  Future<TidalStreamResolution?> _resolveStreamableCascade(
+    NetworkServerEntity server,
+    String trackId,
+  ) async {
     const qualityTiers = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
     Object? lastError;
 
@@ -1773,6 +1956,10 @@ class TidalService implements NetworkSourceService {
             'assetpresentation': 'FULL',
             'audioquality': tier,
           },
+          // Only the resolution call gets the short budget: a hung tier is
+          // abandoned in 8s instead of 20s, and segment downloads keep their
+          // longer timeouts.
+          timeout: _streamResolveTimeout,
         );
 
         final mime = info['manifestMimeType'] as String?;
@@ -1889,6 +2076,10 @@ class TidalService implements NetworkSourceService {
         }
       } catch (e) {
         lastError = e;
+        // A silent hang is not tier evidence — TIDAL never answered, so the
+        // next tier would only stack a second full timeout. Abort the cascade;
+        // permanent errors (404/entitlement/429) still try the next tier.
+        if (e is _TidalHttpTimeout) rethrow;
       }
     }
 
@@ -3855,6 +4046,36 @@ class TidalRateLimitedException extends TidalException {
             ? 'Too many TIDAL requests. Try again in ~$retryAfterSeconds seconds.'
             : 'Too many TIDAL requests. Wait a moment and try again.',
       );
+}
+
+/// Thrown when TIDAL is not answering at all (silent hang or open breaker).
+///
+/// Callers should surface [message] directly: the resolve was abandoned
+/// quickly on purpose instead of leaving the UI loading for 40 seconds.
+class TidalUnavailableException extends TidalException {
+  TidalUnavailableException([Duration? retryAfter])
+    : super(
+        retryAfter != null && retryAfter > Duration.zero
+            ? 'TIDAL is not responding — try again in ~${retryAfter.inSeconds}s.'
+            : 'TIDAL is not responding — try again in a moment.',
+      );
+}
+
+/// The HTTP attempt for a stream-resolution call itself timed out: TIDAL
+/// accepted the connection and never answered.
+///
+/// Distinguished from other [TimeoutException]s (keystore reads, token
+/// refresh) so those are not misdiagnosed as a dead TIDAL endpoint.
+class _TidalHttpTimeout implements Exception {
+  const _TidalHttpTimeout(this.error);
+  final TimeoutException error;
+}
+
+/// One negative-cache entry: the typed error to replay and when it happened.
+class _ResolveFailure {
+  const _ResolveFailure(this.error, this.at);
+  final TidalUnavailableException error;
+  final DateTime at;
 }
 
 /// Whether [error] is, or wraps, a TIDAL rate-limit failure.

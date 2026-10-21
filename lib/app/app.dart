@@ -46,6 +46,7 @@ import 'package:flick/models/song.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/library_scan_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/remote_source_service.dart';
 import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/widget_sync_service.dart';
@@ -326,6 +327,9 @@ class _MainShellState extends ConsumerState<MainShell>
     _playerService.playbackDesyncedNotifier.addListener(
       _onPlaybackDesyncChanged,
     );
+    RemoteSourceService.instance.playbackIssueNotifier.addListener(
+      _onPlaybackIssue,
+    );
 
     ref.listenManual<AsyncValue<int>>(
       libraryWarmupProvider,
@@ -465,6 +469,20 @@ class _MainShellState extends ConsumerState<MainShell>
     );
   }
 
+  /// Surfaces a fast-failed TIDAL track start (shared failure or open resolve
+  /// breaker) instead of leaving the user staring at a silent load.
+  void _onPlaybackIssue() {
+    if (!mounted) return;
+    final notifier = RemoteSourceService.instance.playbackIssueNotifier;
+    final message = notifier.value;
+    if (message == null) return;
+    // Consume the notice so an identical message can surface again later.
+    notifier.value = null;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   void _onWarmupChanged(AsyncValue<int>? previous, AsyncValue<int> next) {
     if (!mounted) return;
     final count = next.value ?? 0;
@@ -502,6 +520,9 @@ class _MainShellState extends ConsumerState<MainShell>
     _cancelIdleTimer();
     _playerService.playbackDesyncedNotifier.removeListener(
       _onPlaybackDesyncChanged,
+    );
+    RemoteSourceService.instance.playbackIssueNotifier.removeListener(
+      _onPlaybackIssue,
     );
     _playerService.pendingMilestoneNotifier.removeListener(_handleMilestone);
     _playerService.streakPopupNotifier.removeListener(_handleStreakPopup);
