@@ -2093,6 +2093,40 @@ class TidalService implements NetworkSourceService {
 
   @visibleForTesting
   static String? extFromMime(String? mime) => _extFromMime(mime);
+
+  /// The cascade start tier for a track, from the catalog `audioQuality`
+  /// field AND the `mediaMetadata.tags`. Returns the HIGHEST tier either
+  /// source claims, in cascade order (earlier = higher). Returns null when
+  /// neither source names a tier, or for hi-res tracks (which keep the full
+  /// cascade). Tags matter because they can claim LOSSLESS while the field
+  /// says HIGH; using the field alone would start the cascade at HIGH and
+  /// never try LOSSLESS, hiding a CD stream the track may serve.
+  @visibleForTesting
+  static String? tierStartHintFor(String? quality, List<String> tags) {
+    const order = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
+    String? best;
+    void consider(String? tier) {
+      if (tier == null) return;
+      final index = order.indexOf(tier);
+      if (index < 0) return;
+      if (best == null || index < order.indexOf(best!)) best = tier;
+    }
+
+    if (tags.contains('HIRES_LOSSLESS') ||
+        tags.contains('HIRES_LOSSLESS_MQA') ||
+        quality == 'HI_RES_LOSSLESS') {
+      return null;
+    }
+    consider(switch (quality) {
+      'HI_RES' => 'HI_RES',
+      'LOSSLESS' => 'LOSSLESS',
+      'HIGH' => 'HIGH',
+      _ => null,
+    });
+    if (tags.contains('LOSSLESS')) consider('LOSSLESS');
+    return best;
+  }
+
   static String? _extFromMime(String? mime) {
     switch (mime) {
       case 'audio/flac':
@@ -3941,13 +3975,13 @@ class TidalService implements NetworkSourceService {
     // can skip higher tiers this track can never satisfy. Hi-res tracks
     // keep the full cascade (subscription/region may still downgrade them);
     // unknown quality keeps it too as the safe fallback.
+    // The hint is the HIGHEST tier claimed by EITHER catalog source: the
+    // `audioQuality` field and the `mediaMetadata.tags`. The two can
+    // disagree (tags say LOSSLESS while the field says HIGH); trusting the
+    // field alone would start the cascade at HIGH and never even try
+    // LOSSLESS, hiding a CD stream the track may actually serve.
     if (remoteId.isNotEmpty && !isHiRes) {
-      final startTier = switch (quality) {
-        'HI_RES' => 'HI_RES',
-        'LOSSLESS' => 'LOSSLESS',
-        'HIGH' => 'HIGH',
-        _ => null,
-      };
+      final startTier = tierStartHintFor(quality, tags);
       if (startTier != null) {
         _tierStartHintByTrackId[remoteId] = startTier;
         _evictOldestIfNeeded(_tierStartHintByTrackId);
