@@ -567,7 +567,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                       border: Border.all(color: AppColors.glassBorder),
                     ),
                     child: Text(
-                      hasHiRes ? 'HI-RES LOSSLESS 24-BIT' : 'LOSSLESS FLAC',
+                      hasHiRes ? 'HI-RES LOSSLESS 24-BIT' : 'LOSSLESS FLAC 16-BIT',
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 10,

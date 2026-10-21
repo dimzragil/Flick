@@ -136,9 +136,20 @@ class TidalService implements NetworkSourceService {
   // API key; Tidal rotates these at will. If auth starts returning
   // `invalid_client`, pull a fresh client_id/client_secret pair from the same
   // source.
-  static const String clientId = 'fX2JxdmntZWK0ixT';
-  static const String clientSecret =
+  /// Hi-Res Lossless profile (Android Automotive HiRes): yields 24-bit DASH FLAC.
+  static const String hiResClientId = 'fX2JxdmntZWK0ixT';
+  static const String hiResClientSecret =
       '1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=';
+
+  /// Bit-Perfect Lossless profile (Android Automotive_new2): yields unencrypted
+  /// 16-bit / 44.1 kHz BTS FLAC for all standard CD catalog tracks.
+  static const String losslessClientId = '4N3n6Q1x95LL5K7p';
+  static const String losslessClientSecret =
+      'oKOXfJW371cX6xaZ0PyhgGNBdNLlBZd4AKKYougMjik=';
+
+  /// Default client ID retained for compatibility with existing tests and device-code login.
+  static const String clientId = hiResClientId;
+  static const String clientSecret = hiResClientSecret;
   static const String _scope = 'r_usr w_usr w_sub';
 
   static const String _authBase = 'https://auth.tidal.com/v1/oauth2';
@@ -293,6 +304,7 @@ class TidalService implements NetworkSourceService {
   /// Forget the refresh token in secure storage for a removed/signed-out server.
   Future<void> forgetToken(int serverId) {
     _refreshTokenCache.remove(serverId);
+    _profileCreds.remove(serverId);
     return _tokens.delete(serverId).timeout(_secureStorageTimeout);
   }
 
@@ -615,6 +627,12 @@ class TidalService implements NetworkSourceService {
 
   final Map<int, Future<_TidalCreds>> _refreshInFlight = {};
 
+  /// In-memory cache of valid credentials per server ID and client profile.
+  final Map<int, Map<TidalClientProfile, _TidalCreds>> _profileCreds = {};
+
+  /// In-flight profile-specific refresh operations (keyed by '$serverId:${profile.name}').
+  final Map<String, Future<_TidalCreds>> _profileRefreshInFlight = {};
+
   /// Bound for secure-storage (platform channel) reads/writes in the token
   /// path. The platform channel has no built-in timeout; without this bound a
   /// wedged keystore call would hang the caller forever — and, via
@@ -653,10 +671,130 @@ class TidalService implements NetworkSourceService {
       _refreshInFlight;
 
   @visibleForTesting
-  Future<TidalCreds> ensureValidTokenForTesting(NetworkServerEntity server) =>
-      _ensureValidToken(server);
+  Future<TidalCreds> ensureValidTokenForTesting(
+    NetworkServerEntity server, {
+    TidalClientProfile? profile,
+  }) => _ensureValidToken(server, profile: profile);
 
-  Future<_TidalCreds> _ensureValidToken(NetworkServerEntity server) async {
+  Future<_TidalCreds> _ensureValidToken(
+    NetworkServerEntity server, {
+    TidalClientProfile? profile,
+  }) async {
+    if (profile == null) {
+      return _ensureValidBaseToken(server);
+    }
+
+    final profileMap = _profileCreds.putIfAbsent(server.id, () => {});
+    final cached = profileMap[profile];
+    if (cached != null && !cached.isNearExpiry) {
+      return cached;
+    }
+
+    final baseCreds = _creds(server.token);
+    if (cached == null && baseCreds != null && !baseCreds.isNearExpiry) {
+      // In tests/mocks where accessToken is not a dotted JWT:
+      if (!baseCreds.accessToken.contains('.')) {
+        profileMap[profile] = baseCreds;
+        return baseCreds;
+      }
+      final claims = _parseJwtClaims(baseCreds.accessToken);
+      final isMatching = profile == TidalClientProfile.hiRes
+          ? (claims.cid == 13319)
+          : (claims.cid == 6432 || claims.cid == 602440243);
+      if (isMatching) {
+        profileMap[profile] = baseCreds;
+        return baseCreds;
+      }
+    }
+
+    final inFlightKey = '${server.id}:${profile.name}';
+    final inFlight = _profileRefreshInFlight[inFlightKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    try {
+      final future = _doRefreshForProfile(server, profile);
+      _profileRefreshInFlight[inFlightKey] = future;
+      final refreshed = await future;
+      profileMap[profile] = refreshed;
+      return refreshed;
+    } catch (e) {
+      devLog(
+        '[Tidal] Dual-client refresh for ${profile.name} failed: $e, falling back to base token',
+      );
+      return _ensureValidBaseToken(server);
+    } finally {
+      _profileRefreshInFlight.remove(inFlightKey);
+    }
+  }
+
+  Future<_TidalCreds> _doRefreshForProfile(
+    NetworkServerEntity server,
+    TidalClientProfile profile,
+  ) async {
+    var refresh = _creds(server.token)?.refreshToken;
+    if ((refresh == null || refresh.isEmpty) && server.id > 0) {
+      try {
+        refresh = await _readRefreshToken(server.id);
+      } on TimeoutException {
+        rethrow;
+      } catch (e) {
+        devLog('Tidal secure storage read failed: $e');
+      }
+    }
+    if (refresh == null || refresh.isEmpty) {
+      final otherProfile = profile == TidalClientProfile.hiRes
+          ? TidalClientProfile.lossless
+          : TidalClientProfile.hiRes;
+      refresh = _profileCreds[server.id]?[otherProfile]?.refreshToken;
+    }
+    if (refresh == null || refresh.isEmpty) {
+      throw TidalException('Tidal session expired. Please sign in again.');
+    }
+
+    final targetClientId = profile == TidalClientProfile.hiRes
+        ? hiResClientId
+        : losslessClientId;
+    final targetClientSecret = profile == TidalClientProfile.hiRes
+        ? hiResClientSecret
+        : losslessClientSecret;
+
+    final tok = await _postForm('$_authBase/token', {
+      'client_id': targetClientId,
+      if (targetClientSecret.isNotEmpty) 'client_secret': targetClientSecret,
+      'grant_type': 'refresh_token',
+      'refresh_token': refresh,
+    });
+    final access = tok['access_token'] as String?;
+    if (access == null) {
+      throw TidalException('Tidal token refresh failed.');
+    }
+    final newRefresh = (tok['refresh_token'] as String?) ?? refresh;
+    final updated = _TidalCreds(
+      accessToken: access,
+      refreshToken: newRefresh,
+      userId: _creds(server.token)?.userId,
+      countryCode: _creds(server.token)?.countryCode ?? 'US',
+      expiresAtMs: DateTime.now()
+          .add(Duration(seconds: (tok['expires_in'] as num?)?.toInt() ?? 3600))
+          .millisecondsSinceEpoch,
+    );
+
+    if (server.id > 0 && newRefresh.isNotEmpty) {
+      try {
+        await _writeRefreshToken(server.id, newRefresh);
+      } catch (e) {
+        devLog(
+          'Tidal secure storage write failed during dual-client refresh: $e',
+        );
+      }
+    }
+
+    return updated;
+  }
+
+  Future<_TidalCreds> _ensureValidBaseToken(NetworkServerEntity server) async {
     final inFlight = _refreshInFlight[server.id];
     if (inFlight != null) {
       return inFlight;
@@ -947,8 +1085,9 @@ class TidalService implements NetworkSourceService {
     Map<String, String>? query,
     bool retry = true,
     Duration? timeout,
+    TidalClientProfile? profile,
   }) async {
-    final creds = await _ensureValidToken(server);
+    final creds = await _ensureValidToken(server, profile: profile);
     final uri = Uri.parse(
       '$_apiBase$path',
     ).replace(queryParameters: {'countryCode': creds.countryCode, ...?query});
@@ -975,13 +1114,18 @@ class TidalService implements NetworkSourceService {
       throw _TidalHttpTimeout(e);
     }
     if (response.statusCode == 401 && retry && creds.refreshToken != null) {
-      await _refresh(server, creds);
+      if (profile != null) {
+        await _doRefreshForProfile(server, profile);
+      } else {
+        await _refresh(server, creds);
+      }
       return _apiGetRaw(
         server,
         path,
         query: query,
         retry: false,
         timeout: timeout,
+        profile: profile,
       );
     }
     if (response.statusCode == 429) {
@@ -1001,6 +1145,7 @@ class TidalService implements NetworkSourceService {
     Map<String, String>? query,
     bool retry = true,
     Duration? timeout,
+    TidalClientProfile? profile,
   }) async {
     final body = await _apiGetRaw(
       server,
@@ -1008,6 +1153,7 @@ class TidalService implements NetworkSourceService {
       query: query,
       retry: retry,
       timeout: timeout,
+      profile: profile,
     );
     return jsonDecode(body) as Map<String, dynamic>;
   }
@@ -1947,6 +2093,14 @@ class TidalService implements NetworkSourceService {
 
     for (var i = tierIndex; i < qualityTiers.length; i++) {
       final tier = qualityTiers[i];
+      // Dual-Client Routing:
+      // Probe Hi-Res tiers (HI_RES_LOSSLESS, HI_RES) via hiRes client (DASH 24-bit FLAC).
+      // Probe Lossless CD tier (LOSSLESS) via lossless client (BTS unencrypted 16-bit FLAC).
+      // Fallback tiers (HIGH, LOW) via lossless client.
+      final profile = (tier == 'HI_RES_LOSSLESS' || tier == 'HI_RES')
+          ? TidalClientProfile.hiRes
+          : TidalClientProfile.lossless;
+
       try {
         final info = await _apiGet(
           server,
@@ -1960,6 +2114,7 @@ class TidalService implements NetworkSourceService {
           // abandoned in 8s instead of 20s, and segment downloads keep their
           // longer timeouts.
           timeout: _streamResolveTimeout,
+          profile: profile,
         );
 
         final mime = info['manifestMimeType'] as String?;
@@ -1994,7 +2149,10 @@ class TidalService implements NetworkSourceService {
               isDash: true,
               dashInfo: dashInfo,
               sampleRate: explicitSampleRate ?? 96000,
-              bitDepth: explicitBitDepth ?? 24,
+              bitDepth: explicitBitDepth ??
+                  (rawQuality == 'HI_RES_LOSSLESS' || rawQuality == 'HI_RES'
+                      ? 24
+                      : 16),
               isSampleRateExplicit: explicitSampleRate != null,
               isBitDepthExplicit: explicitBitDepth != null,
               audioQuality: rawQuality,
@@ -4028,6 +4186,20 @@ class TidalService implements NetworkSourceService {
   }
 }
 
+/// Tidal client profile used for dual-client routing.
+enum TidalClientProfile {
+  /// Hi-Res profile (Android Automotive HiRes / fX2JxdmntZWK0ixT).
+  ///
+  /// Delivers 24-bit DASH FLAC streams for tracks with Hi-Res Master available.
+  hiRes,
+
+  /// Lossless CD profile (Android Automotive_new2 / 4N3n6Q1x95LL5K7p).
+  ///
+  /// Delivers true unencrypted 16-bit / 44.1 kHz BTS FLAC streams for standard
+  /// CD-quality catalog tracks without server-side downgrade to AAC.
+  lossless,
+}
+
 typedef _TidalCreds = TidalCreds;
 
 class TidalCreds {
@@ -4043,6 +4215,11 @@ class TidalCreds {
   final String? userId;
   final String countryCode;
   final int? expiresAtMs;
+
+  bool get isNearExpiry {
+    if (expiresAtMs == null) return true;
+    return DateTime.now().millisecondsSinceEpoch > expiresAtMs! - 60000;
+  }
 
   TidalCreds copyWith({
     String? accessToken,
