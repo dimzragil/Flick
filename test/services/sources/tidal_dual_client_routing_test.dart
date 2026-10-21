@@ -278,5 +278,88 @@ void main() {
         expect(qualityBadge, 'HR');
       },
     );
+
+    test('stream resolved devLog formats BTS and DASH correctly', () {
+      // 1. BTS FLAC Lossless (matches user request exact format)
+      TidalService.recordTrackTitle('246452124', 'RASEN');
+      const btsFlacRes = TidalStreamResolution(
+        url: 'http://cdn/rasen.flac',
+        ext: 'flac',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'LOSSLESS',
+        codec: 'flac',
+        bitrate: 1061,
+        profile: TidalClientProfile.lossless,
+      );
+      final btsFlacLog = TidalService.formatStreamResolvedLog(
+        '246452124',
+        TidalClientProfile.lossless,
+        btsFlacRes,
+      );
+      expect(
+        btsFlacLog,
+        '[Tidal] Stream resolved: "RASEN" | profile=lossless | tier=LOSSLESS | codec=flac | 16-bit/44.1kHz | 1061kbps | BTS',
+      );
+
+      // 2. DASH FLAC Hi-Res 24-bit/96kHz
+      TidalService.recordTrackTitle('19823990', 'Hotel California');
+      const dashFlacRes = TidalStreamResolution(
+        url: '',
+        ext: 'mp4',
+        isDash: true,
+        sampleRate: 96000,
+        bitDepth: 24,
+        audioQuality: 'HI_RES_LOSSLESS',
+        codec: 'flac',
+        bitrate: 2852,
+        profile: TidalClientProfile.hiRes,
+      );
+      final dashFlacLog = TidalService.formatStreamResolvedLog(
+        '19823990',
+        TidalClientProfile.hiRes,
+        dashFlacRes,
+      );
+      expect(
+        dashFlacLog,
+        '[Tidal] Stream resolved: "Hotel California" | profile=hiRes | tier=HI_RES_LOSSLESS | codec=flac | 24-bit/96kHz | 2852kbps | DASH',
+      );
+
+      // 3. BTS AAC Lossy High
+      TidalService.recordTrackTitle('55555', 'Pop Song');
+      const btsAacRes = TidalStreamResolution(
+        url: 'http://cdn/popsong.m4a',
+        ext: 'm4a',
+        isDash: false,
+        sampleRate: 44100,
+        bitDepth: 16,
+        audioQuality: 'HIGH',
+        codec: 'aac',
+        bitrate: 320,
+        profile: TidalClientProfile.lossless,
+      );
+      final btsAacLog = TidalService.formatStreamResolvedLog(
+        '55555',
+        TidalClientProfile.lossless,
+        btsAacRes,
+      );
+      expect(
+        btsAacLog,
+        '[Tidal] Stream resolved: "Pop Song" | profile=lossless | tier=HIGH | codec=aac | 16-bit/44.1kHz | 320kbps | BTS',
+      );
+
+      // 4. Fallback to track ID when title is not cached
+      TidalService.clearTrackTitlesForTesting();
+      final fallbackLog = TidalService.formatStreamResolvedLog(
+        '999999',
+        TidalClientProfile.lossless,
+        btsFlacRes,
+      );
+      expect(
+        fallbackLog,
+        '[Tidal] Stream resolved: "999999" | profile=lossless | tier=LOSSLESS | codec=flac | 16-bit/44.1kHz | 1061kbps | BTS',
+      );
+    });
   });
 }

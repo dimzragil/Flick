@@ -284,6 +284,23 @@ class TidalService implements NetworkSourceService {
   /// without an entry fall back to the full cascade.
   static final Map<String, String> _tierStartHintByTrackId = {};
 
+  /// Track title cached by trackId for logging and diagnostics.
+  static final Map<String, String> _trackTitleByTrackId = {};
+
+  /// Record a track's title so resolution logs can display the human-readable
+  /// name instead of just the remote ID.
+  static void recordTrackTitle(String trackId, String title) {
+    if (title.isNotEmpty) {
+      _trackTitleByTrackId[trackId] = title;
+      _evictOldestIfNeeded(_trackTitleByTrackId);
+    }
+  }
+
+  @visibleForTesting
+  static void clearTrackTitlesForTesting() {
+    _trackTitleByTrackId.clear();
+  }
+
   SongRepository get _repo => _songRepository ??= SongRepository();
   NetworkCacheService get _cache => _networkCache ??= NetworkCacheService();
   TidalTokenStore get _tokens => _tokenStore ??= TidalTokenStore();
@@ -2160,10 +2177,12 @@ class TidalService implements NetworkSourceService {
               bitrate: effectiveBandwidth,
               resolvedAt: DateTime.now(),
               tierHint: _tierStartHintByTrackId[trackId],
+              profile: profile,
             );
             _resolvedStreams[trackId] = res;
             _evictOldestIfNeeded(_resolvedStreams);
             streamResolutionVersion.value++;
+            _logStreamResolved(trackId, profile, res);
             return res;
           }
           continue;
@@ -2226,10 +2245,12 @@ class TidalService implements NetworkSourceService {
                 : btsBitrate,
             resolvedAt: DateTime.now(),
             tierHint: _tierStartHintByTrackId[trackId],
+            profile: profile,
           );
           _resolvedStreams[trackId] = res;
           _evictOldestIfNeeded(_resolvedStreams);
           streamResolutionVersion.value++;
+          _logStreamResolved(trackId, profile, res);
           return res;
         }
       } catch (e) {
@@ -2247,6 +2268,38 @@ class TidalService implements NetworkSourceService {
     throw TidalException(
       'Track $trackId uses an unsupported or encrypted Tidal format (HiRes/MQA/Atmos).',
     );
+  }
+
+  static void _logStreamResolved(
+    String trackId,
+    TidalClientProfile profile,
+    TidalStreamResolution res,
+  ) {
+    devLog(formatStreamResolvedLog(trackId, profile, res));
+  }
+
+  /// Formats the logcat diagnostic line showing the resolved stream's
+  /// track title, client profile, quality tier, dynamic codec, bit depth / sample rate,
+  /// bitrate, and stream container type (DASH or BTS).
+  @visibleForTesting
+  static String formatStreamResolvedLog(
+    String trackId,
+    TidalClientProfile profile,
+    TidalStreamResolution res,
+  ) {
+    final title = _trackTitleByTrackId[trackId] ?? trackId;
+    final khz = (res.sampleRate / 1000).toStringAsFixed(
+      res.sampleRate % 1000 == 0 ? 0 : 1,
+    );
+    final kbps = res.effectiveBitrate;
+    final bitrateStr = kbps != null && kbps > 0 ? '${kbps}kbps' : 'VBR';
+    final typeStr = res.isDash ? 'DASH' : 'BTS';
+    final codecStr = (res.codec != null && res.codec!.isNotEmpty)
+        ? res.codec!
+        : (res.ext != null && res.ext != 'mp4'
+            ? res.ext!
+            : (res.isLossy ? 'aac' : 'flac'));
+    return '[Tidal] Stream resolved: "$title" | profile=${profile.name} | tier=${res.audioQuality} | codec=$codecStr | ${res.bitDepth}-bit/${khz}kHz | $bitrateStr | $typeStr';
   }
 
   @visibleForTesting
@@ -2315,8 +2368,9 @@ class TidalService implements NetworkSourceService {
     }
     final m = mime?.trim().toLowerCase();
     if (m != null) {
-      if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a')
+      if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a') {
         return 'aac';
+      }
       if (m == 'audio/flac' || m == 'audio/x-flac') return 'flac';
       if (m == 'audio/mpeg') return 'mp3';
     }
@@ -2404,6 +2458,10 @@ class TidalService implements NetworkSourceService {
   ) {
     final remoteId = t['id']?.toString();
     if (remoteId == null) return null;
+    final title = t['title'] as String?;
+    if (title != null && title.isNotEmpty) {
+      recordTrackTitle(remoteId, title);
+    }
     final artists = (t['artists'] as List<dynamic>?)
         ?.cast<Map<String, dynamic>?>();
     final album = t['album'] as Map<String, dynamic>?;
@@ -3081,7 +3139,12 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     String trackId,
   ) async {
-    return _apiGet(server, '/tracks/$trackId');
+    final detail = await _apiGet(server, '/tracks/$trackId');
+    final title = detail['title'] as String?;
+    if (title != null && title.isNotEmpty) {
+      recordTrackTitle(trackId, title);
+    }
+    return detail;
   }
 
   /// Fetches artist metadata by id (returns full JSON including `mixes` dictionary).
@@ -4111,6 +4174,10 @@ class TidalService implements NetworkSourceService {
         : rawTrackJson;
     final rawId = trackJson['id'];
     final remoteId = rawId?.toString() ?? '';
+    final title = trackJson['title'] as String?;
+    if (remoteId.isNotEmpty && title != null && title.isNotEmpty) {
+      recordTrackTitle(remoteId, title);
+    }
     final artists = (trackJson['artists'] as List<dynamic>?)
         ?.cast<Map<String, dynamic>?>();
     final album = trackJson['album'] as Map<String, dynamic>?;
@@ -4326,6 +4393,9 @@ class TidalStreamResolution {
   /// tier the quality cascade started from.
   final String? tierHint;
 
+  /// The client profile used to resolve this stream.
+  final TidalClientProfile? profile;
+
   /// Bitstream family implied by [codec].
   ///
   /// The container is deliberately absent: an MP4/M4A container carries ALAC,
@@ -4422,6 +4492,7 @@ class TidalStreamResolution {
     this.bitrate,
     this.resolvedAt,
     this.tierHint,
+    this.profile,
   });
 
   String get resolutionString {

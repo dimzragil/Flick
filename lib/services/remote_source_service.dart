@@ -70,6 +70,9 @@ class RemoteSourceService {
       throw StateError('Network song has no remote id');
     }
     final service = networkSourceServiceFor(sourceType);
+    if (service is TidalService && song.title.isNotEmpty) {
+      TidalService.recordTrackTitle(remoteId, song.title);
+    }
     try {
       final path = await service.stream(
         server,
@@ -138,6 +141,9 @@ class RemoteSourceService {
     try {
       final server = await _serverFor(song);
       final service = networkSourceServiceFor(sourceType);
+      if (service is TidalService && song.title.isNotEmpty) {
+        TidalService.recordTrackTitle(remoteId, song.title);
+      }
       return await service.streamDescriptor(
         server,
         remoteId,
