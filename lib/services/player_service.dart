@@ -1576,7 +1576,7 @@ class PlayerService {
     } else {
       final player = _justAudioPlayer;
       if (player != null) {
-        await player.setVolume(_currentVolume);
+        await _applySystemTierPlayerVolume();
         await player.setSpeed(playbackSpeedNotifier.value);
       }
     }
@@ -2703,7 +2703,10 @@ class PlayerService {
       if (_usingRustBackend && _rustAudioService.isInitialized) {
         await _rustAudioService.setVolume(volume);
       } else {
-        await _justAudioPlayer?.setVolume(volume);
+        // System tier: duck scales the pinned player gain (ReplayGain),
+        // never the user volume — the user volume lives in the system
+        // stream level and must not be rewritten by a duck cycle.
+        await _applySystemTierPlayerVolume();
       }
     } catch (e) {
       _debugLog('[AudioFocus] Failed to ${ducked ? 'apply' : 'lift'} duck: $e');
@@ -2793,7 +2796,7 @@ class PlayerService {
       lastEqSessionId = sessionId;
       unawaited(reapplyEqualizer());
     });
-    await player.setVolume(_currentVolume);
+    await _applySystemTierPlayerVolume();
     await player.setSpeed(playbackSpeedNotifier.value);
     await _updateLoopMode();
     return player;
@@ -2813,7 +2816,7 @@ class PlayerService {
       }
     }
 
-    await player.setVolume(_currentVolume);
+    await _applySystemTierPlayerVolume();
     await player.setSpeed(playbackSpeedNotifier.value);
     await _updateLoopMode();
   }
@@ -3129,24 +3132,29 @@ class PlayerService {
     } else {
       await _reconcileSystemVolumeBoost(
         _determineCurrentTier() == VolumeTier.system
-            ? math.min(_currentVolume, 1.0) * _replayGainState.linear
+            ? systemTierBoostResidual(
+                userVolume: _currentVolume,
+                replayGainLinear: _replayGainState.linear,
+              )
             : 0.0,
       );
     }
   }
 
   /// Apply or release the LoudnessEnhancer boost on the just_audio session.
-  /// [effectiveVolume] is the volume to realise on the system tier (already
-  /// folded with the ReplayGain factor); pass 0.0 to release (e.g. when on
-  /// another tier or casting). Boost is used whenever the effective volume
-  /// exceeds 1.0 — from the extended-volume toggle or from ReplayGain gain.
-  Future<void> _reconcileSystemVolumeBoost(double effectiveVolume) async {
+  /// [boostResidual] is the factor the enhancer must still realise after
+  /// the system stream volume and the player gain (see
+  /// [systemTierBoostResidual]); pass 0.0 to release (e.g. when on another
+  /// tier or casting). Boost engages only when the residual exceeds 1.0 —
+  /// genuine excess from the extended-volume toggle and/or positive
+  /// ReplayGain that the clamped player cannot express.
+  Future<void> _reconcileSystemVolumeBoost(double boostResidual) async {
     if (!Platform.isAndroid) {
       if (_currentBoostMb != 0) _currentBoostMb = 0;
       return;
     }
-    final desiredMb = effectiveVolume > 1.0
-        ? AndroidJustAudioProcessingService.volumeToBoostMb(effectiveVolume)
+    final desiredMb = boostResidual > 1.0
+        ? AndroidJustAudioProcessingService.volumeToBoostMb(boostResidual)
         : 0;
     if (desiredMb == _currentBoostMb) return;
     _currentBoostMb = desiredMb;
@@ -7205,6 +7213,69 @@ class PlayerService {
 
   // ==================== Volume ====================
 
+  /// Player-side gain for the system tier (single-layer volume design).
+  ///
+  /// The user's volume lives in the Android system stream volume (written
+  /// by [setVolume] via the native channel); the just_audio player carries
+  /// only the per-track ReplayGain factor times the duck scale. Nothing on
+  /// this tier writes a user-volume value to the player anymore, so the
+  /// system level and the app slider can never multiply into a quieter
+  /// product than either one shows.
+  @visibleForTesting
+  static double systemTierPlayerVolume({
+    required double replayGainLinear,
+    required bool ducked,
+  }) => (replayGainLinear * (ducked ? _duckVolumeScale : 1.0)).clamp(0.0, 1.0);
+
+  /// LoudnessEnhancer residual for the system tier: the factor the enhancer
+  /// must still realise after the system stream volume and the player gain.
+  /// 1.0 (or less) means no boost; [_reconcileSystemVolumeBoost] maps that
+  /// to 0 mB. For user volumes at or below 1.0 this is 1.0 whenever the
+  /// player already realises the ReplayGain factor, so the enhancer only
+  /// engages for genuine excess (extended volume above 100 % and/or
+  /// positive ReplayGain that the clamped player cannot express).
+  @visibleForTesting
+  static double systemTierBoostResidual({
+    required double userVolume,
+    required double replayGainLinear,
+  }) {
+    final system = math.min(userVolume, 1.0);
+    final player = math.min(replayGainLinear, 1.0);
+    if (system <= 0.0 || player <= 0.0) return 1.0;
+    return (userVolume * replayGainLinear) / (system * player);
+  }
+
+  /// Write the system-tier player gain (ReplayGain × duck, never user
+  /// volume). Used by every just_audio volume writer on this tier so the
+  /// pinned value cannot drift back to the user volume.
+  Future<void> _applySystemTierPlayerVolume() async {
+    final player = _justAudioPlayer;
+    if (player == null) return;
+    try {
+      await player.setVolume(
+        systemTierPlayerVolume(
+          replayGainLinear: _replayGainState.linear,
+          ducked: _isDucked,
+        ),
+      );
+    } catch (e) {
+      _debugLog('[VolFlow] system-tier player volume failed: $e');
+    }
+  }
+
+  /// Write the Android STREAM_MUSIC level for the system tier. Failures are
+  /// logged, never thrown: the player gain still applies and the next
+  /// setVolume or key press retries.
+  Future<void> _writeSystemStreamVolume(double fraction) async {
+    if (!Platform.isAndroid) return;
+    try {
+      final ok = await _uac2Service.setSystemStreamVolume(fraction);
+      if (!ok) _debugLog('[VolFlow] system stream volume write rejected');
+    } catch (e) {
+      _debugLog('[VolFlow] system stream volume write failed: $e');
+    }
+  }
+
   Future<void> setVolume(double volume) async {
     final tier = _determineCurrentTier();
     final tierSupportsBoost =
@@ -7279,15 +7350,20 @@ class PlayerService {
         await _reconcileSystemVolumeBoost(0.0);
         break;
       case VolumeTier.system:
-        final player = _justAudioPlayer;
-        final effective =
-            math.min(clampedVolume, 1.0) * _replayGainState.linear;
-        if (player != null) {
-          // ExoPlayer clamps at 1.0; the boost portion (>1.0, from extended
-          // volume and/or ReplayGain) is applied via Android LoudnessEnhancer.
-          await player.setVolume(math.min(effective, 1.0));
-        }
-        await _reconcileSystemVolumeBoost(effective);
+        // Single-layer volume: the slider owns the Android system stream
+        // volume; the player carries only ReplayGain (times duck), never
+        // the user volume. The old code wrote the user volume to the player
+        // while Android applied the stream volume independently, so the two
+        // multiplied and Flick played quieter than every other app at the
+        // same setting.
+        await _writeSystemStreamVolume(math.min(clampedVolume, 1.0));
+        await _applySystemTierPlayerVolume();
+        await _reconcileSystemVolumeBoost(
+          systemTierBoostResidual(
+            userVolume: clampedVolume,
+            replayGainLinear: _replayGainState.linear,
+          ),
+        );
         break;
       case VolumeTier.unavailable:
         _debugLog(
@@ -7334,6 +7410,13 @@ class PlayerService {
         // System volume events unavailable — slider keeps last known value.
       },
     );
+    // Seed from the live system level: otherwise the slider shows 100 %
+    // until the first key press even when the system level is lower.
+    unawaited(
+      _uac2Service.getSystemStreamVolume().then((value) {
+        if (value != null) _syncVolumeFromSystem(value.clamp(0.0, 1.0));
+      }),
+    );
   }
 
   void stopSystemVolumeListener() {
@@ -7349,6 +7432,18 @@ class PlayerService {
     if ((systemVolume - _currentVolume).abs() < 0.001) return;
     _currentVolume = systemVolume;
     volumeNotifier.value = _currentVolume;
+    // The enhancer boost tracks the user volume: a key press that lowers
+    // the system level must release a boost computed from the old level.
+    // (The player gain itself needs no write here — it carries only
+    // ReplayGain, which the system level does not change.)
+    unawaited(
+      _reconcileSystemVolumeBoost(
+        systemTierBoostResidual(
+          userVolume: systemVolume,
+          replayGainLinear: _replayGainState.linear,
+        ),
+      ),
+    );
   }
 
   // ==================== ReplayGain ====================
@@ -7411,16 +7506,13 @@ class PlayerService {
   Future<void> _applyReplayGainForSystemTier(Song? song) async {
     await _refreshReplayGainForSong(song);
     if (_determineCurrentTier() != VolumeTier.system) return;
-    final player = _justAudioPlayer;
-    if (player == null) return;
-    final effective =
-        math.min(_currentVolume.clamp(0.0, 1.0), 1.0) * _replayGainState.linear;
-    try {
-      await player.setVolume(math.min(effective, 1.0));
-    } catch (e) {
-      _debugLog('[RG] system-volume fold failed: $e');
-    }
-    await _reconcileSystemVolumeBoost(effective);
+    await _applySystemTierPlayerVolume();
+    await _reconcileSystemVolumeBoost(
+      systemTierBoostResidual(
+        userVolume: _currentVolume,
+        replayGainLinear: _replayGainState.linear,
+      ),
+    );
   }
 
   /// Re-apply ReplayGain to the current track after the user changes the

@@ -904,6 +904,20 @@ class MainActivity: FlutterActivity() {
                 "getRouteVolume" -> {
                     result.success(getRouteVolume())
                 }
+                // Speaker path only: always STREAM_MUSIC, never DAC hardware
+                // volume. The speaker (system tier) slider owns the system
+                // stream level; the player itself carries no user volume.
+                "setSystemStreamVolume" -> {
+                    val volume = call.argument<Double>("volume")
+                    if (volume != null) {
+                        result.success(setSystemStreamVolume(volume))
+                    } else {
+                        result.error("INVALID_ARGUMENT", "volume is required", null)
+                    }
+                }
+                "getSystemStreamVolume" -> {
+                    result.success(getSystemStreamVolume())
+                }
                 "setRouteMuted" -> {
                     val muted = call.argument<Boolean>("muted")
                     if (muted != null) {
@@ -4795,6 +4809,31 @@ class MainActivity: FlutterActivity() {
         if (targetVolume > 0) {
             cachedMusicVolumeBeforeMute = targetVolume
         }
+        suppressVolumeObserverBriefly()
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+        return true
+    }
+
+    /// Speaker-path only: read the STREAM_MUSIC level as a 0..1 fraction.
+    /// Never touches DAC hardware volume.
+    private fun getSystemStreamVolume(): Double? {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (maxVolume <= 0) return 1.0
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return (currentVolume.toDouble() / maxVolume.toDouble()).coerceIn(0.0, 1.0)
+    }
+
+    /// Speaker-path only: write the STREAM_MUSIC level. Never touches DAC
+    /// hardware volume. The observer is suppressed briefly so this write
+    /// does not echo back through the volume observer.
+    private fun setSystemStreamVolume(volume: Double): Boolean {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        if (audioManager.isVolumeFixed) return false
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (maxVolume <= 0) return false
+        val clamped = volume.coerceIn(0.0, 1.0)
+        val targetVolume = (clamped * maxVolume.toDouble()).roundToInt().coerceIn(0, maxVolume)
         suppressVolumeObserverBriefly()
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
         return true

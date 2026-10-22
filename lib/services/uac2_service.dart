@@ -1143,6 +1143,35 @@ Future<void> stopPriorityAnchor() async {
     }
   }
 
+  /// Speaker-path only: write the Android STREAM_MUSIC level directly.
+  /// Unlike [setVolume], this never routes to DAC hardware volume — the
+  /// speaker (system tier) slider owns the system stream level, and the
+  /// just_audio player stays pinned (see PlayerService).
+  Future<bool> setSystemStreamVolume(double fraction) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'setSystemStreamVolume',
+        {'volume': fraction.clamp(0.0, 1.0)},
+      );
+      return result ?? false;
+    } catch (e) {
+      devLog('Uac2Service.setSystemStreamVolume failed: $e');
+      return false;
+    }
+  }
+
+  /// Speaker-path only: read the current STREAM_MUSIC level as 0..1.
+  Future<double?> getSystemStreamVolume() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _channel.invokeMethod<double>('getSystemStreamVolume');
+    } catch (e) {
+      devLog('Uac2Service.getSystemStreamVolume failed: $e');
+      return null;
+    }
+  }
+
   Future<bool> setMute(bool muted) async {
     if (_currentDeviceStatus == null) return false;
     if (Platform.isAndroid &&
