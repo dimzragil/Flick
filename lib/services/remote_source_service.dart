@@ -179,6 +179,28 @@ class RemoteSourceService {
     return null;
   }
 
+  /// Formatted stream-quality log line for a TIDAL song's cached resolution.
+  /// Returns null when the song is not a TIDAL network song or no resolution
+  /// is cached. Used to log exactly one line per played track (at play
+  /// start), instead of logging at resolve time (which also fires for every
+  /// background-prefetched playlist/album track).
+  String? resolvedStreamLog(Song song) {
+    if (!song.isNetworkSource) return null;
+    final remoteId = song.remoteId;
+    if (remoteId == null) return null;
+    try {
+      final tidal = networkSourceServiceFor(NetworkProtocol.tidal);
+      if (tidal is TidalService) {
+        final res = tidal.getResolvedStream(remoteId);
+        final profile = res?.profile;
+        if (res != null && profile != null) {
+          return TidalService.formatStreamResolvedLog(remoteId, profile, res);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Background prefetch for the next queue entry. Best effort: never throws,
   /// does not touch [downloadProgressNotifier] (interactive downloads own it).
   Future<void> prefetch(Song song) async {

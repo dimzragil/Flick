@@ -2166,7 +2166,8 @@ class TidalService implements NetworkSourceService {
               isDash: true,
               dashInfo: dashInfo,
               sampleRate: explicitSampleRate ?? 96000,
-              bitDepth: explicitBitDepth ??
+              bitDepth:
+                  explicitBitDepth ??
                   (rawQuality == 'HI_RES_LOSSLESS' || rawQuality == 'HI_RES'
                       ? 24
                       : 16),
@@ -2182,7 +2183,6 @@ class TidalService implements NetworkSourceService {
             _resolvedStreams[trackId] = res;
             _evictOldestIfNeeded(_resolvedStreams);
             streamResolutionVersion.value++;
-            _logStreamResolved(trackId, profile, res);
             return res;
           }
           continue;
@@ -2250,7 +2250,6 @@ class TidalService implements NetworkSourceService {
           _resolvedStreams[trackId] = res;
           _evictOldestIfNeeded(_resolvedStreams);
           streamResolutionVersion.value++;
-          _logStreamResolved(trackId, profile, res);
           return res;
         }
       } catch (e) {
@@ -2268,14 +2267,6 @@ class TidalService implements NetworkSourceService {
     throw TidalException(
       'Track $trackId uses an unsupported or encrypted Tidal format (HiRes/MQA/Atmos).',
     );
-  }
-
-  static void _logStreamResolved(
-    String trackId,
-    TidalClientProfile profile,
-    TidalStreamResolution res,
-  ) {
-    devLog(formatStreamResolvedLog(trackId, profile, res));
   }
 
   /// Formats the logcat diagnostic line showing the resolved stream's
@@ -2297,8 +2288,8 @@ class TidalService implements NetworkSourceService {
     final codecStr = (res.codec != null && res.codec!.isNotEmpty)
         ? res.codec!
         : (res.ext != null && res.ext != 'mp4'
-            ? res.ext!
-            : (res.isLossy ? 'aac' : 'flac'));
+              ? res.ext!
+              : (res.isLossy ? 'aac' : 'flac'));
     return '[Tidal] Stream resolved: "$title" | profile=${profile.name} | tier=${res.audioQuality} | codec=$codecStr | ${res.bitDepth}-bit/${khz}kHz | $bitrateStr | $typeStr';
   }
 

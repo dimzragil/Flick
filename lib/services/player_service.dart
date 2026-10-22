@@ -1171,6 +1171,11 @@ class PlayerService {
   // Track previous position to detect repeat wrap-around for notification progress
   Duration _lastPosition = Duration.zero;
 
+  // TIDAL track id of the last song whose resolved-stream quality line was
+  // logged. Logging at play start (not at resolve time) keeps logcat to one
+  // line per played track; background prefetches never reach this field.
+  String? _lastStreamResolvedLogTrackId;
+
   // Track last notification update time to throttle updates
   DateTime _lastNotificationUpdate = DateTime.now();
 
@@ -2325,6 +2330,29 @@ class PlayerService {
     if (motionArtSuppressedNotifier.value != suppressed) {
       motionArtSuppressedNotifier.value = suppressed;
     }
+  }
+
+  /// Log the resolved TIDAL stream quality exactly once per played track.
+  ///
+  /// The cascade used to log at resolve time, which also fired for every
+  /// background-prefetched playlist/album track. Logging here — when a track
+  /// actually starts playing — keeps logcat to one line per played track.
+  /// Pause/resume and seeks never re-log (same track id); clearing the
+  /// playlist resets the gate so replaying a track after a full stop logs
+  /// again.
+  void _logStreamResolvedOnce(PlaybackState state) {
+    if (_playlist.isEmpty) {
+      _lastStreamResolvedLogTrackId = null;
+      return;
+    }
+    final track = state.currentTrack;
+    final remoteId = track?.remoteId;
+    if (track == null || remoteId == null || !state.isPlaying) return;
+    if (remoteId == _lastStreamResolvedLogTrackId) return;
+    final line = RemoteSourceService.instance.resolvedStreamLog(track);
+    if (line == null) return;
+    _lastStreamResolvedLogTrackId = remoteId;
+    _debugLog(line);
   }
 
   /// Listener for 432 Hz tuning changes. Crossfade is suppressed under tuning
@@ -4105,6 +4133,8 @@ class PlayerService {
       _lastPosition = state.position;
 
       _checkPlaybackDesync(state);
+
+      _logStreamResolvedOnce(state);
 
       final criticalDiagnosticsChange =
           previous == null ||
