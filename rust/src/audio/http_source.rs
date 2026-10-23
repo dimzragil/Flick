@@ -60,6 +60,9 @@ fn fetch_block(
     let end = offset + max_len as u64 - 1;
     let mut req = http_agent().get(url);
     for (k, v) in headers {
+        if k.to_ascii_lowercase().starts_with("x-flick-") {
+            continue;
+        }
         req = req.set(k, v);
     }
     req = req.set("Range", &format!("bytes={}-{}", offset, end));
@@ -661,5 +664,39 @@ mod tests {
             || src.pair.0.lock().unwrap().deque.len() > 0,
             "prefetched bytes",
         );
+    }
+
+    #[test]
+    fn prefetch_strips_flick_internal_headers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}/track", addr);
+        let pair = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+        let pair_clone = Arc::clone(&pair);
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let _ = stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-3/4\r\nContent-Length: 4\r\n\r\ntest");
+                let mut g = pair_clone.0.lock().unwrap();
+                g.extend_from_slice(req.as_bytes());
+                pair_clone.1.notify_all();
+            }
+        });
+
+        let mut headers = HashMap::new();
+        headers.insert("x-flick-sample-rate".to_string(), "44100".to_string());
+        headers.insert("x-flick-bit-depth".to_string(), "16".to_string());
+        headers.insert("Custom-Allowed".to_string(), "allowed-val".to_string());
+
+        let _ = fetch_block(&url, &headers, 0, 4);
+
+        let g = pair.0.lock().unwrap();
+        let captured = String::from_utf8_lossy(&g).to_lowercase();
+        assert!(!captured.contains("x-flick-sample-rate"));
+        assert!(!captured.contains("x-flick-bit-depth"));
+        assert!(captured.contains("custom-allowed"));
     }
 }

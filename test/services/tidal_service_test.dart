@@ -583,6 +583,7 @@ void main() {
         expect(desc, isNotNull);
         expect(desc!.headers['x-flick-sample-rate'], '96000');
         expect(desc.headers['x-flick-bit-depth'], '24');
+        expect(desc.headers['x-flick-extension-hint'], 'flac');
       },
     );
 
@@ -705,6 +706,7 @@ void main() {
       expect(desc.url, isNot(contains('127.0.0.1')));
       expect(desc.headers['x-flick-sample-rate'], '44100');
       expect(desc.headers['x-flick-bit-depth'], '16');
+      expect(desc.headers['x-flick-extension-hint'], 'flac');
     });
 
     test('builds a dash:// segment plan for the Rust engine', () async {
@@ -727,6 +729,7 @@ void main() {
         'https://cdn.tidal.com/seg_1.mp4\nhttps://cdn.tidal.com/seg_2.mp4',
       );
       expect(plan.headers['x-flick-sample-rate'], '96000');
+      expect(plan.headers['x-flick-extension-hint'], 'mp4');
     });
 
     test('has no DASH plan for a BTS resolution', () async {

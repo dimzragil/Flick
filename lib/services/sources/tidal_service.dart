@@ -1758,6 +1758,8 @@ class TidalService implements NetworkSourceService {
       'x-flick-sample-rate': resolved.sampleRate.toString(),
     if (resolved.isBitDepthExplicit)
       'x-flick-bit-depth': resolved.bitDepth.toString(),
+    if (resolved.ext != null && resolved.ext!.isNotEmpty)
+      'x-flick-extension-hint': resolved.ext!,
   };
 
   /// Descriptor for the Rust engine when [trackId] resolved to DASH.

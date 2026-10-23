@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flick/core/utils/dev_log.dart';
 import 'package:flick/models/audio_engine_type.dart';
 import 'package:flick/models/playback_state.dart';
 import 'package:flick/models/song.dart';
@@ -182,13 +183,13 @@ class RustAudioEngine implements AudioEngine {
             await _applyInitialSeekAfterStart();
             return;
           } catch (e) {
-            debugPrint(
+            devLog(
               '[RustAudioEngine] HTTP direct play failed, falling back to cache: $e',
             );
           }
         }
       } catch (e) {
-        debugPrint('[RustAudioEngine] HTTP source resolve failed: $e');
+        devLog('[RustAudioEngine] HTTP source resolve failed: $e');
       }
     }
 

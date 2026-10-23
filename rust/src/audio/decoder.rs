@@ -126,7 +126,20 @@ pub fn probe_http(
     url: &str,
     headers: HashMap<String, String>,
 ) -> Result<ProbeResult, DecoderError> {
-    let hint_ext = url_hint_ext(url);
+    let hint_ext = if dash_source::is_dash_descriptor(url) {
+        "mp4".to_string()
+    } else {
+        let ext = url_hint_ext(url);
+        if ext.is_empty() {
+            headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("x-flick-extension-hint"))
+                .map(|(_, v)| normalize_ogg_hint(v.trim()).to_ascii_lowercase())
+                .unwrap_or_default()
+        } else {
+            ext
+        }
+    };
     let format_opts = FormatOptions {
         enable_gapless: true,
         ..Default::default()

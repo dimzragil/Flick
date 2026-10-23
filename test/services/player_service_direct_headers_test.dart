@@ -10,6 +10,7 @@ void main() {
         PlayerService.speakerHeadersForPlayback({
           'x-flick-sample-rate': '96000',
           'x-flick-bit-depth': '24',
+          'x-flick-extension-hint': 'flac',
         }),
         isNull,
       );

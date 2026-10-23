@@ -446,9 +446,11 @@ impl DashShared {
 
 impl MediaSource for DashMediaSource {
     fn is_seekable(&self) -> bool {
-        // Seeking is supported from the first byte; only the total length is
-        // unknown until every segment has been fetched.
-        true
+        // While streaming (total is None), report unseekable so Symphonia's isomp4
+        // reader treats the stream as progressive fragmented MP4 (mvex + moof + mdat)
+        // rather than failing probe because byte_len is unknown.
+        // Once all segments have arrived, total length is known and seekable is true.
+        self.pair.0.lock().unwrap().total.is_some()
     }
 
     fn byte_len(&self) -> Option<u64> {
@@ -675,5 +677,22 @@ mod tests {
     fn describes_dash_descriptors_only() {
         assert!(is_dash_descriptor("dash://123"));
         assert!(!is_dash_descriptor("https://cdn.tidal.com/track.flac"));
+    }
+
+    #[test]
+    fn is_unseekable_while_prefetching_until_total_is_known() {
+        let base = spawn_standard_cdn();
+        let mut src = DashMediaSource::from_headers(&plan(&base)).unwrap();
+        // Immediately upon construction before all segments are drained,
+        // length is unknown and seekable is false (or true if the background worker
+        // fetched all segments instantly).
+        if src.byte_len().is_none() {
+            assert!(!src.is_seekable());
+        }
+        // Drain everything
+        let all = read_all(&mut src);
+        assert_eq!(all.len(), TOTAL);
+        assert!(src.byte_len().is_some());
+        assert!(src.is_seekable());
     }
 }
