@@ -10,7 +10,7 @@ import 'package:flick/services/audio_engine.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
 typedef AndroidAudioSourceBuilder =
-    Future<just_audio.AudioSource> Function(Song track, {bool deferPump});
+    Future<just_audio.AudioSource> Function(Song track);
 typedef AndroidPlaylistProvider = List<Song> Function();
 typedef AndroidPlayerProvider = Future<just_audio.AudioPlayer> Function();
 typedef AndroidSecondaryPlayerProvider = just_audio.AudioPlayer Function();
@@ -23,6 +23,30 @@ typedef AndroidFastStartPredicate = bool Function();
 typedef AndroidCrossfadeConfigProvider = AndroidCrossfadeConfig Function();
 typedef AndroidNextSongProvider = Song? Function();
 typedef AndroidTrackAdvancedCallback = void Function(Song track);
+
+/// ExoPlayer load control for direct-CDN playback.
+///
+/// The old localhost proxy prefetched aggressively, so ExoPlayer's defaults
+/// (start after ~2.5 s buffered, resume ~5 s after a rebuffer) were adequate.
+/// Direct playback starts on a cold CDN read and the observed failure mode was
+/// stutter at track start, so the *initial-load* threshold is the critical
+/// one. These are the tuned starting point, not a guess: 7.5 s before starting
+/// and 10 s after a rebuffer, with the regular min/max buffer window left at
+/// ExoPlayer's own defaults.
+const just_audio.AudioLoadConfiguration directCdnAudioLoadConfiguration =
+    just_audio.AudioLoadConfiguration(
+      androidLoadControl: just_audio.AndroidLoadControl(
+        bufferForPlaybackDuration: Duration(milliseconds: 7500),
+        bufferForPlaybackAfterRebufferDuration: Duration(seconds: 10),
+      ),
+    );
+
+/// Every speaker-side player is created through here so the direct-CDN load
+/// control cannot be applied to the main player and forgotten on the
+/// crossfade secondary (or vice versa).
+just_audio.AudioPlayer createSpeakerAudioPlayer() => just_audio.AudioPlayer(
+  audioLoadConfiguration: directCdnAudioLoadConfiguration,
+);
 
 /// Crossfade curve applied to the outgoing/incoming volume ramps.
 enum AndroidCrossfadeCurve { equalPower, linear, squareRoot, sCurve }
@@ -133,7 +157,7 @@ class AndroidAudioEngine implements AudioEngine {
     this.backgroundFillDelay = defaultBackgroundFillDelay,
   }) : _playerProvider = playerProvider,
        _secondaryPlayerProvider =
-           secondaryPlayerProvider ?? (() => just_audio.AudioPlayer()),
+           secondaryPlayerProvider ?? createSpeakerAudioPlayer,
        _sourceBuilder = sourceBuilder,
        _playlistProvider = playlistProvider,
        _configurePlayer = configurePlayer,
@@ -403,15 +427,12 @@ class AndroidAudioEngine implements AudioEngine {
         if (gen != _fillGeneration || _disposed) return;
         just_audio.AudioSource src;
         try {
-          // Prefetch policy: only the next track (N+1) gets a real prefetch
-          // so gapless transitions stay smooth. Tracks beyond that get
-          // deferred sessions: valid proxy URLs, zero network until
-          // actually needed (kicked by kickPrefetch or started on-demand by
-          // the first handleRequest).
-          final isNextTrack = j == tappedIndex + 1;
+          // Direct CDN playback needs no session to warm up: the source is a
+          // plain CDN URL (or a manifest file) and ExoPlayer loads it when it
+          // reaches that item. Far-ahead tracks therefore cost nothing until
+          // their turn, without the deferred-proxy plumbing this used to need.
           src = await _sourceBuilder(
             playlist[j],
-            deferPump: !isNextTrack,
           ).timeout(const Duration(seconds: 20));
         } catch (_) {
           // Index-preserving placeholder; the engine error path skips it if

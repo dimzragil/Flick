@@ -5,6 +5,7 @@
 
 use crate::dev_eprintln;
 
+use crate::audio::dash_source::{self, DashMediaSource};
 use crate::audio::http_source::PrefetchingMediaSource;
 use crate::audio::opus_decoder;
 use crate::audio::resampler::AudioResampler;
@@ -21,7 +22,7 @@ use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL, CODEC_TY
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
@@ -116,6 +117,11 @@ pub fn probe_file(path: &Path) -> Result<ProbeResult, DecoderError> {
 /// path (auth-bearing query string is ignored). No content-based fallback —
 /// reopening an HTTP stream is wasteful and remote URLs carry reliable
 /// extensions.
+///
+/// A `dash://` descriptor is not HTTP at all: its headers carry the DASH
+/// segment plan, and [`DashMediaSource`] fetches those CDN objects itself. The
+/// manifest never existed as a URL, so this is the only way the engine can
+/// reach the media without a relay.
 pub fn probe_http(
     url: &str,
     headers: HashMap<String, String>,
@@ -132,8 +138,15 @@ pub fn probe_http(
         hint.with_extension(&hint_ext);
     }
 
-    let src = PrefetchingMediaSource::new(url.to_string(), headers.clone());
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    let source: Box<dyn MediaSource> = if dash_source::is_dash_descriptor(url) {
+        Box::new(
+            DashMediaSource::from_headers(&headers)
+                .map_err(DecoderError::UnsupportedFormat)?,
+        )
+    } else {
+        Box::new(PrefetchingMediaSource::new(url.to_string(), headers.clone()))
+    };
+    let mss = MediaSourceStream::new(source, Default::default());
 
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &format_opts, &metadata_opts)

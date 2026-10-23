@@ -4,12 +4,28 @@ import 'package:xml/xml.dart';
 class DashTrackInfo {
   final String? codec;
   final int? sampleRate;
+
+  /// Bit depth. Never read from the MPD — the MPD carries no bit depth, so
+  /// this stays null and the caller resolves it from the playbackinfo fields
+  /// or the tier default. A previous hardcoded 24 made the API value
+  /// unreachable and made every DASH track claim 24-bit.
   final int? bitDepth;
   final String initializationUrl;
   final List<String> segmentUrls;
   final String mimeType;
   final int? bandwidth;
   final double? durationSeconds;
+
+  /// The MPD this track was parsed from, verbatim. Kept so the player can be
+  /// handed a real manifest (stripped to one Representation) now that no
+  /// local proxy fetches the segments on its behalf.
+  final String manifestXml;
+
+  /// How many Representations the chosen audio AdaptationSet offered.
+  final int representationCount;
+
+  /// `id` of the chosen Representation, or null when the MPD omits it.
+  final String? representationId;
 
   const DashTrackInfo({
     this.codec,
@@ -20,6 +36,9 @@ class DashTrackInfo {
     this.mimeType = 'audio/mp4',
     this.bandwidth,
     this.durationSeconds,
+    this.manifestXml = '',
+    this.representationCount = 1,
+    this.representationId,
   });
 }
 
@@ -56,14 +75,7 @@ class DashManifestParser {
       if (representations.isEmpty) return null;
 
       // Sort representations to pick highest quality (audioSamplingRate, then bandwidth)
-      representations.sort((a, b) {
-        final rateA = int.tryParse(a.getAttribute('audioSamplingRate') ?? '') ?? 0;
-        final rateB = int.tryParse(b.getAttribute('audioSamplingRate') ?? '') ?? 0;
-        if (rateA != rateB) return rateB.compareTo(rateA);
-        final bwA = int.tryParse(a.getAttribute('bandwidth') ?? '') ?? 0;
-        final bwB = int.tryParse(b.getAttribute('bandwidth') ?? '') ?? 0;
-        return bwB.compareTo(bwA);
-      });
+      representations.sort(_highestQualityFirst);
       final rep = representations.first;
 
       final codec = rep.getAttribute('codecs') ?? audioAdaptation.getAttribute('codecs');
@@ -147,13 +159,77 @@ class DashManifestParser {
       return DashTrackInfo(
         codec: codec,
         sampleRate: sampleRate,
-        bitDepth: 24, // TIDAL Hi-Res DASH fMP4 FLAC is 24-bit master quality
+        // The MPD carries no bit depth; the caller resolves it from the
+        // playbackinfo API fields or the quality-tier default.
+        bitDepth: null,
         initializationUrl: resolvedInitUrl,
         segmentUrls: segmentUrls,
         mimeType: mimeType,
         bandwidth: bandwidth,
         durationSeconds: durationSeconds,
+        manifestXml: xmlContent,
+        representationCount: representations.length,
+        representationId: repId.isEmpty ? null : repId,
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Highest-quality first: sample rate, then bandwidth.
+  static int _highestQualityFirst(XmlElement a, XmlElement b) {
+    final rateA = int.tryParse(a.getAttribute('audioSamplingRate') ?? '') ?? 0;
+    final rateB = int.tryParse(b.getAttribute('audioSamplingRate') ?? '') ?? 0;
+    if (rateA != rateB) return rateB.compareTo(rateA);
+    final bwA = int.tryParse(a.getAttribute('bandwidth') ?? '') ?? 0;
+    final bwB = int.tryParse(b.getAttribute('bandwidth') ?? '') ?? 0;
+    return bwB.compareTo(bwA);
+  }
+
+  /// Rebuild [xmlContent] with only the highest-quality audio Representation.
+  ///
+  /// Everything else — BaseURL, SegmentTemplate, SegmentTimeline, the MPD and
+  /// AdaptationSet attributes — is kept as-is, so the segment URLs and the
+  /// seek timeline survive untouched. Dropping the other Representations is
+  /// what stops a player's ABR from silently downshifting a track whose
+  /// quality badge already claims the top tier.
+  ///
+  /// Returns null when the manifest cannot be parsed or has no audio
+  /// Representation.
+  static String? stripToSingleRepresentation(String xmlContent) {
+    try {
+      final doc = XmlDocument.parse(xmlContent);
+      if (doc.getElement('MPD') == null) return null;
+
+      final adaptationSets = doc.findAllElements('AdaptationSet').toList();
+      if (adaptationSets.isEmpty) return null;
+
+      XmlElement? audioAdaptation;
+      for (final set in adaptationSets) {
+        final mime = set.getAttribute('mimeType');
+        final contentType = set.getAttribute('contentType');
+        if (mime?.startsWith('audio') == true || contentType == 'audio') {
+          audioAdaptation = set;
+          break;
+        }
+      }
+      audioAdaptation ??= adaptationSets.first;
+
+      final candidates = audioAdaptation.findAllElements('Representation').toList();
+      if (candidates.isEmpty) return null;
+      candidates.sort(_highestQualityFirst);
+      final chosen = candidates.first;
+
+      for (final rep in doc.findAllElements('Representation').toList()) {
+        if (!identical(rep, chosen)) rep.remove();
+      }
+      // An AdaptationSet (video, subtitles) that lost every Representation is
+      // not playable and must not be advertised to the player.
+      for (final set in doc.findAllElements('AdaptationSet').toList()) {
+        if (set.findElements('Representation').isEmpty) set.remove();
+      }
+
+      return doc.toXmlString();
     } catch (_) {
       return null;
     }

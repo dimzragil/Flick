@@ -185,7 +185,17 @@ class CastingService {
     final resolved = await RemoteSourceService.instance.resolveHttpPlayback(
       song,
     );
-    final url = resolved?.url ?? await _serveFromPhone(song);
+    // Only an absolute http(s) URL is playable by a remote device. TIDAL DASH
+    // resolves to a local `.mpd` manifest path, which the cast target can
+    // neither reach nor use; fall back to serving the downloaded file over the
+    // LAN instead of handing the TV a `file:` URL it will reject.
+    final directUrl =
+        resolved != null &&
+            (resolved.url.startsWith('http://') ||
+                resolved.url.startsWith('https://'))
+        ? resolved.url
+        : null;
+    final url = directUrl ?? await _serveFromPhone(song);
     if (url == null) {
       // Content-URI locals and unresolvable sources stay local-only.
       return false;

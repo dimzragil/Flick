@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
-import 'package:flick/services/sources/tidal_stream_proxy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -58,9 +57,7 @@ void main() {
     );
   });
 
-  tearDown(() {
-    TidalStreamProxy.instance.cancelAllSessions();
-  });
+  tearDown(() {});
 
   group('TIDAL silent-hang mitigation', () {
     test(
@@ -193,7 +190,7 @@ void main() {
       final server = _server(token: _validToken());
 
       await expectLater(
-        service.streamDescriptor(server, 'recovers', deferPump: true),
+        service.streamDescriptor(server, 'recovers'),
         throwsA(isA<TidalUnavailableException>()),
       );
       expect(service.resolutionFailureCountForTesting, 1);
@@ -201,11 +198,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       hang = false;
 
-      final desc = await service.streamDescriptor(
-        server,
-        'recovers',
-        deferPump: true,
-      );
+      final desc = await service.streamDescriptor(server, 'recovers');
       expect(desc, isNotNull);
       expect(service.getResolvedStream('recovers'), isNotNull);
       expect(service.resolutionFailureCountForTesting, 0);
@@ -298,11 +291,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 160));
       hang = false;
 
-      final desc = await service.streamDescriptor(
-        server,
-        'probe-ok',
-        deferPump: true,
-      );
+      final desc = await service.streamDescriptor(server, 'probe-ok');
       expect(desc, isNotNull);
       expect(calls, 4, reason: 'half-open must allow exactly one probe');
 
@@ -404,10 +393,7 @@ void main() {
 
       // A success resets the counter.
       hang = false;
-      expect(
-        await service.streamDescriptor(server, 'reset-ok', deferPump: true),
-        isNotNull,
-      );
+      expect(await service.streamDescriptor(server, 'reset-ok'), isNotNull);
       expect(calls, 3);
 
       // Two more timeouts must still be tolerated: the breaker is closed.

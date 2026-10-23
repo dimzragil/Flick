@@ -353,7 +353,6 @@ class SubsonicService implements NetworkSourceService {
     NetworkServerEntity server,
     String songId, {
     String? extension,
-    bool deferPump = false,
   }) async {
     // ponytail: Subsonic auth is entirely URL-embedded (u/p/t+s query params),
     // so headers are empty. Range support is universal across servers.

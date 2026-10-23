@@ -343,7 +343,6 @@ class JellyfinService implements NetworkSourceService {
     NetworkServerEntity server,
     String songId, {
     String? extension,
-    bool deferPump = false,
   }) async {
     final creds = _creds(server.token);
     if (creds == null) return null;

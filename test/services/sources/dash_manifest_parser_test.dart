@@ -24,12 +24,24 @@ void main() {
       expect(info, isNotNull);
       expect(info!.codec, 'flac');
       expect(info.sampleRate, 96000);
-      expect(info.initializationUrl, 'https://sp-pr-cf.audio.tidal.com/data/init_flac_96000_24.mp4');
+      expect(
+        info.initializationUrl,
+        'https://sp-pr-cf.audio.tidal.com/data/init_flac_96000_24.mp4',
+      );
       // r="2" means 1 initial + 2 repeats = 3 segments total
       expect(info.segmentUrls.length, 3);
-      expect(info.segmentUrls[0], 'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_001.mp4');
-      expect(info.segmentUrls[1], 'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_002.mp4');
-      expect(info.segmentUrls[2], 'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_003.mp4');
+      expect(
+        info.segmentUrls[0],
+        'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_001.mp4',
+      );
+      expect(
+        info.segmentUrls[1],
+        'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_002.mp4',
+      );
+      expect(
+        info.segmentUrls[2],
+        'https://sp-pr-cf.audio.tidal.com/data/seg_flac_96000_24_003.mp4',
+      );
     });
 
     test(r'parses SegmentTimeline with $Time$ and absolute URLs', () {
@@ -60,8 +72,10 @@ void main() {
       expect(info.segmentUrls[2], 'https://cdn.tidal.com/chunk_6000.mp4');
     });
 
-    test('selects highest audioSamplingRate when multiple representations exist', () {
-      const xml = '''<?xml version="1.0" encoding="utf-8"?>
+    test(
+      'selects highest audioSamplingRate when multiple representations exist',
+      () {
+        const xml = '''<?xml version="1.0" encoding="utf-8"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
   <Period>
     <AdaptationSet mimeType="audio/mp4">
@@ -79,11 +93,12 @@ void main() {
   </Period>
 </MPD>''';
 
-      final info = DashManifestParser.parse(xml);
-      expect(info, isNotNull);
-      expect(info!.sampleRate, 96000);
-      expect(info.initializationUrl, 'http://example.com/hires_init.mp4');
-    });
+        final info = DashManifestParser.parse(xml);
+        expect(info, isNotNull);
+        expect(info!.sampleRate, 96000);
+        expect(info.initializationUrl, 'http://example.com/hires_init.mp4');
+      },
+    );
 
     test('handles malformed XML gracefully', () {
       expect(DashManifestParser.parse('not xml'), isNull);

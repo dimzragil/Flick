@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/models/playback_context.dart';
 import 'package:flick/services/network_cache_service.dart';
+import 'package:flick/services/sources/dash_direct_delivery.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +32,64 @@ String _validToken() => jsonEncode({
       .add(const Duration(hours: 1))
       .millisecondsSinceEpoch,
 });
+
+const String _simpleDashMpdXml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4" codecs="flac">
+      <Representation id="rep1" audioSamplingRate="96000" bandwidth="2000000">
+        <SegmentTemplate initialization="https://cdn.tidal.com/init.mp4" media="https://cdn.tidal.com/seg_\$Number\$.mp4" startNumber="1">
+          <SegmentTimeline><S d="1000" r="1" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+
+String _simpleDashMpd() => _simpleDashMpdXml;
+
+/// A `vnd.tidal.bts` manifest pointing at a direct CDN FLAC URL.
+String _btsManifest() => base64Encode(
+  utf8.encode(
+    jsonEncode({
+      'mimeType': 'audio/flac',
+      'codecs': 'flac',
+      'encryptionType': 'NONE',
+      'urls': ['https://cdn.tidal.com/track/flac/reuse-test'],
+      'sampleRate': 44100,
+      'bitDepth': 16,
+    }),
+  ),
+);
+
+/// A TidalService whose playbackinfo always answers with [mpdXml].
+Future<({TidalService service, Directory dir})> _dashService({
+  required String mpdXml,
+  int? apiBitDepth = 16,
+  String audioQuality = 'HI_RES_LOSSLESS',
+}) async {
+  final dir = await Directory.systemTemp.createTemp('tidal_dash_depth');
+  final manifest = base64Encode(utf8.encode(mpdXml));
+  final client = MockClient((request) async {
+    return http.Response(
+      jsonEncode({
+        'manifest': manifest,
+        'manifestMimeType': 'application/dash+xml',
+        'audioQuality': audioQuality,
+        'bitDepth': ?apiBitDepth,
+      }),
+      200,
+    );
+  });
+  final service = TidalService.create(
+    client: client,
+    networkCache: NetworkCacheService(rootDirectory: dir),
+  );
+  service.useDashManifestStoreForTesting(
+    DashManifestStore(rootDirectory: Directory('${dir.path}/mpd')),
+  );
+  return (service: service, dir: dir);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -417,64 +476,67 @@ void main() {
   });
 
   group('streamDescriptor', () {
-    test('decodes a NONE-encryption BTS manifest to a local proxy URL', () async {
-      final tempDir = await Directory.systemTemp.createTemp('tidal_bts_test');
-      addTearDown(() => tempDir.delete(recursive: true));
-      final manifest = base64Encode(
-        utf8.encode(
-          jsonEncode({
-            'mimeType': 'audio/flac',
-            'codecs': 'flac',
-            'encryptionType': 'NONE',
-            'urls': ['https://cdn.tidal.com/track/flac/abc'],
-          }),
-        ),
-      );
-      var playbackInfoRequests = 0;
-      final client = MockClient((request) async {
-        if (request.url.host == 'cdn.tidal.com') {
-          return http.Response.bytes([1, 2, 3], 200);
-        }
-        playbackInfoRequests++;
-        expect(request.url.path, contains('/playbackinfopostpaywall'));
-        expect(request.headers['Authorization'], 'Bearer acc-xyz');
-        return http.Response(
-          jsonEncode({
-            'manifest': manifest,
-            'manifestMimeType': 'application/vnd.tidal.bts',
-            'assetPresentation': 'FULL',
-          }),
-          200,
+    test(
+      'decodes a NONE-encryption BTS manifest to the direct CDN URL',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp('tidal_bts_test');
+        addTearDown(() => tempDir.delete(recursive: true));
+        final manifest = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'mimeType': 'audio/flac',
+              'codecs': 'flac',
+              'encryptionType': 'NONE',
+              'urls': ['https://cdn.tidal.com/track/flac/abc'],
+            }),
+          ),
         );
-      });
-      final service = TidalService.create(
-        client: client,
-        networkCache: NetworkCacheService(rootDirectory: tempDir),
-      );
+        var playbackInfoRequests = 0;
+        final client = MockClient((request) async {
+          if (request.url.host == 'cdn.tidal.com') {
+            return http.Response.bytes([1, 2, 3], 200);
+          }
+          playbackInfoRequests++;
+          expect(request.url.path, contains('/playbackinfopostpaywall'));
+          expect(request.headers['Authorization'], 'Bearer acc-xyz');
+          return http.Response(
+            jsonEncode({
+              'manifest': manifest,
+              'manifestMimeType': 'application/vnd.tidal.bts',
+              'assetPresentation': 'FULL',
+            }),
+            200,
+          );
+        });
+        final service = TidalService.create(
+          client: client,
+          networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
 
-      final desc = await service.streamDescriptor(
-        _server(token: _validToken()),
-        '1234567',
-      );
+        final desc = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '1234567',
+        );
 
-      expect(desc, isNotNull);
-      expect(desc!.url, startsWith('http://127.0.0.1:'));
-      expect(desc.url, contains('/tidal-bts/'));
-      // Sample rate and bit depth omitted from manifest -> headers must be omitted to let probe win
-      expect(desc.headers['x-flick-sample-rate'], isNull);
-      expect(desc.headers['x-flick-bit-depth'], isNull);
-      final secondDescriptor = await service.streamDescriptor(
-        _server(token: _validToken()),
-        '1234567',
-        extension: 'flac',
-      );
-      expect(playbackInfoRequests, 1);
-      expect(
-        secondDescriptor == null || secondDescriptor.url == desc.url,
-        isTrue,
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    });
+        expect(desc, isNotNull);
+        expect(desc!.url, 'https://cdn.tidal.com/track/flac/abc');
+        expect(desc.url, isNot(contains('127.0.0.1')));
+        // Sample rate and bit depth omitted from manifest -> headers must be omitted to let probe win
+        expect(desc.headers['x-flick-sample-rate'], isNull);
+        expect(desc.headers['x-flick-bit-depth'], isNull);
+        final secondDescriptor = await service.streamDescriptor(
+          _server(token: _validToken()),
+          '1234567',
+          extension: 'flac',
+        );
+        expect(playbackInfoRequests, 1);
+        expect(
+          secondDescriptor == null || secondDescriptor.url == desc.url,
+          isTrue,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      },
+    );
 
     test(
       'includes x-flick-sample-rate and x-flick-bit-depth headers when explicitly provided',
@@ -553,7 +615,7 @@ void main() {
     });
 
     test(
-      'returns local stream URL via TidalStreamProxy for DASH manifest',
+      'writes a single-representation .mpd for direct DASH playback',
       () async {
         const mpdXml = '''<?xml version="1.0" encoding="utf-8"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
@@ -569,12 +631,6 @@ void main() {
 </MPD>''';
         final manifest = base64Encode(utf8.encode(mpdXml));
         final client = MockClient((request) async {
-          if (request.url.path.endsWith('/init.mp4')) {
-            return http.Response.bytes([1, 2, 3, 4], 200);
-          }
-          if (request.url.path.contains('/seg_')) {
-            return http.Response.bytes([5, 6, 7, 8], 200);
-          }
           return http.Response(
             jsonEncode({
               'manifest': manifest,
@@ -588,20 +644,179 @@ void main() {
           'tidal_dash_test',
         );
         addTearDown(() => tempDir.deleteSync(recursive: true));
-        final cache = NetworkCacheService(rootDirectory: tempDir);
         final service = TidalService.create(
           client: client,
-          networkCache: cache,
+          networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
+        service.useDashManifestStoreForTesting(
+          DashManifestStore(rootDirectory: Directory('${tempDir.path}/mpd')),
         );
         final desc = await service.streamDescriptor(
           _server(token: _validToken()),
           'hires_track_1',
         );
         expect(desc, isNotNull);
-        expect(desc!.url, contains('http://127.0.0.1:'));
-        expect(desc.url, endsWith('.mp4'));
+        expect(desc!.url, startsWith('file://'));
+        expect(desc.url, endsWith('.mpd'));
+        expect(desc.headers['x-flick-sample-rate'], '96000');
+        expect(
+          desc.headers.containsKey('x-flick-bit-depth'),
+          isFalse,
+          reason: 'the MPD carries no bit depth; nothing may claim one',
+        );
+
+        final written = File(
+          Uri.parse(desc.url).toFilePath(),
+        ).readAsStringSync();
+        expect(
+          RegExp('<Representation').allMatches(written).length,
+          1,
+          reason: 'a multi-representation MPD would let ABR downshift silently',
+        );
+        expect(written, contains('SegmentTimeline'));
+        expect(written, contains(r'seg_$Number$.mp4'));
+        expect(written, contains('https://cdn.tidal.com/init.mp4'));
       },
     );
+
+    test('BTS descriptor is the raw CDN URL — no loopback proxy hop', () async {
+      final tempDir = await Directory.systemTemp.createTemp('tidal_bts_dir');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final client = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'manifest': _btsManifest(),
+            'manifestMimeType': 'application/vnd.tidal.bts',
+            'audioQuality': 'LOSSLESS',
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(
+        client: client,
+        networkCache: NetworkCacheService(rootDirectory: tempDir),
+      );
+      final desc = await service.streamDescriptor(
+        _server(token: _validToken()),
+        'bts_track',
+      );
+      expect(desc, isNotNull);
+      expect(desc!.url, 'https://cdn.tidal.com/track/flac/reuse-test');
+      expect(desc.url, isNot(contains('127.0.0.1')));
+      expect(desc.headers['x-flick-sample-rate'], '44100');
+      expect(desc.headers['x-flick-bit-depth'], '16');
+    });
+
+    test('builds a dash:// segment plan for the Rust engine', () async {
+      final built = await _dashService(mpdXml: _simpleDashMpd());
+      addTearDown(() => built.dir.deleteSync(recursive: true));
+      await built.service.streamDescriptor(
+        _server(token: _validToken()),
+        'plan_track',
+      );
+
+      final plan = built.service.directDashPlan('plan_track');
+      expect(plan, isNotNull);
+      expect(plan!.url, 'dash://plan_track');
+      expect(
+        plan.headers['x-flick-dash-init'],
+        'https://cdn.tidal.com/init.mp4',
+      );
+      expect(
+        plan.headers['x-flick-dash-segments'],
+        'https://cdn.tidal.com/seg_1.mp4\nhttps://cdn.tidal.com/seg_2.mp4',
+      );
+      expect(plan.headers['x-flick-sample-rate'], '96000');
+    });
+
+    test('has no DASH plan for a BTS resolution', () async {
+      final tempDir = await Directory.systemTemp.createTemp('tidal_bts_plan');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final client = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'manifest': _btsManifest(),
+            'manifestMimeType': 'application/vnd.tidal.bts',
+            'audioQuality': 'LOSSLESS',
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(
+        client: client,
+        networkCache: NetworkCacheService(rootDirectory: tempDir),
+      );
+      await service.streamDescriptor(_server(token: _validToken()), 'bts_plan');
+      expect(service.directDashPlan('bts_plan'), isNull);
+    });
+
+    test(
+      'DASH refuses a manifest whose segments are not absolute https',
+      () async {
+        const mpdXml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4" codecs="flac">
+      <Representation id="rep1" audioSamplingRate="96000">
+        <SegmentTemplate initialization="init.mp4" media="seg_\$Number\$.mp4" startNumber="1">
+          <SegmentTimeline><S d="1000" r="1" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+        final built = await _dashService(mpdXml: mpdXml);
+        addTearDown(() => built.dir.deleteSync(recursive: true));
+        await expectLater(
+          () => built.service.streamDescriptor(
+            _server(token: _validToken()),
+            'relative_dash',
+          ),
+          throwsA(isA<TidalException>()),
+        );
+      },
+    );
+
+    for (final scenario in [
+      (
+        label: 'API bit depth wins over the tier default',
+        api: 16,
+        tier: 'HI_RES_LOSSLESS',
+        bits: 16,
+        explicit: true,
+      ),
+      (
+        label: 'no API bit depth + hi-res tier defaults to 24',
+        api: null,
+        tier: 'HI_RES_LOSSLESS',
+        bits: 24,
+        explicit: false,
+      ),
+      (
+        label: 'no API bit depth + lossless tier defaults to 16',
+        api: null,
+        tier: 'LOSSLESS',
+        bits: 16,
+        explicit: false,
+      ),
+    ]) {
+      test('DASH bit depth: ${scenario.label}', () async {
+        final built = await _dashService(
+          mpdXml: _simpleDashMpd(),
+          apiBitDepth: scenario.api,
+          audioQuality: scenario.tier,
+        );
+        addTearDown(() => built.dir.deleteSync(recursive: true));
+        await built.service.streamDescriptor(
+          _server(token: _validToken()),
+          'depth_track',
+        );
+        final res = built.service.getResolvedStream('depth_track');
+        expect(res, isNotNull);
+        expect(res!.bitDepth, scenario.bits);
+        expect(res.isBitDepthExplicit, scenario.explicit);
+      });
+    }
 
     test(
       'downloads and stitches DASH initialization and segments into cache',

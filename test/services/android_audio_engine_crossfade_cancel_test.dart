@@ -221,7 +221,7 @@ class _Harness {
     engine = AndroidAudioEngine(
       playerProvider: () async => primary,
       secondaryPlayerProvider: () => secondary,
-      sourceBuilder: (song, {bool deferPump = false}) {
+      sourceBuilder: (song) {
         sourceRequests.add(song.id);
         final source = sourceFor(song);
         final gate = sourceGates.remove(song.id);

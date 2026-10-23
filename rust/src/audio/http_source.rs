@@ -37,7 +37,7 @@ const PREFETCH_CAPACITY: usize = (PREFETCH_TARGET_SECS * PREFETCH_MAX_BYTES_PER_
 const PREFETCH_REWIND_WINDOW: usize = 1024 * 1024; // 1 MiB
 
 // ponytail: global timeouts so a stalled network can't pin the command thread.
-fn http_agent() -> &'static ureq::Agent {
+pub(crate) fn http_agent() -> &'static ureq::Agent {
     static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
     AGENT.get_or_init(|| {
         ureq::AgentBuilder::new()

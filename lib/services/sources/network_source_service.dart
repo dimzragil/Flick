@@ -58,7 +58,6 @@ abstract class NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
-    bool deferPump = false,
   }) async => null;
 
   /// Pull the full server library into the local DB as [SongEntity]s,

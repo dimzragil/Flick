@@ -175,7 +175,6 @@ class SmbService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
-    bool deferPump = false,
   }) async => null;
 
   // --- Library walk -------------------------------------------------------

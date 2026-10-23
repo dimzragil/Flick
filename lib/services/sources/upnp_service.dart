@@ -228,7 +228,6 @@ class UpnpService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
-    bool deferPump = false,
   }) async {
     // remoteId is the url-encoded <res> stream URL. DLNA MediaServer spec
     // mandates byte-range support; no auth on LAN by convention.

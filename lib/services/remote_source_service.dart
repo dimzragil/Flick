@@ -131,9 +131,8 @@ class RemoteSourceService {
   /// byte-range requests. Returns null when unsupported (UPnP/SMB) or on
   /// resolve failure — callers fall back to cache-then-play via [ensureLocal].
   Future<({String url, Map<String, String> headers})?> resolveHttpPlayback(
-    Song song, {
-    bool deferPump = false,
-  }) async {
+    Song song,
+  ) async {
     if (!song.isNetworkSource) return null;
     final sourceType = song.sourceType;
     final remoteId = song.remoteId;
@@ -148,12 +147,44 @@ class RemoteSourceService {
         server,
         remoteId,
         extension: song.fileType,
-        deferPump: deferPump,
       );
     } catch (e) {
       AppLog.instance.add('HTTP stream resolve failed for "${song.title}": $e');
       return null;
     }
+  }
+
+  /// Descriptor for the Rust engine, which consumes `(url, headers)` through
+  /// flutter_rust_bridge.
+  ///
+  /// TIDAL DASH has no CDN-hosted manifest the engine could fetch, and the
+  /// engine has no MPD reader, so the speaker's temp-`.mpd` descriptor is
+  /// translated into the segment plan the parser already produced. Anything
+  /// the engine cannot fetch directly returns null, which sends the caller
+  /// down cache-then-play (always direct CDN bytes, never a proxy).
+  Future<({String url, Map<String, String> headers})?> resolveRustHttpPlayback(
+    Song song,
+  ) async {
+    final http = await resolveHttpPlayback(song);
+    if (http == null) return null;
+    final sourceType = song.sourceType;
+    final remoteId = song.remoteId;
+    if (sourceType == null || remoteId == null) return http;
+    try {
+      final service = networkSourceServiceFor(sourceType);
+      if (service is TidalService) {
+        final plan = service.directDashPlan(remoteId);
+        if (plan != null) return plan;
+        if (http.url.startsWith('file:')) {
+          // A local manifest path means the engine got no plan; it cannot read
+          // the file, so let the caller fall back instead of failing on load.
+          return null;
+        }
+      }
+    } catch (e) {
+      AppLog.instance.add('Rust HTTP stream resolve failed: $e');
+    }
+    return http;
   }
 
   /// Format resolution for network sources (Tidal etc.) without downloading.

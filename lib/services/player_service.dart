@@ -47,7 +47,6 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flick/data/database.dart';
 import 'package:flick/services/sources/network_source_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
-import 'package:flick/services/sources/tidal_stream_proxy.dart';
 import 'package:flick/core/utils/app_log.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
@@ -2787,7 +2786,7 @@ class PlayerService {
 
   Future<just_audio.AudioPlayer> _doEnsureAndroidPlayer() async {
     await _configureAndroidAudioSession();
-    final player = just_audio.AudioPlayer();
+    final player = createSpeakerAudioPlayer();
     _justAudioPlayer = player;
     int? lastEqSessionId;
     player.androidAudioSessionIdStream.listen((sessionId) {
@@ -4349,8 +4348,8 @@ class PlayerService {
 
   /// Retries the failed track exactly once with a FRESH stream resolve:
   /// [_playSongAtCurrentIndex] -> [_playInternal] rebuilds the audio source
-  /// from scratch (new proxy session / stream URL), never reusing the
-  /// errored URL/session. A second failure surfaces either through
+  /// from scratch (new resolve, new CDN URL), never reusing the errored
+  /// URL. A second failure surfaces either through
   /// [_onPlaybackError] again (which flips the in-flight flag off and
   /// queues the advance) or as a load exception, both of which end in a
   /// single advance — never another retry.
@@ -4533,10 +4532,7 @@ class PlayerService {
     return _audioSourceSequence!;
   }
 
-  Future<just_audio.AudioSource> _buildAudioSourceForSong(
-    Song song, {
-    bool deferPump = false,
-  }) async {
+  Future<just_audio.AudioSource> _buildAudioSourceForSong(Song song) async {
     if (song.filePath == null) {
       return just_audio.AudioSource.uri(Uri.parse(''));
     }
@@ -4548,7 +4544,7 @@ class PlayerService {
       return streamSource;
     }
 
-    final resolved = await _resolvePlaybackUri(song, deferPump: deferPump);
+    final resolved = await _resolvePlaybackUri(song);
     final uri = resolved.uri;
     final headers = resolved.headers;
 
@@ -4605,10 +4601,9 @@ class PlayerService {
     }
   }
 
-  Future<({Uri uri, Map<String, String> headers})> _resolvePlaybackUri(
-    Song song, {
-    bool deferPump = false,
-  }) async {
+  Future<({Uri uri, Map<String, String>? headers})> _resolvePlaybackUri(
+    Song song,
+  ) async {
     // ponytail: HTTP-first for network sources. Hand ExoPlayer the ranged URL
     // so playback starts while bytes stream in, instead of blocking on a full
     // cache download before the first frame. Falls back to cache-then-play
@@ -4620,10 +4615,12 @@ class PlayerService {
       try {
         final http = await RemoteSourceService.instance.resolveHttpPlayback(
           song,
-          deferPump: deferPump,
         );
         if (http != null) {
-          return (uri: Uri.parse(http.url), headers: http.headers);
+          return (
+            uri: Uri.parse(http.url),
+            headers: speakerHeadersForPlayback(http.headers),
+          );
         }
       } catch (e) {
         _debugLog(
@@ -4633,13 +4630,29 @@ class PlayerService {
     }
     final resolvedPath = await _resolvePreparedPlaybackPath(song);
     if (resolvedPath == null || resolvedPath.isEmpty) {
-      return (uri: Uri.parse(''), headers: const <String, String>{});
+      return (uri: Uri.parse(''), headers: null);
     }
 
-    return (
-      uri: _toPlaybackUri(resolvedPath),
-      headers: const <String, String>{},
-    );
+    return (uri: _toPlaybackUri(resolvedPath), headers: null);
+  }
+
+  /// Header map to hand just_audio/ExoPlayer for a direct source.
+  ///
+  /// `x-flick-*` entries are out-of-band metadata for the Rust decoder, not
+  /// CDN credentials. They must not reach the speaker: any non-null header map
+  /// makes just_audio start its own cleartext loopback proxy, adding a second
+  /// local hop to a supposedly direct path. When nothing protocol-relevant
+  /// remains, pass null — not an empty map.
+  @visibleForTesting
+  static Map<String, String>? speakerHeadersForPlayback(
+    Map<String, String> headers,
+  ) {
+    final kept = <String, String>{
+      for (final entry in headers.entries)
+        if (!entry.key.toLowerCase().startsWith('x-flick-'))
+          entry.key: entry.value,
+    };
+    return kept.isEmpty ? null : kept;
   }
 
   Future<String?> _resolvePreparedPlaybackPath(Song song) async {
@@ -4910,7 +4923,7 @@ class PlayerService {
   ) async {
     if (!song.isNetworkSource) return null;
     try {
-      return await RemoteSourceService.instance.resolveHttpPlayback(song);
+      return await RemoteSourceService.instance.resolveRustHttpPlayback(song);
     } catch (e) {
       _debugLog('HTTP source resolve failed: $e');
       return null;
@@ -6043,7 +6056,7 @@ class PlayerService {
     // HTTP-first: try a direct ranged stream, fall back to cache-then-play.
     if (nextSong.isNetworkSource) {
       try {
-        final http = await RemoteSourceService.instance.resolveHttpPlayback(
+        final http = await RemoteSourceService.instance.resolveRustHttpPlayback(
           nextSong,
         );
         if (http != null) {
@@ -6121,16 +6134,9 @@ class PlayerService {
     }
     _consumeQueueEntryAt(_currentIndex);
     _updatePriorityAnchor();
-    // Wake the deferred pump for the new next track so it's prefetched
-    // (3 segments) and ready for a gapless transition. Far-ahead tracks
-    // stay at zero network until they become next.
-    final nextIndex = _currentIndex + 1;
-    if (nextIndex < _playlist.length) {
-      final remoteId = _playlist[nextIndex].remoteId;
-      if (remoteId != null && remoteId.isNotEmpty) {
-        TidalStreamProxy.instance.kickPrefetch(remoteId);
-      }
-    }
+    // Next-track prefetch needs no kick any more: the following item is a
+    // direct CDN URL (or manifest file) that ExoPlayer loads when it reaches
+    // it, and the old kick only existed to start a deferred proxy session.
   }
 
   Future<void> _savePosition({Song? song, Duration? position}) async {
@@ -6708,7 +6714,7 @@ class PlayerService {
     _endUsbDacUnplugWindow('explicit next request');
     final gen = ++_playbackGeneration;
 
-    // Immediately cancel in-flight network downloads & proxy sessions
+    // Immediately cancel in-flight network cache downloads
     RemoteSourceService.instance.cancelAllDownloads();
 
     // Immediately pause active audio playback so previous song stops instantly
@@ -6836,7 +6842,7 @@ class PlayerService {
     final gen = ++_playbackGeneration;
 
     // Pause immediately so the current song stops the instant the button is
-    // pressed. Everything else — proxy-session cancels, target selection,
+    // pressed. Everything else — download cancels, target selection,
     // restart vs switch — is decided exactly once inside _previousInternal,
     // at queue-execution time. Reading positionNotifier here AND there can
     // disagree once the restart seek lands: a stale ">3s" read then skips
@@ -6925,9 +6931,8 @@ class PlayerService {
         return;
       }
       // Direct (non-queued) seek: calling public seek() here would enqueue
-      // behind this running action and deadlock the queue forever. The live
-      // proxy session stays untouched — seek-to-zero reads already-downloaded
-      // bytes from the session's part file.
+      // behind this running action and deadlock the queue forever. The loaded
+      // source stays untouched — seek-to-zero is a plain player seek.
       await _performSeek(Duration.zero);
       // previous() paused up front; resume so the restarted track actually
       // plays instead of sitting paused at zero.
@@ -6941,9 +6946,8 @@ class PlayerService {
       return;
     }
 
-    // Actually switching to another track: only NOW cancel in-flight proxy
-    // sessions, so the new track starts with a fresh session instead of
-    // fighting the old track's download for bandwidth.
+    // Actually switching to another track: only NOW cancel in-flight cache
+    // downloads, so the new track does not fight the old one for bandwidth.
     RemoteSourceService.instance.cancelAllDownloads();
 
     if (targetAlreadySelected) {

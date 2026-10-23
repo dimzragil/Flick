@@ -172,7 +172,7 @@ class _Harness {
     player = _FakeAudioPlayer();
     engine = AndroidAudioEngine(
       playerProvider: () async => player,
-      sourceBuilder: (song, {bool deferPump = false}) {
+      sourceBuilder: (song) {
         final override = buildOverride;
         if (override != null) return override(song);
         return immediateSource(song);

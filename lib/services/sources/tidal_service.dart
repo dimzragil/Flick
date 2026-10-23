@@ -18,9 +18,9 @@ import '../../models/song.dart';
 import '../../models/sources/tidal_models.dart';
 import '../library_scanner_service.dart' show ScanProgress;
 import '../network_cache_service.dart';
+import 'dash_direct_delivery.dart';
 import 'dash_manifest_parser.dart';
 import 'network_source_service.dart';
-import 'tidal_stream_proxy.dart';
 import 'tidal_token_store.dart';
 
 /// Tidal client over the reverse-engineered web/OAuth2 surface.
@@ -31,14 +31,16 @@ import 'tidal_token_store.dart';
 /// are persisted as a JSON blob in [NetworkServerEntity.token] and refreshed
 /// transparently on expiry, writing the new token back to the DB.
 ///
-/// Playback: `/tracks/{id}/playbackinfopostpaywall` returns a `vnd.tidal.bts`
-/// manifest. For `encryptionType: NONE` (HiFi lossless FLAC/ALAC) the contained
-/// CDN url is prebuffered through [TidalStreamProxy] before the engine reads it
-/// as a local ranged HTTP source; completed files remain in the network cache.
-/// Encrypted manifests (MQA / HiRes Master / Atmos, `encryptionType != NONE` or
-/// DASH) are **not** decryptable here and fail with a clear error rather than
-/// fake playback — matching the project's "no fake transport" rule. This is the
-/// tradeoff of the no-partner-SDK path the user explicitly accepted.
+/// Playback: `/tracks/{id}/playbackinfopostpaywall` returns either a
+/// `vnd.tidal.bts` manifest (a direct unencrypted FLAC/AAC CDN URL) or an
+/// embedded DASH manifest (Hi-Res fMP4 FLAC). Both are played **directly from
+/// the TIDAL CDN**: the engine is handed the CDN file URL, or — for DASH,
+/// whose manifest is not hosted anywhere — a temp `.mpd` (or, for the Rust
+/// engine, the parsed segment plan). No local server relays media bytes.
+/// Encrypted manifests (MQA / HiRes Master / Atmos) are **not** decryptable
+/// here and fail with a clear error rather than fake playback — matching the
+/// project's "no fake transport" rule. This is the tradeoff of the
+/// no-partner-SDK path the user explicitly accepted.
 ///
 /// Tidal rotates the web client credentials; update [clientId]/[clientSecret]
 /// if auth starts returning `invalid_client`.
@@ -194,6 +196,20 @@ class TidalService implements NetworkSourceService {
   final Map<String, TidalStreamResolution> _resolvedStreams = {};
   final Map<String, Set<void Function()>> _activeDownloads = {};
   final Map<String, Future<String>> _downloadInFlight = {};
+
+  /// Temp `.mpd` files handed to the playback engines for DASH tracks.
+  DashManifestStore? _dashManifestStore;
+
+  DashManifestStore get _dashManifests =>
+      _dashManifestStore ??= DashManifestStore();
+
+  @visibleForTesting
+  void useDashManifestStoreForTesting(DashManifestStore store) {
+    _dashManifestStore = store;
+  }
+
+  @visibleForTesting
+  DashManifestStore get dashManifestStoreForTesting => _dashManifests;
 
   /// Resilient DASH fetch policy (see [_fetchDashBytesWithRetry]): response
   /// headers must arrive within [_dashSegmentHeaderTimeout], the body may
@@ -353,6 +369,9 @@ class TidalService implements NetworkSourceService {
     final age = DateTime.now().difference(resolvedAt);
     if (age.isNegative || age >= _resolvedStreamTtl) {
       _resolvedStreams.remove(trackId);
+      // The signed URLs (and the DASH manifest that embeds them) are dead;
+      // drop the temp manifest with the resolution.
+      unawaited(_dashManifests.evict(trackId));
       return null;
     }
 
@@ -361,6 +380,7 @@ class TidalService implements NetworkSourceService {
         cached.tierHint != null &&
         currentHint != cached.tierHint) {
       _resolvedStreams.remove(trackId);
+      unawaited(_dashManifests.evict(trackId));
       return null;
     }
     return cached;
@@ -450,7 +470,7 @@ class TidalService implements NetworkSourceService {
         cancel();
       }
     }
-    TidalStreamProxy.instance.cancelTrack(remoteId);
+    unawaited(_dashManifests.evict(remoteId));
   }
 
   /// Cancel all in-flight downloads (e.g. when changing songs immediately).
@@ -461,7 +481,6 @@ class TidalService implements NetworkSourceService {
       }
     }
     _activeDownloads.clear();
-    TidalStreamProxy.instance.cancelAllSessions();
   }
 
   static Future<bool> _defaultOpenUrl(Uri url) =>
@@ -1646,7 +1665,6 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
-    bool deferPump = false,
   }) async {
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
@@ -1660,86 +1678,111 @@ class TidalService implements NetworkSourceService {
       }
     } catch (_) {}
 
-    // PlayerService resolves once for display metadata, then Rust resolves
-    // again to start playback. Reuse the active localhost session so that
-    // second pass does not issue another playback-info API request.
-    final activeBtsUrl = TidalStreamProxy.instance.activeBtsStreamUrl(remoteId);
-    final activeResolution = _reusableResolution(remoteId);
-    if (activeBtsUrl != null && activeResolution != null) {
-      return (
-        url: activeBtsUrl,
-        headers: <String, String>{
-          if (activeResolution.isSampleRateExplicit)
-            'x-flick-sample-rate': activeResolution.sampleRate.toString(),
-          if (activeResolution.isBitDepthExplicit)
-            'x-flick-bit-depth': activeResolution.bitDepth.toString(),
-        },
-      );
+    // PlayerService resolves once for display metadata, then the playback
+    // engine resolves again to start playback. Reuse the first resolution
+    // while the signed CDN URLs are still fresh, so the second pass does not
+    // issue another playback-info API request. There is no longer a local
+    // session to reuse, only the resolution itself.
+    final reusable = _reusableResolution(remoteId);
+    if (reusable != null) {
+      return _directDescriptor(server, remoteId, reusable);
     }
 
     final resolved = await _resolveStreamable(server, remoteId);
     if (resolved == null) return null;
+    return _directDescriptor(server, remoteId, resolved);
+  }
 
-    // 2. For DASH: start or prepare the progressive local stream session (~300ms)
-    if (resolved.isDash && resolved.dashInfo != null) {
-      final targetPath = await _cache.pathFor(
-        server.id,
-        remoteId,
-        extension: 'mp4',
-      );
-      final streamUrl = await TidalStreamProxy.instance.prepareStream(
-        trackId: remoteId,
-        dashInfo: resolved.dashInfo!,
-        targetPath: targetPath,
-        client: _NonClosingClient(_client),
-        onFinalized: (file) => _cache.evictIfOverCap(protect: file),
-        deferPump: deferPump,
-      );
-      return (
-        url: streamUrl,
-        headers: <String, String>{
-          if (resolved.isSampleRateExplicit)
-            'x-flick-sample-rate': resolved.sampleRate.toString(),
-          if (resolved.isBitDepthExplicit)
-            'x-flick-bit-depth': resolved.bitDepth.toString(),
-        },
-      );
+  /// Descriptor handed to the speaker engine: a CDN file URL (BTS) or a temp
+  /// `.mpd` (DASH) that ExoPlayer loads itself.
+  Future<({String url, Map<String, String> headers})?> _directDescriptor(
+    NetworkServerEntity server,
+    String remoteId,
+    TidalStreamResolution resolved,
+  ) async {
+    final headers = _streamHeaders(resolved);
+
+    if (!resolved.isDash) {
+      // 2. BTS: the CDN file URL is ranged-GET-able; hand it over as-is.
+      // Re-check the cache with the resolved extension, which can differ from
+      // the song's file type (e.g. an AAC stream for a "flac" track).
+      try {
+        final cached = await _cache.getPath(
+          server.id,
+          remoteId,
+          extension: resolved.ext ?? 'flac',
+        );
+        if (cached != null) return null;
+      } catch (_) {}
+      return (url: resolved.url, headers: headers);
     }
 
-    // 3. Prebuffer direct BTS media locally before handing it to Rust.
-    try {
-      final cached = await _cache.getPath(
-        server.id,
-        remoteId,
-        extension: resolved.ext ?? 'flac',
+    // 3. DASH: the manifest arrives embedded in the playbackinfo response, so
+    // it has to be written out before any player can use it. Strip it to the
+    // single Representation the parser chose: with no proxy fallback a
+    // multi-representation MPD would let ABR silently downshift while the
+    // quality badge still claims the top tier.
+    final dashInfo = resolved.dashInfo;
+    if (dashInfo == null) {
+      throw TidalException('DASH track $remoteId has no manifest.');
+    }
+    if (!dashManifestIsSelfContained(dashInfo)) {
+      devLog(
+        '[Tidal] DASH $remoteId is not directly playable: the manifest does '
+        'not resolve every segment to an absolute https URL',
       );
-      if (cached != null) return null;
-    } catch (_) {}
-    final targetPath = await _cache.pathFor(
-      server.id,
-      remoteId,
-      extension: resolved.ext ?? 'flac',
+      throw TidalException(
+        'DASH manifest for $remoteId is not directly playable.',
+      );
+    }
+    final stripped = DashManifestParser.stripToSingleRepresentation(
+      dashInfo.manifestXml,
     );
-    final streamUrl = await TidalStreamProxy.instance.prepareBtsStream(
+    if (stripped == null) {
+      throw TidalException(
+        'DASH manifest for $remoteId could not be reduced to a single '
+        'representation.',
+      );
+    }
+    final manifestPath = await _dashManifests.write(
       trackId: remoteId,
-      sourceUrl: resolved.url,
-      targetPath: targetPath,
-      contentType: switch (resolved.ext) {
-        'm4a' => 'audio/mp4',
-        'mp3' => 'audio/mpeg',
-        _ => 'audio/flac',
-      },
-      client: _NonClosingClient(_client),
-      onFinalized: (file) => _cache.evictIfOverCap(protect: file),
-      deferPump: deferPump,
+      xml: stripped,
     );
+    return (url: Uri.file(manifestPath).toString(), headers: headers);
+  }
+
+  /// `x-flick-*` out-of-band metadata for the Rust decoder. The speaker path
+  /// drops these; the DAC path passes them through unchanged.
+  Map<String, String> _streamHeaders(TidalStreamResolution resolved) => {
+    if (resolved.isSampleRateExplicit)
+      'x-flick-sample-rate': resolved.sampleRate.toString(),
+    if (resolved.isBitDepthExplicit)
+      'x-flick-bit-depth': resolved.bitDepth.toString(),
+  };
+
+  /// Descriptor for the Rust engine when [trackId] resolved to DASH.
+  ///
+  /// The Rust engine has no MPD support, and the manifest is not hosted
+  /// anywhere the engine could fetch it from. Rather than parse the manifest a
+  /// second time in Rust, hand over the plan the Dart parser already produced
+  /// — the init segment plus the ordered media segment URLs of the chosen
+  /// Representation — as a `dash://` descriptor carrying them in the headers
+  /// map. Both engines then fetch the same CDN objects, and segment ordering
+  /// has a single source of truth.
+  ///
+  /// Returns null for non-DASH tracks and when the plan cannot be built (the
+  /// caller then falls back to cache-then-play, never to a proxy).
+  ({String url, Map<String, String> headers})? directDashPlan(String trackId) {
+    final resolved = _reusableResolution(trackId);
+    final dashInfo = resolved?.dashInfo;
+    if (resolved == null || !resolved.isDash || dashInfo == null) return null;
+    if (!dashManifestIsSelfContained(dashInfo)) return null;
     return (
-      url: streamUrl,
-      headers: <String, String>{
-        if (resolved.isSampleRateExplicit)
-          'x-flick-sample-rate': resolved.sampleRate.toString(),
-        if (resolved.isBitDepthExplicit)
-          'x-flick-bit-depth': resolved.bitDepth.toString(),
+      url: 'dash://$trackId',
+      headers: {
+        ..._streamHeaders(resolved),
+        'x-flick-dash-init': dashInfo.initializationUrl,
+        'x-flick-dash-segments': dashInfo.segmentUrls.join('\n'),
       },
     );
   }
@@ -1865,11 +1908,11 @@ class TidalService implements NetworkSourceService {
       remoteId,
       extension: 'mp4',
     );
-    // Distinct temp name on purpose: a live [TidalStreamSession] for the same
-    // track writes and serves the engine from `<targetPath>.part`. Sharing that
-    // file here would truncate the stream under the engine's feet (audible
-    // stutter) and the two downloads would race on rename/delete. `openWrite`
-    // truncates whatever temp file already exists.
+    // Distinct temp name on purpose: a live direct playback stream for the
+    // same track writes its own `.part`; sharing that file here would truncate
+    // the stream under the player's feet (audible stutter) and the two
+    // downloads would race on rename/delete. `openWrite` truncates whatever
+    // temp file already exists.
     final partFile = File('$targetPath.download.part');
     final sink = partFile.openWrite();
 
@@ -4506,20 +4549,5 @@ class TidalStreamResolution {
       parts.add('${kbps}kbps');
     }
     return parts.join(' / ');
-  }
-}
-
-class _NonClosingClient extends http.BaseClient {
-  _NonClosingClient(this._inner);
-  final http.Client _inner;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      _inner.send(request);
-
-  @override
-  void close() {
-    // No-op: the wrapped client is shared across TidalService and must not be
-    // closed when individual proxy streaming sessions finalize or cancel.
   }
 }

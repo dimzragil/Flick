@@ -9,12 +9,10 @@ import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/features/player/widgets/bit_perfect_indicator.dart';
 import 'package:flick/services/network_cache_service.dart';
+import 'package:flick/services/sources/dash_direct_delivery.dart';
 import 'package:flick/services/sources/tidal_service.dart';
 
-NetworkServerEntity _server({
-  int id = 1,
-  String token = '',
-}) {
+NetworkServerEntity _server({int id = 1, String token = ''}) {
   return NetworkServerEntity()
     ..id = id
     ..label = 'Tidal Dual Client Test'
@@ -97,10 +95,11 @@ void main() {
           }
 
           if (request.url.path.contains('test_cd.flac')) {
-            return http.Response('dummy_flac_audio_bytes', 200, headers: {
-              'content-length': '22',
-              'accept-ranges': 'bytes',
-            });
+            return http.Response(
+              'dummy_flac_audio_bytes',
+              200,
+              headers: {'content-length': '22', 'accept-ranges': 'bytes'},
+            );
           }
 
           if (request.url.path.contains('/playbackinfopostpaywall')) {
@@ -247,6 +246,9 @@ void main() {
         final service = TidalService.create(
           client: client,
           networkCache: NetworkCacheService(rootDirectory: tempDir),
+        );
+        service.useDashManifestStoreForTesting(
+          DashManifestStore(rootDirectory: Directory('${tempDir.path}/mpd')),
         );
 
         final server = _server(token: _tokenWithJwtCid(13319));

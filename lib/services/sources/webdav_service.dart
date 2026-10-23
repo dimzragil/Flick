@@ -304,7 +304,6 @@ class WebdavService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
-    bool deferPump = false,
   }) async {
     // remoteId is stored url-encoded (cache-key-safe); decode once, then
     // re-encode at the request boundary.

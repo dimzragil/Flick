@@ -19,6 +19,7 @@ pub mod commands;
 pub mod convolver;
 pub mod crossfeed;
 pub mod crossfader;
+pub mod dash_source;
 pub mod decoder;
 pub mod decoder_handle;
 pub mod device;

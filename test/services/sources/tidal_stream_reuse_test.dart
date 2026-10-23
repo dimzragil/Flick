@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/services/network_cache_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
-import 'package:flick/services/sources/tidal_stream_proxy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -53,7 +52,6 @@ void main() {
           'tidal_stream_reuse',
         );
         addTearDown(() {
-          TidalStreamProxy.instance.cancelAllSessions();
           return tempDir.delete(recursive: true);
         });
 
@@ -90,21 +88,14 @@ void main() {
           server,
           'reuse_track',
           extension: 'flac',
-          deferPump: true,
         );
         expect(first, isNotNull);
         expect(playbackInfoRequests, 1);
-
-        // Drop the active local proxy session so the second pass must rely on
-        // the resolved-stream cache rather than the activeBtsStreamUrl
-        // shortcut.
-        TidalStreamProxy.instance.cancelAllSessions();
 
         final second = await service.streamDescriptor(
           server,
           'reuse_track',
           extension: 'flac',
-          deferPump: true,
         );
         expect(second, isNotNull);
         expect(
@@ -122,7 +113,6 @@ void main() {
         'tidal_stream_reuse_tier',
       );
       addTearDown(() {
-        TidalStreamProxy.instance.cancelAllSessions();
         return tempDir.delete(recursive: true);
       });
 
@@ -157,12 +147,9 @@ void main() {
         server,
         'tier_track',
         extension: 'flac',
-        deferPump: true,
       );
       expect(first, isNotNull);
       expect(requestedTiers, ['LOSSLESS']);
-
-      TidalStreamProxy.instance.cancelAllSessions();
 
       TidalService.makeEphemeralSong(server, {
         'id': 'tier_track',
@@ -173,7 +160,6 @@ void main() {
         server,
         'tier_track',
         extension: 'flac',
-        deferPump: true,
       );
       expect(second, isNotNull);
       expect(requestedTiers, [
@@ -187,7 +173,6 @@ void main() {
         'tidal_stream_reuse_ttl',
       );
       addTearDown(() {
-        TidalStreamProxy.instance.cancelAllSessions();
         return tempDir.delete(recursive: true);
       });
 
@@ -218,17 +203,13 @@ void main() {
         server,
         'expiring_track',
         extension: 'flac',
-        deferPump: true,
       );
       expect(playbackInfoRequests, 1);
-
-      TidalStreamProxy.instance.cancelAllSessions();
 
       await service.streamDescriptor(
         server,
         'expiring_track',
         extension: 'flac',
-        deferPump: true,
       );
       expect(
         playbackInfoRequests,
