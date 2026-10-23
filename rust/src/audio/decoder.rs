@@ -555,16 +555,21 @@ fn decode_thread(
 
     if let Some(position_secs) = start_position_secs {
         let target_secs = position_secs.max(0.0);
-        if target_secs > 0.0 {
+        if target_secs >= 0.5 {
             let seek_to = SeekTo::Time {
                 time: Time::new(target_secs as u64, target_secs.fract()),
                 track_id: Some(track_id),
             };
 
-            format
-                .seek(SeekMode::Coarse, seek_to)
-                .map_err(|e| DecoderError::DecodingFailed(format!("Seek failed: {}", e)))?;
-            decoder.reset();
+            if let Err(e) = format.seek(SeekMode::Coarse, seek_to) {
+                log::warn!(
+                    "[DECODER] Initial stream seek to {:.2}s failed: {}",
+                    target_secs,
+                    e
+                );
+            } else {
+                decoder.reset();
+            }
         }
     }
 

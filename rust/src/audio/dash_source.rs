@@ -142,6 +142,11 @@ struct DashShared {
     /// is discarded instead of corrupting the window.
     generation: u64,
     skipped_segments: u64,
+    /// Permanent cache of the initialization segment (index 0).
+    /// Kept forever so decoder seeks/probes can always read ftyp and moov.
+    init_bytes: Option<Vec<u8>>,
+    /// Set true once the demuxer probe read has started.
+    probe_completed: bool,
 }
 
 impl DashShared {
@@ -175,6 +180,8 @@ impl DashMediaSource {
                 error: None,
                 generation: 0,
                 skipped_segments: 0,
+                init_bytes: None,
+                probe_completed: false,
             }),
             Condvar::new(),
         ));
@@ -295,6 +302,10 @@ fn dash_worker(pair: Arc<(Mutex<DashShared>, Condvar)>, stop: Arc<AtomicBool>) {
                 g.starts[index] = Some(seg_start);
                 let seg_end = seg_start + len;
 
+                if index == 0 && g.init_bytes.is_none() {
+                    g.init_bytes = Some(bytes.clone());
+                }
+
                 if seg_end <= g.retain_from {
                     // Entirely before the requested offset: advance the logical
                     // stream without keeping a byte of it.
@@ -335,12 +346,28 @@ impl Read for DashMediaSource {
         }
         let (lock, cvar) = &*self.pair;
         let mut g = lock.lock().unwrap();
+        g.probe_completed = true;
+
         loop {
             if let Some(total) = g.total {
                 if g.pos >= total {
                     return Ok(0);
                 }
             }
+
+            // If the read cursor is inside the init segment, serve from init_bytes if available.
+            if let Some(ref init) = g.init_bytes {
+                let init_len = init.len() as u64;
+                if g.pos < init_len {
+                    let offset = g.pos as usize;
+                    let available = &init[offset..];
+                    let n = available.len().min(dst.len());
+                    dst[..n].copy_from_slice(&available[..n]);
+                    g.pos += n as u64;
+                    return Ok(n);
+                }
+            }
+
             if g.pos < g.base {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -402,7 +429,15 @@ impl Seek for DashMediaSource {
 
         let mut g = lock.lock().unwrap();
 
-        // Fast path: inside the retained window.
+        // Fast path 1: inside permanently cached init segment.
+        if let Some(ref init) = g.init_bytes {
+            if target < init.len() as u64 {
+                g.pos = target;
+                return Ok(target);
+            }
+        }
+
+        // Fast path 2: inside the retained window.
         if g.pos_or_window_contains(target) {
             g.pos = target;
             return Ok(target);
@@ -446,11 +481,13 @@ impl DashShared {
 
 impl MediaSource for DashMediaSource {
     fn is_seekable(&self) -> bool {
-        // While streaming (total is None), report unseekable so Symphonia's isomp4
-        // reader treats the stream as progressive fragmented MP4 (mvex + moof + mdat)
-        // rather than failing probe because byte_len is unknown.
-        // Once all segments have arrived, total length is known and seekable is true.
-        self.pair.0.lock().unwrap().total.is_some()
+        let g = self.pair.0.lock().unwrap();
+        // During the initial demuxer probe (try_new), isomp4 requires byte_len()
+        // when is_seekable() is true, and scans to EOF if seekable. Reporting
+        // false initially lets isomp4 recognize it as a progressive fragmented MP4 stream.
+        // Once probe has started reading atoms (probe_completed == true), or once total length
+        // is known, report true so sample seeking within media fragments succeeds.
+        g.probe_completed || g.total.is_some()
     }
 
     fn byte_len(&self) -> Option<u64> {
@@ -694,5 +731,24 @@ mod tests {
         assert_eq!(all.len(), TOTAL);
         assert!(src.byte_len().is_some());
         assert!(src.is_seekable());
+    }
+
+    #[test]
+    fn init_bytes_retained_on_forward_seek() {
+        let base = spawn_standard_cdn();
+        let mut src = DashMediaSource::from_headers(&plan(&base)).unwrap();
+        let mut first = [0u8; 4];
+        let n = src.read(&mut first).unwrap();
+        assert_eq!(n, 4);
+        assert_eq!(&first, INIT);
+        assert!(src.is_seekable());
+
+        // Seek forward past the buffer
+        let got = read_at(&mut src, (4 + S1_LEN + 10) as u64, 8);
+        assert_eq!(got, vec![0x22; 8]);
+
+        // Seek back to init segment (offset 0)
+        let init_read = read_at(&mut src, 0, 4);
+        assert_eq!(&init_read, INIT);
     }
 }

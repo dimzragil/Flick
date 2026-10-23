@@ -5333,6 +5333,7 @@ class PlayerService {
 
     _rustBackendAvailable = false;
     _rustEngine = null;
+    positionNotifier.value = Duration.zero;
 
     if (Platform.isAndroid) {
       await _rustAudioService.setHighResMode(false);
@@ -5834,6 +5835,7 @@ class PlayerService {
         positionNotifier.value = initialPosition;
       } else {
         _positionTracker.onTrackStart(song.id);
+        positionNotifier.value = Duration.zero;
       }
 
       if (playlist != null) {

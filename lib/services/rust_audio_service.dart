@@ -341,6 +341,8 @@ class RustAudioService {
       throw StateError('Rust audio engine not initialized');
     }
 
+    positionNotifier.value = Duration.zero;
+    positionLabelNotifier.value = Duration.zero;
     _syncDsdOutputMode();
     _syncDsdTransportOverrides();
     await _reviveAndRetry(() => rust_audio.audioPlay(path: path));
@@ -360,6 +362,8 @@ class RustAudioService {
     if (!_initialized) {
       throw StateError('Rust audio engine not initialized');
     }
+    positionNotifier.value = Duration.zero;
+    positionLabelNotifier.value = Duration.zero;
     _syncDsdOutputMode();
     _syncDsdTransportOverrides();
     await _reviveAndRetry(
@@ -470,6 +474,8 @@ class RustAudioService {
     if (!_initialized) return;
     await rust_audio.audioStop();
     _stopProgressUpdates();
+    positionNotifier.value = Duration.zero;
+    positionLabelNotifier.value = Duration.zero;
     _currentPath = null;
     _nextPath = null;
   }

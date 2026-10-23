@@ -128,7 +128,10 @@ class RustAudioEngine implements AudioEngine {
     _attachListeners();
     _loadedTrack = track;
     _needsFreshPlay = true;
-    _pendingSeekPosition = initialPosition ?? Duration.zero;
+    _pendingSeekPosition =
+        (initialPosition != null && initialPosition > Duration.zero)
+            ? initialPosition
+            : null;
     _emit(
       _state.copyWith(
         currentTrack: track,
@@ -202,23 +205,18 @@ class RustAudioEngine implements AudioEngine {
     await _applyInitialSeekAfterStart();
   }
 
-  // ponytail: after a fresh source start (HTTP or path), seek to the desired
-  // position. _pendingSeekPosition is the explicit deferred seek (load+seek
-  // before first play); _state.position is the fallback so a seek that left
-  // the engine in idle/stopped (e.g. Jellyfin range-request failure during
-  // handle_seek) doesn't restart from zero on the next play(). Upgrade path:
-  // surface the seek error from Rust so we can distinguish "seek landed" from
-  // "seek failed and we recovered via play()" — both work today.
+  // After a fresh source start (HTTP or path), seek to the explicit initial
+  // position only if one was explicitly requested (> 500ms).
   Future<void> _applyInitialSeekAfterStart() async {
-    final target = _pendingSeekPosition ?? _state.position;
-    if (target > Duration.zero) {
+    final target = _pendingSeekPosition;
+    _pendingSeekPosition = null;
+    if (target != null && target > const Duration(milliseconds: 500)) {
       try {
         await _rustAudioService.seek(target);
       } catch (e) {
-        debugPrint('[RustAudioEngine] initial seek to $target failed: $e');
+        devLog('[RustAudioEngine] initial seek to $target failed: $e');
       }
     }
-    _pendingSeekPosition = null;
   }
 
   @override
