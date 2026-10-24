@@ -474,8 +474,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 320);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: InkWell(
+      child: InkWell(
           borderRadius: BorderRadius.circular(AppConstants.radiusLg),
           onTap: () => _playSong(song, [song]),
           child: Container(
@@ -561,7 +560,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -570,8 +568,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 160);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: ListTile(
+      child: ListTile(
           contentPadding: const EdgeInsets.symmetric(
             vertical: 2,
             horizontal: 4,
@@ -671,7 +668,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
           ),
           onTap: () => _playSong(song, playlist),
         ),
-      ),
     );
   }
 
@@ -705,8 +701,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final cardWidth = context.scaleSize(120);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: GestureDetector(
+      child: GestureDetector(
           onTap: () => _openAlbum(album),
           child: Container(
             width: cardWidth,
@@ -758,7 +753,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -787,8 +781,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
           return StaggeredEntrance(
             index: index,
             child: PressScale(
-              child: RepaintBoundary(
-                child: GestureDetector(
+              child: GestureDetector(
                   onTap: () => _openAlbum(album),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,7 +832,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                     ],
                   ),
                 ),
-              ),
             ),
           );
         },
@@ -856,8 +848,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final size = context.scaleSize(76);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: GestureDetector(
+      child: GestureDetector(
           onTap: () => _openArtist(artist),
           child: Container(
             width: size + 16,
@@ -899,7 +890,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -923,8 +913,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
           return StaggeredEntrance(
             index: index,
             child: PressScale(
-              child: RepaintBoundary(
-                child: ListTile(
+              child: ListTile(
                   onTap: () => _openArtist(artist),
                   leading: ClipOval(
                     child: SizedBox(
@@ -954,7 +943,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                     ),
                   ),
                 ),
-              ),
             ),
           );
         },
@@ -967,8 +955,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
     final cardWidth = context.scaleSize(110);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: GestureDetector(
+      child: GestureDetector(
           onTap: () => _openPlaylist(playlist),
           child: Container(
             width: cardWidth,
@@ -992,7 +979,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -1014,8 +1000,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
           return StaggeredEntrance(
             index: index,
             child: PressScale(
-              child: RepaintBoundary(
-                child: ListTile(
+              child: ListTile(
                   onTap: () => _openPlaylist(pl),
                   leading: TidalPlaylistCoverWidget(playlist: pl, size: size),
                   title: Text(
@@ -1036,7 +1021,6 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                         )
                       : null,
                 ),
-              ),
             ),
           );
         },

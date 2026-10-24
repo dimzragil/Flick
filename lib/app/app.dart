@@ -48,6 +48,7 @@ import 'package:flick/services/library_scan_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/remote_source_service.dart';
 import 'package:flick/services/app_preferences_service.dart';
+import 'package:flick/services/display_mode_service.dart';
 import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/widget_sync_service.dart';
 import 'package:flick/services/widget_intent_handler.dart';
@@ -788,6 +789,19 @@ class _MainShellState extends ConsumerState<MainShell>
                                             AppHaptics.selection();
                                           }
                                           _lastHapticPage = position;
+                                          // Android's DRR drops the panel to
+                                          // 60 Hz while media plays or during
+                                          // touch idle. Re-assert the user's
+                                          // preference on every visible-tab
+                                          // change so browsing never stays
+                                          // stuck at the lower rate.
+                                          unawaited(
+                                            DisplayModeService().applyPreference(
+                                              ref
+                                                  .read(appPreferencesProvider)
+                                                  .refreshRateMode,
+                                            ),
+                                          );
                                           final enabledCount = currentConfig
                                               .orderedButtons.length;
                                           if (position >= enabledCount) {

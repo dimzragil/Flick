@@ -9,6 +9,7 @@ import '../../../models/song.dart';
 import '../../../services/player_service.dart';
 import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
+import '../../../widgets/common/display_mode_wrapper.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
@@ -66,57 +67,59 @@ class TidalLikedSongsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        color: Colors.pinkAccent,
-        backgroundColor: AppColors.surface,
-        onRefresh: () => ref.refresh(tidalLikedSongsProvider.future),
-        child: likedAsync.when(
-          loading: () => Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: context.scaleSize(AppConstants.spacingMd),
+      body: DisplayModeWrapper(
+        child: RefreshIndicator(
+          color: Colors.pinkAccent,
+          backgroundColor: AppColors.surface,
+          onRefresh: () => ref.refresh(tidalLikedSongsProvider.future),
+          child: likedAsync.when(
+            loading: () => Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.scaleSize(AppConstants.spacingMd),
+              ),
+              child: const TidalListSkeleton(rows: 8),
             ),
-            child: const TidalListSkeleton(rows: 8),
-          ),
-          error: (err, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'Failed to load liked songs:\n$err',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
+            error: (err, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Failed to load liked songs:\n$err',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
               ),
             ),
-          ),
-          data: (songs) {
-            if (songs.isEmpty) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'No liked songs yet.\nTap the heart on any track to add it here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.textSecondary),
+            data: (songs) {
+              if (songs.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No liked songs yet.\nTap the heart on any track to add it here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
                   ),
+                );
+              }
+              return StaggeredEntranceWindow(
+                child: ListView.builder(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: context.scaleSize(AppConstants.spacingMd),
+                    vertical: context.scaleSize(AppConstants.spacingSm),
+                  ),
+                  itemCount: songs.length,
+                  itemBuilder: (context, index) {
+                    final song = songs[index];
+                    return StaggeredEntrance(
+                      index: index,
+                      child: _buildSongTile(context, song, songs, index),
+                    );
+                  },
                 ),
               );
-            }
-            return StaggeredEntranceWindow(
-              child: ListView.builder(
-                padding: EdgeInsets.symmetric(
-                  horizontal: context.scaleSize(AppConstants.spacingMd),
-                  vertical: context.scaleSize(AppConstants.spacingSm),
-                ),
-                itemCount: songs.length,
-                itemBuilder: (context, index) {
-                  final song = songs[index];
-                  return StaggeredEntrance(
-                    index: index,
-                    child: _buildSongTile(context, song, songs, index),
-                  );
-                },
-              ),
-            );
-          },
+            },
+          ),
         ),
       ),
     );
@@ -133,8 +136,7 @@ class TidalLikedSongsScreen extends ConsumerWidget {
     final thumbArt = TidalService.resizedCoverUrl(song.albumArt, 160);
 
     return PressScale(
-      child: RepaintBoundary(
-        child: ListTile(
+      child: ListTile(
           dense: true,
           contentPadding: const EdgeInsets.symmetric(
             vertical: 2,
@@ -232,7 +234,6 @@ class TidalLikedSongsScreen extends ConsumerWidget {
           ),
           onTap: () => _playSong(context, song, playlist),
         ),
-      ),
     );
   }
 }

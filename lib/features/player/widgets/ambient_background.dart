@@ -121,11 +121,33 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
   String? _loadingPath; // path we're currently computing for
   bool _computing = false;
 
+  /// Mirrors [ModalRoute.isCurrent] for the route this background lives in.
+  /// Covered routes must not decode or blur when the track changes: every
+  /// pushed TIDAL screen keeps its own AmbientBackground alive underneath.
+  bool _routeIsCurrent = true;
+  bool _blurDeferred = false;
+
   @override
   void initState() {
     super.initState();
     _syncInitFromCache();
     _updateBlur(widget.song?.albumArt, widget.song?.filePath);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Same gating pattern as AnimatedAlbumArt: ModalScopeStatus is an inherited
+    // dependency, so this runs whenever the route becomes covered/visible.
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (isCurrent == _routeIsCurrent) return;
+    _routeIsCurrent = isCurrent;
+    if (!isCurrent) return;
+    if (_blurDeferred) {
+      _blurDeferred = false;
+      _syncInitFromCache();
+      _updateBlur(widget.song?.albumArt, widget.song?.filePath);
+    }
   }
 
   @override
@@ -177,6 +199,12 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
   }
 
   Future<void> _updateBlur(String? path, String? audioSourcePath) async {
+    if (!_routeIsCurrent) {
+      // Defer until didChangeDependencies sees this route become current
+      // again; the cache will usually answer the replay with no decode.
+      _blurDeferred = true;
+      return;
+    }
     final resolvedPath = await _resolveArtworkPath(path, audioSourcePath);
     if (resolvedPath == null) {
       if (mounted) {
@@ -231,50 +259,58 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
         targetWidth: _targetDimension,
         targetHeight: _targetDimension,
       );
-      final frame = await codec.getNextFrame();
-      final srcImage = frame.image;
+      try {
+        final frame = await codec.getNextFrame();
+        final srcImage = frame.image;
+        try {
+          if (!mounted || resolvedPath != _loadingPath) return;
 
-      if (!mounted || resolvedPath != _loadingPath) {
-        srcImage.dispose();
-        _computing = false;
-        return;
+          // 3. Draw with blur ImageFilter into a Picture, then rasterise.
+          //    picture.toImage() runs on Flutter's raster thread — non-blocking.
+          // Capture dimensions before disposal.
+          final int imgW = srcImage.width;
+          final int imgH = srcImage.height;
+
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          canvas.drawImage(
+            srcImage,
+            Offset.zero,
+            Paint()
+              ..imageFilter = ui.ImageFilter.blur(
+                sigmaX: _blurSigma,
+                sigmaY: _blurSigma,
+                tileMode: TileMode.clamp,
+              ),
+          );
+          final picture = recorder.endRecording();
+          final ui.Image blurred;
+          try {
+            blurred = await picture.toImage(imgW, imgH);
+          } finally {
+            // Retained Skia display list: released here so a track change in a
+            // covered route cannot pile up pictures until GC runs.
+            picture.dispose();
+          }
+
+          if (!mounted || resolvedPath != _loadingPath) {
+            blurred.dispose();
+            return;
+          }
+
+          _putBlurCache(resolvedPath, blurred);
+          setState(() {
+            _blurredImage = blurred;
+            _setActivePath(resolvedPath);
+          });
+        } finally {
+          srcImage.dispose();
+        }
+      } finally {
+        // Native decode surface. With this, one blur pass holds at most one
+        // codec alive instead of one per song played.
+        codec.dispose();
       }
-
-      // 3. Draw with blur ImageFilter into a Picture, then rasterise.
-      //    picture.toImage() runs on Flutter's raster thread — non-blocking.
-      // Capture dimensions before disposal.
-      final int imgW = srcImage.width;
-      final int imgH = srcImage.height;
-
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.drawImage(
-        srcImage,
-        Offset.zero,
-        Paint()
-          ..imageFilter = ui.ImageFilter.blur(
-            sigmaX: _blurSigma,
-            sigmaY: _blurSigma,
-            tileMode: TileMode.clamp,
-          ),
-      );
-      final picture = recorder.endRecording();
-      srcImage.dispose();
-
-      final blurred = await picture.toImage(imgW, imgH);
-      picture.dispose();
-
-      if (!mounted || resolvedPath != _loadingPath) {
-        blurred.dispose();
-        _computing = false;
-        return;
-      }
-
-      _putBlurCache(resolvedPath, blurred);
-      setState(() {
-        _blurredImage = blurred;
-        _setActivePath(resolvedPath);
-      });
     } catch (e) {
       devLog('[AmbientBackground] blur failed: $e');
     } finally {

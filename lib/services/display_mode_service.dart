@@ -44,4 +44,19 @@ class DisplayModeService {
       devLog('Failed to set preferred mode: $e');
     }
   }
+
+  /// Applies a persisted refresh-rate preference (`'standard'`, `'adaptive'`,
+  /// or anything else = high). Single source of truth for the mapping, so the
+  /// screen wrapper, the tab-change guard and the lifecycle hook cannot drift.
+  Future<void> applyPreference(String mode) async {
+    switch (mode) {
+      case 'standard':
+        await setLowRefreshRate();
+      case 'adaptive':
+        // Adaptive leaves the platform alone (LTPO decides per content).
+        break;
+      default:
+        await setHighRefreshRate();
+    }
+  }
 }

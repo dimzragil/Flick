@@ -134,6 +134,53 @@ void main() {
   });
 
   testWidgets(
+    'TidalHubScreen only builds the feed sections near the viewport',
+    (tester) async {
+      final sections = [
+        for (var i = 0; i < 12; i++)
+          TidalHomeSection(
+            title: 'Carousel $i',
+            sectionType: 'HORIZONTAL_LIST',
+            items: [
+              TidalHomeItem(id: 'item-$i', title: 'Item $i', type: 'ALBUM'),
+            ],
+          ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentSongProvider.overrideWith((ref) => null),
+            tidalServerProvider.overrideWith(
+              () => _MockTidalServerNotifier(_serverWithToken()),
+            ),
+            tidalUserPlaylistsProvider.overrideWith((ref) async => []),
+            tidalHomeFeedProvider.overrideWith(
+              (ref, slug) async => TidalHomeFeed(sections: sections),
+            ),
+            tidalLikedSongsProvider.overrideWith((ref) async => []),
+          ],
+          child: const MaterialApp(home: TidalHubScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The first section is on screen…
+      expect(find.text('Carousel 0'), findsOneWidget);
+      // …while a section far below the fold is not inflated at all. The feed
+      // used to be one Column child of the ListView, which built every section.
+      expect(find.text('Carousel 11'), findsNothing);
+
+      await tester.scrollUntilVisible(
+        find.text('Carousel 11'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Carousel 11'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'TidalSearchScreen displays search bar and category filter chips',
     (tester) async {
       await tester.pumpWidget(

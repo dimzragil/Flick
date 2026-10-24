@@ -48,14 +48,7 @@ class _DisplayModeWrapperState extends ConsumerState<DisplayModeWrapper>
 
   Future<void> _applyRefreshRate() async {
     final mode = ref.read(appPreferencesProvider).refreshRateMode;
-    switch (mode) {
-      case 'standard':
-        await _displayModeService.setLowRefreshRate();
-      case 'adaptive':
-        break;
-      default:
-        await _displayModeService.setHighRefreshRate();
-    }
+    await _displayModeService.applyPreference(mode);
   }
 
   @override

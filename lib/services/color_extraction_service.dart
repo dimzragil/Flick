@@ -33,6 +33,11 @@ class ColorExtractionService {
     _cacheColor(imagePath, color);
   }
 
+  /// Test hook: receives the decoded image and its codec so a test can assert
+  /// both native GPU handles are released before extraction returns.
+  @visibleForTesting
+  void Function(ui.Image image, ui.Codec codec)? onNativeResourcesForTesting;
+
   void _cacheColor(String imagePath, Color color) {
     if (_colorCache.length >= _colorCacheMaxEntries) {
       _colorCache.remove(_colorCache.keys.first);
@@ -76,24 +81,40 @@ class ColorExtractionService {
         targetWidth: 32, // Sample at low resolution for speed
         targetHeight: 32,
       );
-      final ui.FrameInfo frameInfo = await codec.getNextFrame();
-      final ui.Image image = frameInfo.image;
+      try {
+        final ui.FrameInfo frameInfo = await codec.getNextFrame();
+        final ui.Image image = frameInfo.image;
+        try {
+          onNativeResourcesForTesting?.call(image, codec);
 
-      // Get pixel data
-      final ByteData? byteData = await image.toByteData(
-        format: ui.ImageByteFormat.rawRgba,
-      );
+          // Get pixel data
+          final ByteData? byteData = await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          );
 
-      if (byteData == null) {
-        return null;
+          if (byteData == null) {
+            return null;
+          }
+
+          final color = _calculateAverageColor(
+            byteData,
+            image.width,
+            image.height,
+          );
+
+          // Cache the result
+          _cacheColor(imagePath, color);
+
+          return color;
+        } finally {
+          // Native Skia/Impeller texture: released here instead of waiting for
+          // the Dart VM finalizer, which only runs under GC pressure (long
+          // sessions accumulated hundreds of 32x32 textures this way).
+          image.dispose();
+        }
+      } finally {
+        codec.dispose();
       }
-
-      final color = _calculateAverageColor(byteData, image.width, image.height);
-
-      // Cache the result
-      _cacheColor(imagePath, color);
-
-      return color;
     } catch (e) {
       devLog('ColorExtractionService: Failed to extract color: $e');
       return null;
