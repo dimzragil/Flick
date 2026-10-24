@@ -2167,4 +2167,104 @@ void main() {
       },
     );
   });
+
+  group('getTrackLyrics', () {
+    test('GETs /tracks/{id}/lyrics with auth and countryCode', () async {
+      late http.Request seen;
+      final client = MockClient((request) async {
+        seen = request;
+        return http.Response(
+          jsonEncode({
+            'trackId': 123,
+            'lyricsProvider': 'MUSIXMATCH',
+            'lyrics': 'Doh\nDoh-doh-doh',
+            'subtitles': '[00:00.04] Doh',
+            'isRightToLeft': false,
+          }),
+          200,
+        );
+      });
+      final service = TidalService.create(client: client);
+
+      final lyrics = await service.getTrackLyrics(
+        _server(token: _validToken()),
+        '123',
+      );
+
+      expect(seen.url.path, '/v1/tracks/123/lyrics');
+      expect(seen.url.queryParameters['countryCode'], isNotEmpty);
+      expect(seen.headers['Authorization'], 'Bearer acc-xyz');
+      expect(lyrics, isNotNull);
+      expect(lyrics!.lyricsProvider, 'MUSIXMATCH');
+      expect(lyrics.subtitles, '[00:00.04] Doh');
+    });
+
+    test(
+      'a 404 means "no lyrics" and returns null instead of throwing',
+      () async {
+        final client = MockClient(
+          (request) async => http.Response('{"error":"notFound"}', 404),
+        );
+        final service = TidalService.create(client: client);
+
+        expect(
+          await service.getTrackLyrics(_server(token: _validToken()), '404403'),
+          isNull,
+        );
+      },
+    );
+
+    test('a 403 (lyrics scope refused) also returns null', () async {
+      // The lyrics endpoint is known to refuse tokens that lack its scope; that
+      // must read as "no lyrics", not as a playback/auth failure.
+      final client = MockClient(
+        (request) async => http.Response('{"error":"forbidden"}', 403),
+      );
+      final service = TidalService.create(client: client);
+
+      expect(
+        await service.getTrackLyrics(_server(token: _validToken()), '403403'),
+        isNull,
+      );
+    });
+
+    test('an empty payload body returns null', () async {
+      final client = MockClient((request) async => http.Response('   ', 200));
+      final service = TidalService.create(client: client);
+
+      expect(
+        await service.getTrackLyrics(_server(token: _validToken()), 'empty'),
+        isNull,
+      );
+    });
+
+    test('a payload with no lyrics and no subtitles returns null', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({'trackId': 5, 'isRightToLeft': false}),
+          200,
+        ),
+      );
+      final service = TidalService.create(client: client);
+
+      expect(
+        await service.getTrackLyrics(_server(token: _validToken()), '5'),
+        isNull,
+      );
+    });
+
+    test('a server error is rethrown as a typed HTTP failure', () async {
+      final client = MockClient(
+        (request) async => http.Response('{"error":"boom"}', 503),
+      );
+      final service = TidalService.create(client: client);
+
+      await expectLater(
+        () => service.getTrackLyrics(_server(token: _validToken()), '503503'),
+        throwsA(
+          isA<TidalHttpException>().having((e) => e.statusCode, 'status', 503),
+        ),
+      );
+    });
+  });
 }

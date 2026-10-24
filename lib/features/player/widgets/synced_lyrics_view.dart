@@ -360,6 +360,10 @@ class _SyncedLyricsViewState extends ConsumerState<SyncedLyricsView> {
       {required bool karaokeEnabled}) {
     final line = widget.lyrics.lines[index];
     final isActive = index == _activeLineIndex;
+    final isRtl = widget.lyrics.isRightToLeft;
+    final textAlign = isRtl && alignment.textAlign != TextAlign.center
+        ? TextAlign.right
+        : alignment.textAlign;
 
     final content = isActive && karaokeEnabled
         ? Padding(
@@ -369,7 +373,7 @@ class _SyncedLyricsViewState extends ConsumerState<SyncedLyricsView> {
               lyricsService: widget.lyricsService,
               lyrics: widget.lyrics,
               lineIndex: index,
-              textAlign: alignment.textAlign,
+              textAlign: textAlign,
               style: _textStyle(true, 1),
               sungColor: _sungColor,
               unsungColor: Colors.white.withValues(alpha: 0.30),
@@ -383,7 +387,7 @@ class _SyncedLyricsViewState extends ConsumerState<SyncedLyricsView> {
               line.text,
               maxLines: 2,
               overflow: TextOverflow.fade,
-              textAlign: alignment.textAlign,
+              textAlign: textAlign,
               style: _textStyle(isActive, isActive ? 1 : _opacityForIndex(index)),
               strutStyle: _strutStyle(isActive),
             ),
@@ -399,7 +403,10 @@ class _SyncedLyricsViewState extends ConsumerState<SyncedLyricsView> {
           child: InkWell(
             borderRadius: BorderRadius.circular(22),
             onTap: () => unawaited(_seekToLine(index)),
-            child: content,
+            child: Directionality(
+              textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+              child: content,
+            ),
           ),
         ),
       ),

@@ -15,6 +15,7 @@ import 'package:isar_community/isar.dart';
 import '../../data/repositories/song_repository.dart';
 import '../../models/playback_context.dart';
 import '../../models/song.dart';
+import '../../models/sources/tidal_lyrics.dart';
 import '../../models/sources/tidal_models.dart';
 import '../library_scanner_service.dart' show ScanProgress;
 import '../network_cache_service.dart';
@@ -1171,7 +1172,7 @@ class TidalService implements NetworkSourceService {
       );
     }
     if (response.statusCode != 200) {
-      throw TidalException('HTTP ${response.statusCode} for $path');
+      throw TidalHttpException(response.statusCode, path);
     }
     return response.body;
   }
@@ -1657,6 +1658,41 @@ class TidalService implements NetworkSourceService {
     }
 
     return null;
+  }
+
+  // --- Lyrics -----------------------------------------------------------
+
+  /// Fetch lyrics for [trackId] from TIDAL.
+  ///
+  /// Endpoint: `GET /v1/tracks/{id}/lyrics` (community-documented; it is not
+  /// part of TIDAL's published API reference). It goes through [_apiGetRaw],
+  /// so it inherits the Bearer token, `countryCode`, throttling and the 429
+  /// retry. Lyrics are not playbackinfo, so no client-profile routing applies.
+  ///
+  /// A 404 means "this track has no lyrics" and returns null — it must never
+  /// surface as an error. 401/403 are treated the same way: the endpoint is
+  /// known to refuse tokens without the lyrics scope, and the caller falls
+  /// back to lrclib instead of showing a failure. Any other failure (5xx, 429,
+  /// timeout) is rethrown so the caller can decide.
+  Future<TidalLyrics?> getTrackLyrics(
+    NetworkServerEntity server,
+    String trackId,
+  ) async {
+    if (trackId.isEmpty) return null;
+    try {
+      final body = await _apiGetRaw(server, '/tracks/$trackId/lyrics');
+      if (body.trim().isEmpty) return null;
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return null;
+      final lyrics = TidalLyrics.fromJson(trackId, decoded);
+      return lyrics.isEmpty ? null : lyrics;
+    } on TidalHttpException catch (e) {
+      if (e.statusCode == 404 || e.statusCode == 401 || e.statusCode == 403) {
+        devLog('[Tidal] no lyrics for $trackId (HTTP ${e.statusCode})');
+        return null;
+      }
+      rethrow;
+    }
   }
 
   // --- Stream ----------------------------------------------------------
@@ -4349,6 +4385,19 @@ class TidalException implements Exception {
   TidalException(this.message, {this.verificationUri});
   @override
   String toString() => message;
+}
+
+/// A TIDAL request that reached the server and came back non-200.
+///
+/// Keeps [statusCode] so callers can distinguish "this track has no lyrics"
+/// (404) from a transport or entitlement failure without matching on the
+/// message text. Still a [TidalException], so every existing catch site keeps
+/// working unchanged.
+class TidalHttpException extends TidalException {
+  final int statusCode;
+
+  TidalHttpException(this.statusCode, String path)
+    : super('HTTP $statusCode for $path');
 }
 
 /// Thrown when TIDAL rate-limits us (HTTP 429) and all retries are exhausted.

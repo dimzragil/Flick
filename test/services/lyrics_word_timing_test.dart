@@ -32,6 +32,25 @@ void main() {
       expect(lyrics.lines.single.text, 'Just a line');
     });
 
+    test('TIDAL subtitles (line-level LRC) parse with words null', () {
+      final lyrics = service.parseLyricsText(
+        '[00:00.04] Doh\n[00:01.98] Doh-doh-doh, doh-doh-doh',
+        source: 'TIDAL',
+        isRightToLeft: true,
+      );
+
+      expect(lyrics.isSynchronized, isTrue);
+      expect(lyrics.source, 'TIDAL');
+      expect(lyrics.isRightToLeft, isTrue);
+      expect(lyrics.lines, hasLength(2));
+      expect(lyrics.lines.first.timestamp, const Duration(milliseconds: 40));
+      expect(lyrics.lines.first.text, 'Doh');
+      // Line-level LRC: the sweep is estimated from word length, never
+      // measured, so no word timings may be fabricated here.
+      expect(lyrics.lines.first.words, isNull);
+      expect(lyrics.lines[1].timestamp, const Duration(milliseconds: 1980));
+    });
+
     test('applies offset tag to word timestamps', () {
       final lyrics = service.parseLyricsText(
         '[offset:1000]\n[00:10.00]<00:10.00>Alpha <00:12.00>Beta',
@@ -96,10 +115,7 @@ void main() {
         LyricsService.fillForWord(word, const Duration(seconds: 11)),
         closeTo(0.5, 0.001),
       );
-      expect(
-        LyricsService.fillForWord(word, const Duration(minutes: 1)),
-        1.0,
-      );
+      expect(LyricsService.fillForWord(word, const Duration(minutes: 1)), 1.0);
     });
   });
 

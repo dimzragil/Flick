@@ -6,6 +6,7 @@ import 'package:fading_marquee_widget/fading_marquee_widget.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/lyrics_service.dart';
+import 'package:flick/services/lyrics_source_service.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -14,6 +15,7 @@ import 'package:flick/features/player/screens/lyrics_sync_screen.dart';
 import 'package:flick/features/player/widgets/online_lyrics_search_sheet.dart';
 import 'package:flick/features/player/widgets/synced_lyrics_view.dart';
 import 'package:flick/providers/app_preferences_provider.dart';
+
 class InlineLyricsPanel extends ConsumerStatefulWidget {
   final PlayerService playerService;
   final LyricsService lyricsService;
@@ -65,9 +67,13 @@ class _InlineLyricsPanelState extends ConsumerState<InlineLyricsPanel> {
       _lyricsData = null;
     });
 
-    final loaded = await widget.lyricsService.loadLyricsForSong(
+    // Local lyrics win; for TIDAL songs this falls through to TIDAL itself and
+    // then lrclib. Results are cached per track for the session, so reopening
+    // the panel does not refetch. forceRefresh only re-reads local files (an
+    // import or an edit just changed them).
+    final loaded = await LyricsSourceService.instance.loadForSong(
       song,
-      forceRefresh: true,
+      forceRefreshLocal: true,
     );
     final manualSource = await widget.lyricsService.getManualLyricsPathForSong(
       song,
@@ -336,19 +342,30 @@ class _InlineLyricsPanelState extends ConsumerState<InlineLyricsPanel> {
     final alignment = resolveLyricsAlignment(
       ref.watch(appPreferencesProvider).lyricsTextAlign,
     );
+    // Right-to-left lyrics keep the user's centre preference but otherwise
+    // align to the reading direction of the text itself.
+    final textAlign =
+        lyrics.isRightToLeft && alignment.textAlign != TextAlign.center
+        ? TextAlign.right
+        : alignment.textAlign;
     return SingleChildScrollView(
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
       child: SizedBox(
         width: double.infinity,
-        child: Text(
-          lyrics.lines.map((line) => line.text).join('\n'),
-          textAlign: alignment.textAlign,
-          style: TextStyle(
-            fontFamily: 'ProductSans',
-            fontSize: 18,
-            height: 1.9,
-            color: Colors.white.withValues(alpha: 0.92),
+        child: Directionality(
+          textDirection: lyrics.isRightToLeft
+              ? TextDirection.rtl
+              : TextDirection.ltr,
+          child: Text(
+            lyrics.lines.map((line) => line.text).join('\n'),
+            textAlign: textAlign,
+            style: TextStyle(
+              fontFamily: 'ProductSans',
+              fontSize: 18,
+              height: 1.9,
+              color: Colors.white.withValues(alpha: 0.92),
+            ),
           ),
         ),
       ),

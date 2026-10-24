@@ -44,11 +44,15 @@ class LyricsData {
   final String? source;
   final String rawContent;
 
+  /// Whether this text must be laid out right-to-left (Arabic, Hebrew, …).
+  final bool isRightToLeft;
+
   const LyricsData({
     required this.lines,
     required this.isSynchronized,
     this.source,
     required this.rawContent,
+    this.isRightToLeft = false,
   });
 }
 
@@ -422,8 +426,19 @@ class LyricsService {
     return words.isEmpty ? null : words;
   }
 
-  LyricsData parseLyricsText(String raw, {String? source}) {
-    return _parseLyrics(raw, source: source);
+  /// Parse raw lyrics text (LRC or plain) into [LyricsData] with the same
+  /// parser the local-file loader uses.
+  ///
+  /// Online sources (TIDAL subtitles, lrclib) go through this so they produce
+  /// exactly the shape the player already renders: one parser, one set of
+  /// timestamp rules, one place where enhanced-LRC word timings are
+  /// recognised.
+  LyricsData parseLyricsText(
+    String raw, {
+    String? source,
+    bool isRightToLeft = false,
+  }) {
+    return _parseLyrics(raw, source: source, isRightToLeft: isRightToLeft);
   }
 
   Duration? parseTimestamp(String timestamp) {
@@ -612,10 +627,10 @@ class LyricsService {
     }
   }
 
-  LyricsData _parseLyrics(String raw, {String? source}) {
+  LyricsData _parseLyrics(String raw, {String? source, bool isRightToLeft = false}) {
     final trimmed = raw.trim();
     if (trimmed.startsWith('<?xml') || trimmed.startsWith('<')) {
-      final xmlData = _parseXmlLyrics(trimmed, source: source);
+      final xmlData = _parseXmlLyrics(trimmed, source: source, isRightToLeft: isRightToLeft);
       if (xmlData != null) return xmlData;
     }
 
@@ -684,6 +699,7 @@ class LyricsService {
         isSynchronized: true,
         source: source,
         rawContent: raw,
+        isRightToLeft: isRightToLeft,
       );
     }
 
@@ -692,10 +708,11 @@ class LyricsService {
       isSynchronized: false,
       source: source,
       rawContent: raw,
+      isRightToLeft: isRightToLeft,
     );
   }
 
-  LyricsData? _parseXmlLyrics(String xml, {String? source}) {
+  LyricsData? _parseXmlLyrics(String xml, {String? source, bool isRightToLeft = false}) {
     try {
       final linePattern = RegExp(
         r'<line\s+start="(\d+)"\s*>([^<]*)</line>',
@@ -739,6 +756,7 @@ class LyricsService {
           isSynchronized: hasTimestamps,
           source: source,
           rawContent: xml,
+          isRightToLeft: isRightToLeft,
         );
       }
     } catch (_) {
