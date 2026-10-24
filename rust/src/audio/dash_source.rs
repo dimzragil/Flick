@@ -145,8 +145,6 @@ struct DashShared {
     /// Permanent cache of the initialization segment (index 0).
     /// Kept forever so decoder seeks/probes can always read ftyp and moov.
     init_bytes: Option<Vec<u8>>,
-    /// Set true once the demuxer probe read has started.
-    probe_completed: bool,
 }
 
 impl DashShared {
@@ -159,6 +157,7 @@ impl DashShared {
 pub struct DashMediaSource {
     pair: Arc<(Mutex<DashShared>, Condvar)>,
     stop: Arc<AtomicBool>,
+    probe_active: Arc<AtomicBool>,
 }
 
 impl DashMediaSource {
@@ -181,11 +180,11 @@ impl DashMediaSource {
                 generation: 0,
                 skipped_segments: 0,
                 init_bytes: None,
-                probe_completed: false,
             }),
             Condvar::new(),
         ));
         let stop = Arc::new(AtomicBool::new(false));
+        let probe_active = Arc::new(AtomicBool::new(true));
 
         let worker_pair = Arc::clone(&pair);
         let worker_stop = Arc::clone(&stop);
@@ -194,7 +193,22 @@ impl DashMediaSource {
             .spawn(move || dash_worker(worker_pair, worker_stop))
             .map_err(|e| format!("failed to spawn dash-prefetch thread: {}", e))?;
 
-        Ok(Self { pair, stop })
+        Ok(Self {
+            pair,
+            stop,
+            probe_active,
+        })
+    }
+
+    /// Obtain a shared handle to the probe state flag so callers (e.g. `probe_http`)
+    /// can transition the stream to fully seekable once Symphonia demuxer probing ends.
+    pub fn probe_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.probe_active)
+    }
+
+    /// Mark demuxer probing as finished, enabling seekability for sample reads.
+    pub fn finish_probe(&self) {
+        self.probe_active.store(false, Ordering::Release);
     }
 }
 
@@ -346,7 +360,6 @@ impl Read for DashMediaSource {
         }
         let (lock, cvar) = &*self.pair;
         let mut g = lock.lock().unwrap();
-        g.probe_completed = true;
 
         loop {
             if let Some(total) = g.total {
@@ -481,13 +494,19 @@ impl DashShared {
 
 impl MediaSource for DashMediaSource {
     fn is_seekable(&self) -> bool {
-        let g = self.pair.0.lock().unwrap();
-        // During the initial demuxer probe (try_new), isomp4 requires byte_len()
-        // when is_seekable() is true, and scans to EOF if seekable. Reporting
-        // false initially lets isomp4 recognize it as a progressive fragmented MP4 stream.
-        // Once probe has started reading atoms (probe_completed == true), or once total length
-        // is known, report true so sample seeking within media fragments succeeds.
-        g.probe_completed || g.total.is_some()
+        if self.probe_active.load(Ordering::Acquire) {
+            // While probing with Symphonia's isomp4 demuxer (IsoMp4Reader::try_new), isomp4
+            // asserts `mss.byte_len().ok_or(SeekErrorKind::Unseekable)` if is_seekable() is true,
+            // and attempts to scan to EOF.
+            // Returning false (unless all segments are already drained and total length is known)
+            // allows isomp4 to recognize progressive fragmented MP4 without failing on missing byte_len.
+            let g = self.pair.0.lock().unwrap();
+            g.total.is_some()
+        } else {
+            // Once demuxer probe is finished, DashMediaSource is fully seekable: sample offsets
+            // within media fragments can seek backwards or forward via DashMediaSource::seek().
+            true
+        }
     }
 
     fn byte_len(&self) -> Option<u64> {
@@ -741,6 +760,7 @@ mod tests {
         let n = src.read(&mut first).unwrap();
         assert_eq!(n, 4);
         assert_eq!(&first, INIT);
+        src.finish_probe();
         assert!(src.is_seekable());
 
         // Seek forward past the buffer

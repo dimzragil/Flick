@@ -750,7 +750,8 @@ class TidalService implements NetworkSourceService {
     }
 
     try {
-      final future = _doRefreshForProfile(server, profile);
+      final future = _doRefreshForProfile(server, profile)
+          .timeout(const Duration(seconds: 5));
       _profileRefreshInFlight[inFlightKey] = future;
       final refreshed = await future;
       profileMap[profile] = refreshed;

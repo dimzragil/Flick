@@ -5893,7 +5893,9 @@ class PlayerService {
         // Sync format from resolved stream info for network sources (0ms, no full download needed)
         if (song.isNetworkSource) {
           try {
-            await RemoteSourceService.instance.resolveHttpPlayback(song);
+            await RemoteSourceService.instance
+                .resolveHttpPlayback(song)
+                .timeout(const Duration(seconds: 5));
           } catch (e) {
             // Non-fatal: fall back to the song's existing metadata.
             _debugLog('[PlayerService] resolveHttpPlayback failed: $e');

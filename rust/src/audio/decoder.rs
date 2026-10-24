@@ -151,19 +151,27 @@ pub fn probe_http(
         hint.with_extension(&hint_ext);
     }
 
-    let source: Box<dyn MediaSource> = if dash_source::is_dash_descriptor(url) {
-        Box::new(
-            DashMediaSource::from_headers(&headers)
-                .map_err(DecoderError::UnsupportedFormat)?,
-        )
-    } else {
-        Box::new(PrefetchingMediaSource::new(url.to_string(), headers.clone()))
-    };
+    let (source, dash_probe_handle): (Box<dyn MediaSource>, Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) =
+        if dash_source::is_dash_descriptor(url) {
+            let dash_src = DashMediaSource::from_headers(&headers)
+                .map_err(DecoderError::UnsupportedFormat)?;
+            let handle = dash_src.probe_handle();
+            (Box::new(dash_src), Some(handle))
+        } else {
+            (
+                Box::new(PrefetchingMediaSource::new(url.to_string(), headers.clone())),
+                None,
+            )
+        };
     let mss = MediaSourceStream::new(source, Default::default());
 
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &format_opts, &metadata_opts)
         .map_err(|e| DecoderError::UnsupportedFormat(format!("HTTP probe failed: {}", e)))?;
+
+    if let Some(probe_handle) = dash_probe_handle {
+        probe_handle.store(false, std::sync::atomic::Ordering::Release);
+    }
 
     let mut result = build_probe_result(probed, PathBuf::from(url_label(url)))?;
     apply_header_sample_rate(&mut result.source_info, &headers);
