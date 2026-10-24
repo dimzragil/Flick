@@ -198,12 +198,15 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     return null;
   }
 
-  /// Builds the avatar CDN url for a cover uuid, mapping empty and
-  /// nil/placeholder uuids (which [TidalService.coverUrl] rejects) to null so
-  /// the placeholder shows instead of a doomed image request.
+  /// Builds the avatar CDN url for an artist picture or fallback cover uuid,
+  /// mapping empty and nil/placeholder uuids (which [TidalService.coverUrl] rejects)
+  /// to null so the placeholder shows instead of a doomed image request.
+  ///
+  /// Uses [TidalService.artistPictureUrl] to ensure supported CDN dimensions
+  /// (320x320) are requested; 640x640 returns HTTP 403 on TIDAL CDN.
   static String? _avatarUrl(String? coverUuid) {
     if (coverUuid == null || coverUuid.isEmpty) return null;
-    final url = TidalService.coverUrl(coverUuid, size: 640);
+    final url = TidalService.artistPictureUrl(coverUuid, size: 320);
     return url.isEmpty ? null : url;
   }
 
@@ -380,6 +383,9 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                                     imagePath: pictureUrl,
                                     width: avatarSize,
                                     height: avatarSize,
+                                    useThumbnail: true,
+                                    thumbnailWidth: 320,
+                                    thumbnailHeight: 320,
                                     fit: BoxFit.cover,
                                     placeholder:
                                         const FlickArtworkPlaceholder(),
@@ -684,6 +690,9 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
             ),
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
+            // Perf: bound cacheExtent to limit offscreen image decodes during scroll.
+            // ignore: deprecated_member_use
+            cacheExtent: 100,
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, index) => StaggeredEntrance(
@@ -710,8 +719,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
   ) {
     final title = album['title'] as String? ?? 'Unknown Album';
     final coverUuid = album['cover'] as String?;
+    // Perf: 320px is retina-sharp for ~140px cards and drops bandwidth/decode
+    // CPU by ~75% compared to 640px.
     final coverUrl = coverUuid != null
-        ? TidalService.coverUrl(coverUuid, size: 640)
+        ? TidalService.coverUrl(coverUuid, size: 320)
         : null;
     final releaseDate = album['releaseDate'] as String?;
     final year = releaseDate != null && releaseDate.length >= 4
@@ -721,8 +732,8 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     final mediaMeta = album['mediaMetadata'] as Map<String, dynamic>?;
     final tags =
         (mediaMeta?['tags'] as List<dynamic>?)?.cast<String>() ?? const [];
-    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
-        tags.contains('HIRES_LOSSLESS_MQA');
+    final isHiRes =
+        tags.contains('HIRES_LOSSLESS') || tags.contains('HIRES_LOSSLESS_MQA');
     final isLossless =
         tags.contains('LOSSLESS') || album['audioQuality'] == 'LOSSLESS';
 
@@ -740,6 +751,11 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                 child: coverUrl != null
                     ? CachedImageWidget(
                         imagePath: coverUrl,
+                        width: size,
+                        height: size,
+                        useThumbnail: true,
+                        thumbnailWidth: 320,
+                        thumbnailHeight: 320,
                         fit: BoxFit.cover,
                         placeholder: const FlickArtworkPlaceholder(),
                         errorWidget: const FlickArtworkPlaceholder(),

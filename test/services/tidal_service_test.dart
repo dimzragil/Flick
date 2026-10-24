@@ -169,6 +169,34 @@ void main() {
     });
   });
 
+  group('artistPictureUrl', () {
+    test('maps requested size to supported CDN dimensions avoiding 640x640 403', () {
+      const uuid = '04d63cd8-a1a5-42e0-b1ec-8e336b7d9200';
+      expect(
+        TidalService.artistPictureUrl(uuid, size: 160),
+        'https://resources.tidal.com/images/04d63cd8/a1a5/42e0/b1ec/8e336b7d9200/160x160.jpg',
+      );
+      expect(
+        TidalService.artistPictureUrl(uuid, size: 320),
+        'https://resources.tidal.com/images/04d63cd8/a1a5/42e0/b1ec/8e336b7d9200/320x320.jpg',
+      );
+      // Sizes above 320 (such as 640) safely map to 750 rather than doomed 640:
+      expect(
+        TidalService.artistPictureUrl(uuid, size: 640),
+        'https://resources.tidal.com/images/04d63cd8/a1a5/42e0/b1ec/8e336b7d9200/750x750.jpg',
+      );
+      expect(
+        TidalService.artistPictureUrl(uuid, size: 750),
+        'https://resources.tidal.com/images/04d63cd8/a1a5/42e0/b1ec/8e336b7d9200/750x750.jpg',
+      );
+    });
+
+    test('returns empty for invalid or empty UUID', () {
+      expect(TidalService.artistPictureUrl(''), '');
+      expect(TidalService.artistPictureUrl('ab'), '');
+    });
+  });
+
   group('extractPlaylistCover', () {
     test('extracts direct cover UUID', () {
       final pl = {'cover': '1bce0bf4-a3b9-4c0a-9f2e-1234567890ab'};

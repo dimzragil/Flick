@@ -751,8 +751,10 @@ class TidalService implements NetworkSourceService {
     }
 
     try {
-      final future = _doRefreshForProfile(server, profile)
-          .timeout(const Duration(seconds: 5));
+      final future = _doRefreshForProfile(
+        server,
+        profile,
+      ).timeout(const Duration(seconds: 5));
       _profileRefreshInFlight[inFlightKey] = future;
       final refreshed = await future;
       profileMap[profile] = refreshed;
@@ -1486,6 +1488,27 @@ class TidalService implements NetworkSourceService {
       path = coverUuid.replaceAll('-', '/');
     }
     return '$_coverHost/$path/${size}x$size.jpg';
+  }
+
+  /// Build a `resources.tidal.com` image URL for an artist profile picture.
+  ///
+  /// Supported square resolutions on TIDAL CDN for artist pictures are
+  /// 160x160, 320x320, and 750x750.
+  ///
+  /// Note: 640x640 is NOT generated on TIDAL's CDN for artist pictures and
+  /// returns HTTP 403 Forbidden. This helper maps requested sizes to supported
+  /// resolutions (defaulting to 320 for 140dp-160dp avatars).
+  static String artistPictureUrl(String pictureUuid, {int size = 320}) {
+    if (pictureUuid.isEmpty) return '';
+    final int effectiveSize;
+    if (size <= 160) {
+      effectiveSize = 160;
+    } else if (size <= 320) {
+      effectiveSize = 320;
+    } else {
+      effectiveSize = 750;
+    }
+    return coverUrl(pictureUuid, size: effectiveSize);
   }
 
   /// Upgrade a TIDAL cover URL to a larger size (e.g. 640 → 1280).

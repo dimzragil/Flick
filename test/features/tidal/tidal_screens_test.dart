@@ -704,7 +704,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final fallbackUrl = TidalService.coverUrl('fb-uuid', size: 640);
+      final fallbackUrl = TidalService.artistPictureUrl('fb-uuid', size: 320);
       expect(fallbackUrl, isNotEmpty);
       // The avatar is the only CachedImageWidget inside the ClipOval.
       final avatar = find.descendant(
@@ -756,7 +756,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final albumCoverUrl = TidalService.coverUrl('abc-cover', size: 640);
+      final albumCoverUrl = TidalService.artistPictureUrl('abc-cover', size: 320);
       expect(albumCoverUrl, isNotEmpty);
       final avatar = find.descendant(
         of: find.byType(ClipOval),
