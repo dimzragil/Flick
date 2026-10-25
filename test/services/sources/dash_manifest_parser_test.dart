@@ -100,6 +100,48 @@ void main() {
       },
     );
 
+    test(
+      'when allowDolbyAtmos is false, filters out ec-3 representation and selects stereo representation',
+      () {
+        const xml = '''<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">
+  <Period>
+    <AdaptationSet mimeType="audio/mp4">
+      <Representation id="atmos_rep" codecs="ec-3" audioSamplingRate="48000" bandwidth="448000">
+        <SegmentTemplate initialization="http://example.com/atmos_init.mp4" media="http://example.com/atmos_\$Number\$.mp4">
+          <SegmentTimeline><S d="1000" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+      <Representation id="stereo_flac" codecs="flac" audioSamplingRate="44100" bandwidth="900000">
+        <SegmentTemplate initialization="http://example.com/stereo_init.mp4" media="http://example.com/stereo_\$Number\$.mp4">
+          <SegmentTimeline><S d="1000" /></SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''';
+
+        // When allowDolbyAtmos is true, ec-3 Atmos representation is allowed:
+        final atmosInfo = DashManifestParser.parse(xml, allowDolbyAtmos: true);
+        expect(atmosInfo, isNotNull);
+        expect(atmosInfo!.codec, 'ec-3');
+        expect(atmosInfo.sampleRate, 48000);
+
+        // When allowDolbyAtmos is false, ec-3 representation is skipped and stereo flac is picked:
+        final stereoInfo = DashManifestParser.parse(xml, allowDolbyAtmos: false);
+        expect(stereoInfo, isNotNull);
+        expect(stereoInfo!.codec, 'flac');
+        expect(stereoInfo.sampleRate, 44100);
+        expect(stereoInfo.initializationUrl, 'http://example.com/stereo_init.mp4');
+
+        // stripToSingleRepresentation with allowDolbyAtmos: false selects stereo representation
+        final stripped = DashManifestParser.stripToSingleRepresentation(xml, allowDolbyAtmos: false);
+        expect(stripped, isNotNull);
+        expect(stripped, contains('id="stereo_flac"'));
+        expect(stripped, isNot(contains('id="atmos_rep"')));
+      },
+    );
+
     test('handles malformed XML gracefully', () {
       expect(DashManifestParser.parse('not xml'), isNull);
       expect(DashManifestParser.parse('<MPD></MPD>'), isNull);

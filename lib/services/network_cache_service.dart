@@ -69,6 +69,31 @@ class NetworkCacheService {
     return file.path;
   }
 
+  /// Delete a specific cached file for (remoteServerId, remoteId, [extension]).
+  Future<void> evictFile(
+    int remoteServerId,
+    String remoteId, {
+    String? extension,
+  }) async {
+    try {
+      final serverDir = Directory(
+        p.join((await _root()).path, '$remoteServerId'),
+      );
+      if (!await serverDir.exists()) return;
+
+      final hash = _hash(remoteServerId, remoteId);
+      final fileName = extension != null
+          ? '$hash.$extension'
+          : await _findByHash(serverDir, hash);
+      if (fileName == null) return;
+
+      final file = File(p.join(serverDir.path, fileName));
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
+  }
+
   /// Write [bytes] to the cache and evict oldest entries if over the cap.
   /// Returns the cached file path.
   Future<String> stash(

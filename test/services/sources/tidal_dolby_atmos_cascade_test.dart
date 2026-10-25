@@ -361,5 +361,119 @@ void main() {
       expect(resolved.bitDepth, 16);
       expect(resolved.audioQuality, 'LOSSLESS');
     });
+
+    test('query parameters: audioMode=STEREO & immersiveaudio=false sent on stereo cascade, audioMode=DOLBY_ATMOS & immersiveaudio=true on Atmos cascade', () async {
+      final capturedQueries = <Map<String, String>>[];
+      final client = MockClient((request) async {
+        if (request.url.path.contains('/playbackinfopostpaywall')) {
+          capturedQueries.add(Map<String, String>.from(request.url.queryParameters));
+          final tier = request.url.queryParameters['audioquality'];
+          if (tier == 'DOLBY_ATMOS') {
+            return http.Response(
+              jsonEncode({
+                'manifest': _atmosBtsManifest(),
+                'manifestMimeType': 'application/vnd.tidal.bts',
+                'audioQuality': 'DOLBY_ATMOS',
+                'codec': 'ec-3',
+              }),
+              200,
+            );
+          }
+          if (tier == 'LOSSLESS') {
+            return http.Response(
+              jsonEncode({
+                'manifest': _stereoLosslessBtsManifest(),
+                'manifestMimeType': 'application/vnd.tidal.bts',
+                'audioQuality': 'LOSSLESS',
+                'codec': 'flac',
+                'sampleRate': 44100,
+                'bitDepth': 16,
+              }),
+              200,
+            );
+          }
+        }
+        return http.Response('{"error": "Not found"}', 404);
+      });
+
+      final service = TidalService.create(client: client, networkCache: cache);
+      final server = _server(token: _validToken());
+
+      // 1. When allowDolbyAtmos is true: DOLBY_ATMOS query has audioMode=DOLBY_ATMOS and immersiveaudio=true
+      await service.streamDescriptor(server, 'track-atmos-check', allowDolbyAtmos: true);
+      expect(capturedQueries.first['audioMode'], 'DOLBY_ATMOS');
+      expect(capturedQueries.first['immersiveaudio'], 'true');
+
+      capturedQueries.clear();
+
+      // 2. When allowDolbyAtmos is false (Bit-Perfect USB DAC or Atmos disabled):
+      // Queries MUST specify audioMode=STEREO and immersiveaudio=false so TIDAL returns stereo
+      await service.streamDescriptor(server, 'track-stereo-check', allowDolbyAtmos: false);
+      for (final query in capturedQueries) {
+        expect(query['audioMode'], 'STEREO');
+        expect(query['immersiveaudio'], 'false');
+      }
+    });
+
+    test('tuki reference tracks (bansanka, jigokukoibumi, HYURURIRAPAPPA) catalog-hinted to LOSSLESS resolve immediately to Stereo FLAC with audioMode=STEREO', () async {
+      final tracks = ['426577366', '426577909', '426578035'];
+      for (final trackId in tracks) {
+        final capturedQueries = <Map<String, String>>[];
+        final client = MockClient((request) async {
+          if (request.url.path.contains('/playbackinfopostpaywall')) {
+            capturedQueries.add(Map<String, String>.from(request.url.queryParameters));
+            final tier = request.url.queryParameters['audioquality'];
+            if (tier == 'LOSSLESS') {
+              return http.Response(
+                jsonEncode({
+                  'manifest': _stereoLosslessBtsManifest(),
+                  'manifestMimeType': 'application/vnd.tidal.bts',
+                  'audioQuality': 'LOSSLESS',
+                  'codec': 'flac',
+                  'sampleRate': 44100,
+                  'bitDepth': 16,
+                }),
+                200,
+              );
+            }
+          }
+          return http.Response('{"error": "Not found"}', 404);
+        });
+
+        final service = TidalService.create(client: client, networkCache: cache);
+        final server = _server(token: _validToken());
+
+        // Simulate catalog sync having recorded the track's metadata (tags: LOSSLESS, audioModes: STEREO, DOLBY_ATMOS)
+        TidalService.makeEphemeralSong(server, {
+          'id': int.parse(trackId),
+          'title': 'tuki track $trackId',
+          'audioQuality': 'LOSSLESS',
+          'audioModes': ['STEREO', 'DOLBY_ATMOS'],
+          'mediaMetadata': {
+            'tags': ['LOSSLESS', 'DOLBY_ATMOS'],
+          },
+        });
+
+        // Bit-Perfect USB DAC Mode or non-Atmos speaker -> allowDolbyAtmos: false
+        final desc = await service.streamDescriptor(
+          server,
+          trackId,
+          allowDolbyAtmos: false,
+        );
+
+        expect(desc, isNotNull);
+        expect(capturedQueries.length, 1, reason: 'Starts cascade directly at hinted tier (LOSSLESS) in 1 API call');
+        expect(capturedQueries.first['audioquality'], 'LOSSLESS');
+        expect(capturedQueries.first['audioMode'], 'STEREO');
+        expect(capturedQueries.first['immersiveaudio'], 'false');
+
+        final resolved = service.getResolvedStream(trackId);
+        expect(resolved, isNotNull);
+        expect(resolved!.isDolbyAtmos, isFalse);
+        expect(resolved.codec, 'flac');
+        expect(resolved.sampleRate, 44100);
+        expect(resolved.bitDepth, 16);
+      }
+    });
   });
 }

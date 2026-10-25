@@ -403,6 +403,15 @@ class TidalService implements NetworkSourceService {
       unawaited(_dashManifests.evict(trackId));
       return null;
     }
+    // Dolby Atmos mode enabled (allowDolbyAtmos == true):
+    // If track has Atmos tag but cached stream is Stereo, re-resolve to Atmos.
+    if (allowDolbyAtmos == true &&
+        (_hasAtmosTagByTrackId[trackId] ?? false) &&
+        !cached.isDolbyAtmos) {
+      _resolvedStreams.remove(trackId);
+      unawaited(_dashManifests.evict(trackId));
+      return null;
+    }
 
     final resolvedAt = cached.resolvedAt;
     if (resolvedAt == null) return null;
@@ -1770,6 +1779,7 @@ class TidalService implements NetworkSourceService {
     if (!allowDolbyAtmos && _resolvedStreams[remoteId]?.isDolbyAtmos == true) {
       _resolvedStreams.remove(remoteId);
       unawaited(_dashManifests.evict(remoteId));
+      unawaited(_cache.evictFile(server.id, remoteId, extension: 'mp4'));
     }
 
     final extHint = (!allowDolbyAtmos &&
@@ -1856,6 +1866,8 @@ class TidalService implements NetworkSourceService {
     }
     final stripped = DashManifestParser.stripToSingleRepresentation(
       dashInfo.manifestXml,
+      targetRepresentationId: dashInfo.representationId,
+      allowDolbyAtmos: resolved.isDolbyAtmos,
     );
     if (stripped == null) {
       throw TidalException(
@@ -1951,6 +1963,7 @@ class TidalService implements NetworkSourceService {
     if (_resolvedStreams[remoteId]?.isDolbyAtmos == true) {
       _resolvedStreams.remove(remoteId);
       unawaited(_dashManifests.evict(remoteId));
+      unawaited(_cache.evictFile(server.id, remoteId, extension: 'mp4'));
     }
     final cached = await _cache.getPath(
       server.id,
@@ -2308,14 +2321,23 @@ class TidalService implements NetworkSourceService {
           : TidalClientProfile.lossless;
 
       try {
+        final query = <String, String>{
+          'playbackmode': 'STREAM',
+          'assetpresentation': 'FULL',
+          'audioquality': tier,
+          if (canAttemptAtmos && tier == 'DOLBY_ATMOS') ...{
+            'audioMode': 'DOLBY_ATMOS',
+            'immersiveaudio': 'true',
+          } else ...{
+            'audioMode': 'STEREO',
+            'immersiveaudio': 'false',
+          },
+        };
+
         final info = await _apiGet(
           server,
           '/tracks/$trackId/playbackinfopostpaywall',
-          query: {
-            'playbackmode': 'STREAM',
-            'assetpresentation': 'FULL',
-            'audioquality': tier,
-          },
+          query: query,
           // Only the resolution call gets the short budget: a hung tier is
           // abandoned in 8s instead of 20s, and segment downloads keep their
           // longer timeouts.
@@ -2335,7 +2357,10 @@ class TidalService implements NetworkSourceService {
         // 1. DASH manifest (Hi-Res Lossless fMP4 FLAC or Dolby Atmos EAC3-JOC)
         if (mime == 'application/dash+xml') {
           final manifestXml = utf8.decode(base64Decode(manifest));
-          final dashInfo = DashManifestParser.parse(manifestXml);
+          final dashInfo = DashManifestParser.parse(
+            manifestXml,
+            allowDolbyAtmos: allowDolbyAtmos,
+          );
           if (dashInfo != null && dashInfo.segmentUrls.isNotEmpty) {
             final effectiveBandwidth = dashInfo.bandwidth != null
                 ? (dashInfo.bandwidth! / 1000).round()

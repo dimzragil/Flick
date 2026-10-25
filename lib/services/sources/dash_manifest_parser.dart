@@ -48,7 +48,10 @@ class DashManifestParser {
 
   /// Parse raw MPD XML string into a playable [DashTrackInfo].
   /// Returns null if the XML is malformed or lacks required audio elements.
-  static DashTrackInfo? parse(String xmlContent) {
+  static DashTrackInfo? parse(
+    String xmlContent, {
+    bool allowDolbyAtmos = true,
+  }) {
     try {
       final doc = XmlDocument.parse(xmlContent);
       final mpd = doc.getElement('MPD');
@@ -71,7 +74,22 @@ class DashManifestParser {
       if (audioAdaptation == null) return null;
 
       // Find Representations
-      final representations = audioAdaptation.findAllElements('Representation').toList();
+      final allReps =
+          audioAdaptation.findAllElements('Representation').toList();
+      if (allReps.isEmpty) return null;
+
+      final representations = !allowDolbyAtmos
+          ? allReps.where((rep) {
+              final codec = (rep.getAttribute('codecs') ??
+                      audioAdaptation?.getAttribute('codecs') ??
+                      '')
+                  .toLowerCase();
+              return !codec.contains('ec-3') &&
+                  !codec.contains('eac3') &&
+                  !codec.contains('atmos');
+            }).toList()
+          : allReps;
+
       if (representations.isEmpty) return null;
 
       // Sort representations to pick highest quality (audioSamplingRate, then bandwidth)
@@ -196,7 +214,11 @@ class DashManifestParser {
   ///
   /// Returns null when the manifest cannot be parsed or has no audio
   /// Representation.
-  static String? stripToSingleRepresentation(String xmlContent) {
+  static String? stripToSingleRepresentation(
+    String xmlContent, {
+    String? targetRepresentationId,
+    bool allowDolbyAtmos = true,
+  }) {
     try {
       final doc = XmlDocument.parse(xmlContent);
       if (doc.getElement('MPD') == null) return null;
@@ -215,7 +237,26 @@ class DashManifestParser {
       }
       audioAdaptation ??= adaptationSets.first;
 
-      final candidates = audioAdaptation.findAllElements('Representation').toList();
+      final allCandidates =
+          audioAdaptation.findAllElements('Representation').toList();
+      if (allCandidates.isEmpty) return null;
+
+      final candidates = targetRepresentationId != null
+          ? allCandidates
+              .where((r) => r.getAttribute('id') == targetRepresentationId)
+              .toList()
+          : (!allowDolbyAtmos
+              ? allCandidates.where((rep) {
+                  final codec = (rep.getAttribute('codecs') ??
+                          audioAdaptation?.getAttribute('codecs') ??
+                          '')
+                      .toLowerCase();
+                  return !codec.contains('ec-3') &&
+                      !codec.contains('eac3') &&
+                      !codec.contains('atmos');
+                }).toList()
+              : allCandidates);
+
       if (candidates.isEmpty) return null;
       candidates.sort(_highestQualityFirst);
       final chosen = candidates.first;
