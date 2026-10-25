@@ -267,6 +267,37 @@ void main() {
     },
   );
 
+  testWidgets('TidalHubScreen vertical feed keeps a 1000px cache lookahead', (
+    tester,
+  ) async {
+    // Pins the Option A scroll-jank fix: the default 250px cache covered
+    // barely one ~253px carousel section, so every section entry paid a
+    // remount + cover decode on a scroll frame.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalUserPlaylistsProvider.overrideWith((ref) async => []),
+          tidalHomeFeedProvider.overrideWith(
+            (ref, slug) async => TidalHomeFeed(sections: []),
+          ),
+          tidalLikedSongsProvider.overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: TidalHubScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final feedList = tester.widget<ListView>(
+      find.byKey(const PageStorageKey<String>('tidal-hub-feed')),
+    );
+    // ignore: deprecated_member_use
+    expect(feedList.cacheExtent, 1000.0);
+  });
+
   testWidgets(
     'TidalSearchScreen displays search bar and category filter chips',
     (tester) async {

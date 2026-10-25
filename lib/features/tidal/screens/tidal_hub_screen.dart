@@ -924,6 +924,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       // Keeps the scroll offset across the loading/data swap below (and across
       // a vibes-tab switch), like the single stable ListView this replaced.
       key: const PageStorageKey<String>('tidal-hub-feed'),
+      // Scroll-jank fix (Option A from the hub scroll diagnosis): the
+      // default 250px cache covered barely one ~253px carousel section, so
+      // every section entry paid a remount + cover decode on a scroll frame.
+      // 1000px keeps ~4 sections inflated ahead, giving decode lead time.
+      // Trade-off: a few more live sections/memory, still far below the
+      // pre-virtualization whole-feed footprint.
+      // ignore: deprecated_member_use
+      cacheExtent: 1000,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
       children: [
