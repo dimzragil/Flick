@@ -450,6 +450,7 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen>
                         title: song.title,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
+                        isHiRes: isHiRes,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -469,7 +470,6 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen>
                               ),
                             ),
                           ),
-                          if (isHiRes) const HiResBadge(),
                         ],
                       ),
                       trailing: IconButton(

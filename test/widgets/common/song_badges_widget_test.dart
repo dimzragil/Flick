@@ -14,6 +14,7 @@ void main() {
               title: 'Clean Stereo Song',
               isExplicit: null,
               isAtmos: false,
+              isHiRes: null,
             ),
           ),
         ),
@@ -22,6 +23,7 @@ void main() {
       expect(find.text('Clean Stereo Song'), findsOneWidget);
       expect(find.byType(ExplicitBadge), findsNothing);
       expect(find.byType(DolbyAtmosIcon), findsNothing);
+      expect(find.byType(HiResBadge), findsNothing);
     });
 
     testWidgets(
@@ -125,6 +127,43 @@ void main() {
       expect(atmosTopRight.dx, lessThanOrEqualTo(250.0));
       expect(explicitTopRight.dx, lessThanOrEqualTo(250.0));
     });
+  });
+
+  testWidgets('renders Hi-Res alone when isHiRes is true', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SongTitleRow(title: 'Hi-Res Track', isHiRes: true),
+        ),
+      ),
+    );
+
+    expect(find.byType(HiResBadge), findsOneWidget);
+    expect(find.byType(DolbyAtmosIcon), findsNothing);
+    expect(find.byType(ExplicitBadge), findsNothing);
+  });
+
+  testWidgets('renders Atmos, Hi-Res, and Explicit in order with 4px gaps', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SongTitleRow(
+            title: 'All Badges',
+            isAtmos: true,
+            isHiRes: true,
+            isExplicit: true,
+          ),
+        ),
+      ),
+    );
+
+    final atmos = tester.getRect(find.byType(DolbyAtmosIcon));
+    final hiRes = tester.getRect(find.byType(HiResBadge));
+    final explicit = tester.getRect(find.byType(ExplicitBadge));
+    expect(hiRes.left - atmos.right, closeTo(4, 0.1));
+    expect(explicit.left - hiRes.right, closeTo(4, 0.1));
   });
 
   group('HiResBadge widget tests', () {

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 
-/// Renders a song's title with optional Dolby Atmos and Explicit badges.
+/// Renders a song's title with optional Dolby Atmos, Hi-Res, and Explicit badges.
 ///
 /// Badges appear immediately to the right of the title in the order:
-/// [Flexible Text(title)] [Atmos icon?] [E badge?]
+/// [Flexible Text(title)] [Atmos icon?] [HI-RES badge?] [E badge?]
 class SongTitleRow extends StatelessWidget {
   final String title;
   final TextStyle? style;
   final bool? isExplicit;
   final bool? isAtmos;
+  final bool? isHiRes;
   final TextAlign? textAlign;
   final Color? badgeColor;
   final Color? badgeBackgroundColor;
@@ -20,6 +21,7 @@ class SongTitleRow extends StatelessWidget {
     this.style,
     this.isExplicit,
     this.isAtmos,
+    this.isHiRes,
     this.textAlign,
     this.badgeColor,
     this.badgeBackgroundColor,
@@ -45,6 +47,10 @@ class SongTitleRow extends StatelessWidget {
             color: badgeColor,
             backgroundColor: badgeBackgroundColor,
           ),
+        ],
+        if (isHiRes == true) ...[
+          const SizedBox(width: 4),
+          const HiResBadge(margin: EdgeInsets.zero),
         ],
         if (isExplicit == true) ...[
           const SizedBox(width: 4),

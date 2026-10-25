@@ -165,6 +165,7 @@ class TidalLikedSongsScreen extends ConsumerWidget {
           title: song.title,
           isExplicit: song.isExplicit,
           isAtmos: song.isAtmos,
+          isHiRes: isHiRes,
           style: const TextStyle(
             color: AppColors.textPrimary,
             fontSize: 14,
@@ -184,7 +185,6 @@ class TidalLikedSongsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            if (isHiRes) const HiResBadge(),
           ],
         ),
         trailing: IconButton(

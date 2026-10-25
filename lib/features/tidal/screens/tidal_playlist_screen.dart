@@ -464,6 +464,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen>
                         title: song.title,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
+                        isHiRes: isHiRes,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -483,7 +484,6 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen>
                               ),
                             ),
                           ),
-                          if (isHiRes) const HiResBadge(),
                         ],
                       ),
                       trailing: IconButton(

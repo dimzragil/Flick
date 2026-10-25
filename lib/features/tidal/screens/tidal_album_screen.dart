@@ -663,6 +663,7 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                         title: song.title,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
+                        isHiRes: (song.bitDepth ?? 0) >= 24,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -682,7 +683,6 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                               ),
                             ),
                           ),
-                          if ((song.bitDepth ?? 0) >= 24) const HiResBadge(),
                         ],
                       ),
                       trailing: IconButton(
