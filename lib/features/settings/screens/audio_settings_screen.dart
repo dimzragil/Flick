@@ -74,6 +74,8 @@ class _AudioSettingsScreenState extends ConsumerState<AudioSettingsScreen> {
           const SizedBox(height: AppConstants.spacingLg),
           const _ExtendedVolumeSection(),
           const SizedBox(height: AppConstants.spacingLg),
+          const _DolbyAtmosSection(),
+          const SizedBox(height: AppConstants.spacingLg),
           const _ReplayGainSection(),
           const SizedBox(height: AppConstants.spacingLg),
           const _CrossfadeSection(),
@@ -121,6 +123,97 @@ class _ExtendedVolumeSection extends ConsumerWidget {
                   subtitle: 'Boost beyond 100% (up to 200%)',
                   value: prefs.extendedVolumeEnabled,
                   onChanged: (v) => _setEnabled(ref, playerService, v),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DolbyAtmosSection extends ConsumerWidget {
+  const _DolbyAtmosSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(appPreferencesProvider);
+    final playerService = ref.watch(playerServiceProvider);
+    final isBitPerfect = playerService.isBitPerfectModeEnabled;
+
+    return ValueListenableBuilder<AndroidPlaybackDeviceInfo>(
+      valueListenable: AndroidAudioDeviceService.instance.deviceInfoNotifier,
+      builder: (context, deviceInfo, _) {
+        final isSupported = deviceInfo.isDolbyAtmosSupported;
+
+        final String statusText;
+        if (isBitPerfect) {
+          statusText =
+              'Bypassed · Bit-Perfect USB DAC Mode active (Hi-Res Stereo prioritized)';
+        } else if (isSupported) {
+          statusText =
+              'Hardware Spatializer / E-AC-3 JOC supported on active output';
+        } else {
+          statusText =
+              'Hardware does not support Dolby Atmos decoding (plays in Stereo)';
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SettingsSectionHeader('Spatial Audio'),
+            SettingsCard(
+              children: [
+                ToggleSetting(
+                  icon: LucideIcons.audioWaveform,
+                  title: 'Dolby Atmos Playback',
+                  subtitle:
+                      'Stream immersive Dolby Atmos when available on TIDAL. Automatically disabled in Bit-Perfect USB DAC mode.',
+                  value: prefs.enableDolbyAtmos,
+                  onChanged: (v) {
+                    ref
+                        .read(appPreferencesProvider.notifier)
+                        .setEnableDolbyAtmos(v);
+                  },
+                ),
+                const SettingsDivider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppConstants.spacingMd,
+                    vertical: AppConstants.spacingSm,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isBitPerfect
+                            ? LucideIcons.usb
+                            : (isSupported
+                                ? LucideIcons.checkCircle2
+                                : LucideIcons.info),
+                        size: 14,
+                        color: isBitPerfect
+                            ? const Color(0xFFE5A93C)
+                            : (isSupported
+                                ? const Color(0xFF48CAE4)
+                                : AppColors.textSecondary),
+                      ),
+                      const SizedBox(width: AppConstants.spacingSm),
+                      Expanded(
+                        child: Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isBitPerfect
+                                ? const Color(0xFFE5A93C)
+                                : (isSupported
+                                    ? const Color(0xFF48CAE4)
+                                    : AppColors.textSecondary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

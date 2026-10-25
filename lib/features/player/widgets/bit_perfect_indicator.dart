@@ -50,7 +50,16 @@ class BitPerfectIndicator extends ConsumerWidget {
           suppressVerified: prefs.replaceAlbumWithBitPerfectCapsule,
         );
         final label = _getSongQuality(song, resolved);
-        if (label == 'HR') {
+        if (label == 'ATMOS') {
+          // Dolby Atmos: sleek deep navy background with spatial blue/cyan accents
+          state = _IndicatorState(
+            bgColor: const Color(0xFF0D1B2A),
+            textColor: const Color(0xFF48CAE4),
+            borderColor: const Color(0xFF0077B6),
+            glowColor: const Color(0xFF0077B6).withValues(alpha: 0.25),
+            icon: LucideIcons.audioWaveform,
+          );
+        } else if (label == 'HR') {
           // Hi-Res: grey background like the FLAC badge, but keep gold
           // border, text, and glow for the Hi-Res identity.
           state = _IndicatorState(
@@ -119,6 +128,7 @@ class BitPerfectIndicator extends ConsumerWidget {
       _getSongQuality(song, resolved);
 
   static String _getSongQuality(Song song, [TidalStreamResolution? resolved]) {
+    if (resolved?.isDolbyAtmos == true) return 'ATMOS';
     if (song.isDsd) return 'HR';
     final codecLabel = resolved?.codec;
     final fileType = (codecLabel != null && codecLabel.isNotEmpty
@@ -640,13 +650,25 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
     // (isMixerManaged == false) is untouched and keeps verified values.
     final isMixerManaged = d?.isMixerManaged == true;
     final codecLabel = resolved?.codec;
-    final formatValue = widget.song.isDsd
-        ? '${widget.song.fileType.toUpperCase()} (${widget.song.dsdRateLabel})'
-        : (codecLabel != null && codecLabel.isNotEmpty
-              ? codecLabel.toUpperCase()
-              : widget.song.fileType.toUpperCase());
+    final formatValue = resolved?.isDolbyAtmos == true
+        ? 'Dolby Atmos (E-AC-3 JOC)'
+        : (widget.song.isDsd
+            ? '${widget.song.fileType.toUpperCase()} (${widget.song.dsdRateLabel})'
+            : (codecLabel != null && codecLabel.isNotEmpty
+                  ? codecLabel.toUpperCase()
+                  : widget.song.fileType.toUpperCase()));
 
     rows.add(_buildRow(context, label: 'Format', value: formatValue));
+
+    final isTrackAtmosTagged =
+        widget.song.remoteId != null &&
+        TidalService.hasAtmosTag(widget.song.remoteId!);
+    if (isTrackAtmosTagged && resolved?.isDolbyAtmos != true) {
+      final reason = widget.playerService.isBitPerfectModeEnabled
+          ? 'Bypassed (Bit-Perfect USB DAC Mode)'
+          : 'Playing in Stereo (Fallback)';
+      rows.add(_buildRow(context, label: 'Atmos Mode', value: reason));
+    }
 
     final resolutionValue =
         resolved?.resolutionString ?? widget.song.resolution;

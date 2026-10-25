@@ -14,6 +14,10 @@ class AndroidPlaybackDeviceInfo {
     required this.model,
     this.routeType,
     this.routeLabel,
+    this.isDolbyAtmosSupported = false,
+    this.hasSpatializer = false,
+    this.hasEac3JocDecoder = false,
+    this.hasDeviceEncoding = false,
   });
 
   final bool hasUsbDac;
@@ -22,6 +26,10 @@ class AndroidPlaybackDeviceInfo {
   final String model;
   final String? routeType;
   final String? routeLabel;
+  final bool isDolbyAtmosSupported;
+  final bool hasSpatializer;
+  final bool hasEac3JocDecoder;
+  final bool hasDeviceEncoding;
 
   bool get isUsbRoute => routeType == 'usb';
   bool get isInternalRoute => routeType == 'internal';
@@ -70,6 +78,10 @@ class AndroidPlaybackDeviceInfo {
       model: raw['model'] as String? ?? '',
       routeType: raw['routeType'] as String?,
       routeLabel: raw['routeLabel'] as String?,
+      isDolbyAtmosSupported: raw['isDolbyAtmosSupported'] == true,
+      hasSpatializer: raw['hasSpatializer'] == true,
+      hasEac3JocDecoder: raw['hasEac3JocDecoder'] == true,
+      hasDeviceEncoding: raw['hasDeviceEncoding'] == true,
     );
   }
 
@@ -78,6 +90,10 @@ class AndroidPlaybackDeviceInfo {
     hasAttachedUac2Device: false,
     manufacturer: '',
     model: '',
+    isDolbyAtmosSupported: false,
+    hasSpatializer: false,
+    hasEac3JocDecoder: false,
+    hasDeviceEncoding: false,
   );
 }
 
@@ -172,6 +188,20 @@ class AndroidAudioDeviceService {
       devLog('AndroidAudioDeviceService.refresh failed: $e');
       deviceInfoNotifier.value = AndroidPlaybackDeviceInfo.unknown;
       return AndroidPlaybackDeviceInfo.unknown;
+    }
+  }
+
+  Future<Map<String, dynamic>> getAudioCapabilities() async {
+    if (!Platform.isAndroid) return const {};
+    try {
+      final raw = await _channel.invokeMapMethod<Object?, Object?>(
+        'getAudioCapabilities',
+      );
+      if (raw == null) return const {};
+      return raw.map((k, v) => MapEntry(k.toString(), v));
+    } catch (e) {
+      devLog('AndroidAudioDeviceService.getAudioCapabilities failed: $e');
+      return const {};
     }
   }
 }

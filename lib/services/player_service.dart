@@ -1581,6 +1581,12 @@ class PlayerService {
     }
 
     await syncAudioRouteSelection(reason: 'bit-perfect preference changed');
+    if (isBitPerfectModeEnabled) {
+      final currentSong = currentSongNotifier.value;
+      if (currentSong != null) {
+        RemoteSourceService.instance.clearResolution(currentSong);
+      }
+    }
     await reapplyEqualizer();
     await _refreshAudioOutputDiagnostics(
       reason: 'bit-perfect preference changed',
@@ -2301,6 +2307,20 @@ class PlayerService {
           Uac2PreferencesService.dsdOutputModeSync == DsdOutputMode.native ||
           Uac2PreferencesService.dsdOutputModeSync == DsdOutputMode.auto) &&
       currentSongNotifier.value?.isDsd == true;
+
+  /// Whether Dolby Atmos playback is permitted for the active audio environment.
+  ///
+  /// CRITICAL ARCHITECTURAL POLICY:
+  /// When Bit-Perfect USB DAC Mode is active, Dolby Atmos is STRICTLY DISABLED
+  /// to prioritize pure Bit-Perfect Hi-Res Lossless Stereo PCM.
+  Future<bool> _shouldAllowDolbyAtmos() async {
+    if (isBitPerfectModeEnabled) return false;
+    if (currentEngineType == AudioEngineType.usbDacExperimental) return false;
+    if (!AndroidAudioDeviceService.instance.deviceInfoNotifier.value.isDolbyAtmosSupported) {
+      return false;
+    }
+    return await _appPreferencesService.getEnableDolbyAtmos();
+  }
 
   void _updateBitPerfectProcessingLocked() {
     final locked =
@@ -4613,8 +4633,10 @@ class PlayerService {
     // ExoPlayer fetches the stream itself.
     if (song.isNetworkSource) {
       try {
+        final allowDolbyAtmos = await _shouldAllowDolbyAtmos();
         final http = await RemoteSourceService.instance.resolveHttpPlayback(
           song,
+          allowDolbyAtmos: allowDolbyAtmos,
         );
         if (http != null) {
           return (
@@ -5893,8 +5915,9 @@ class PlayerService {
         // Sync format from resolved stream info for network sources (0ms, no full download needed)
         if (song.isNetworkSource) {
           try {
+            final allowDolbyAtmos = await _shouldAllowDolbyAtmos();
             await RemoteSourceService.instance
-                .resolveHttpPlayback(song)
+                .resolveHttpPlayback(song, allowDolbyAtmos: allowDolbyAtmos)
                 .timeout(const Duration(seconds: 5));
           } catch (e) {
             // Non-fatal: fall back to the song's existing metadata.

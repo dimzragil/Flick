@@ -301,6 +301,19 @@ class TidalService implements NetworkSourceService {
   /// without an entry fall back to the full cascade.
   static final Map<String, String> _tierStartHintByTrackId = {};
 
+  /// Whether a track is tagged with DOLBY_ATMOS in the catalog.
+  static final Map<String, bool> _hasAtmosTagByTrackId = {};
+
+  /// Check whether a track is tagged as Dolby Atmos in the catalog.
+  static bool hasAtmosTag(String trackId) =>
+      _hasAtmosTagByTrackId[trackId] ?? false;
+
+  /// Set the Dolby Atmos tag hint for testing.
+  @visibleForTesting
+  static void setAtmosTagHint(String trackId, bool hasAtmos) {
+    _hasAtmosTagByTrackId[trackId] = hasAtmos;
+  }
+
   /// Track title cached by trackId for logging and diagnostics.
   static final Map<String, String> _trackTitleByTrackId = {};
 
@@ -346,6 +359,13 @@ class TidalService implements NetworkSourceService {
   TidalStreamResolution? getResolvedStream(String trackId) =>
       _resolvedStreams[trackId];
 
+  /// Evict a resolved stream from memory and delete any temporary DASH manifest.
+  void clearResolution(String trackId) {
+    _resolvedStreams.remove(trackId);
+    unawaited(_dashManifests.evict(trackId));
+    streamResolutionVersion.value++;
+  }
+
   /// Uppercase display label for a track's resolved codec ("FLAC", "AAC",
   /// ...), or null when the track hasn't resolved (yet) or the codec is
   /// unknown. Pure in-memory lookup.
@@ -362,9 +382,21 @@ class TidalService implements NetworkSourceService {
   /// quality hint for the track changes: the hint controls which tier the
   /// resolution cascade starts at, so a cached LOSSLESS stream must not be
   /// served after the catalog starts advertising HI_RES (or vice versa).
-  TidalStreamResolution? _reusableResolution(String trackId) {
+  TidalStreamResolution? _reusableResolution(
+    String trackId, {
+    bool? allowDolbyAtmos,
+  }) {
     final cached = _resolvedStreams[trackId];
     if (cached == null) return null;
+
+    // Bit-Perfect USB DAC mode (allowDolbyAtmos == false):
+    // Never reuse an Atmos resolution; evict it and re-resolve to Hi-Res Lossless Stereo.
+    if (allowDolbyAtmos == false && cached.isDolbyAtmos) {
+      _resolvedStreams.remove(trackId);
+      unawaited(_dashManifests.evict(trackId));
+      return null;
+    }
+
     final resolvedAt = cached.resolvedAt;
     if (resolvedAt == null) return null;
     final age = DateTime.now().difference(resolvedAt);
@@ -1725,6 +1757,7 @@ class TidalService implements NetworkSourceService {
     NetworkServerEntity server,
     String remoteId, {
     String? extension,
+    bool allowDolbyAtmos = false,
   }) async {
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
@@ -1743,12 +1776,19 @@ class TidalService implements NetworkSourceService {
     // while the signed CDN URLs are still fresh, so the second pass does not
     // issue another playback-info API request. There is no longer a local
     // session to reuse, only the resolution itself.
-    final reusable = _reusableResolution(remoteId);
+    final reusable = _reusableResolution(
+      remoteId,
+      allowDolbyAtmos: allowDolbyAtmos,
+    );
     if (reusable != null) {
       return _directDescriptor(server, remoteId, reusable);
     }
 
-    final resolved = await _resolveStreamable(server, remoteId);
+    final resolved = await _resolveStreamable(
+      server,
+      remoteId,
+      allowDolbyAtmos: allowDolbyAtmos,
+    );
     if (resolved == null) return null;
     return _directDescriptor(server, remoteId, resolved);
   }
@@ -2163,13 +2203,17 @@ class TidalService implements NetworkSourceService {
   /// times per cooldown across tracks) instead of by every resolver pass.
   Future<TidalStreamResolution?> _resolveStreamable(
     NetworkServerEntity server,
-    String trackId,
-  ) async {
+    String trackId, {
+    bool allowDolbyAtmos = false,
+  }) async {
     // PlayerService resolves once for display metadata and Rust resolves
     // again to start playback. Reuse the first resolution (while the signed
     // URL is still fresh) instead of paying for a second
     // `playbackinfopostpaywall` call. This applies to both DASH and BTS.
-    final cached = _reusableResolution(trackId);
+    final cached = _reusableResolution(
+      trackId,
+      allowDolbyAtmos: allowDolbyAtmos,
+    );
     if (cached != null) {
       // A cache hit is not evidence that TIDAL is healthy, so it clears the
       // per-track failure record but leaves the breaker untouched.
@@ -2183,7 +2227,11 @@ class TidalService implements NetworkSourceService {
     _throwIfRecentResolveFailure(trackId);
     final isProbe = _admitResolve();
     try {
-      final resolved = await _resolveStreamableCascade(server, trackId);
+      final resolved = await _resolveStreamableCascade(
+        server,
+        trackId,
+        allowDolbyAtmos: allowDolbyAtmos,
+      );
       _resolveFailures.remove(trackId);
       _onResolveSuccess();
       return resolved;
@@ -2195,12 +2243,22 @@ class TidalService implements NetworkSourceService {
     }
   }
 
-  /// The unguarded HI_RES_LOSSLESS → HI_RES → LOSSLESS → HIGH cascade.
+  /// The unguarded DOLBY_ATMOS → HI_RES_LOSSLESS → HI_RES → LOSSLESS → HIGH cascade.
   Future<TidalStreamResolution?> _resolveStreamableCascade(
     NetworkServerEntity server,
-    String trackId,
-  ) async {
-    const qualityTiers = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS', 'HIGH'];
+    String trackId, {
+    bool allowDolbyAtmos = false,
+  }) async {
+    final hasAtmosHint = _hasAtmosTagByTrackId[trackId] ?? true;
+    final canAttemptAtmos = allowDolbyAtmos && hasAtmosHint;
+
+    final qualityTiers = [
+      if (canAttemptAtmos) 'DOLBY_ATMOS',
+      'HI_RES_LOSSLESS',
+      'HI_RES',
+      'LOSSLESS',
+      'HIGH',
+    ];
     Object? lastError;
 
     // Start the cascade at the catalog-known max tier when available:
@@ -2208,7 +2266,7 @@ class TidalService implements NetworkSourceService {
     // probing them first only burns API round-trips on every cold start.
     var tierIndex = 0;
     final hintedTier = _tierStartHintByTrackId[trackId];
-    if (hintedTier != null) {
+    if (hintedTier != null && !canAttemptAtmos) {
       final hintedIndex = qualityTiers.indexOf(hintedTier);
       if (hintedIndex >= 0) tierIndex = hintedIndex;
     }
@@ -2216,10 +2274,12 @@ class TidalService implements NetworkSourceService {
     for (var i = tierIndex; i < qualityTiers.length; i++) {
       final tier = qualityTiers[i];
       // Dual-Client Routing:
-      // Probe Hi-Res tiers (HI_RES_LOSSLESS, HI_RES) via hiRes client (DASH 24-bit FLAC).
+      // Probe Atmos and Hi-Res tiers (DOLBY_ATMOS, HI_RES_LOSSLESS, HI_RES) via hiRes client (DASH 24-bit FLAC / EAC3-JOC).
       // Probe Lossless CD tier (LOSSLESS) via lossless client (BTS unencrypted 16-bit FLAC).
       // Fallback tiers (HIGH, LOW) via lossless client.
-      final profile = (tier == 'HI_RES_LOSSLESS' || tier == 'HI_RES')
+      final profile = (tier == 'DOLBY_ATMOS' ||
+              tier == 'HI_RES_LOSSLESS' ||
+              tier == 'HI_RES')
           ? TidalClientProfile.hiRes
           : TidalClientProfile.lossless;
 
@@ -2248,7 +2308,7 @@ class TidalService implements NetworkSourceService {
         final rawQuality = (info['audioQuality'] as String?) ?? tier;
         final rawCodec = info['codec'] as String?;
 
-        // 1. DASH manifest (Hi-Res Lossless fMP4 FLAC)
+        // 1. DASH manifest (Hi-Res Lossless fMP4 FLAC or Dolby Atmos EAC3-JOC)
         if (mime == 'application/dash+xml') {
           final manifestXml = utf8.decode(base64Decode(manifest));
           final dashInfo = DashManifestParser.parse(manifestXml);
@@ -2264,18 +2324,24 @@ class TidalService implements NetworkSourceService {
               );
             }
             final dashCodecRaw = rawCodec ?? dashInfo.codec;
-            final dashCodec = _normalizeCodec(dashCodecRaw, null) ?? 'flac';
+            final isAtmos = tier == 'DOLBY_ATMOS' ||
+                dashCodecRaw?.contains('ec-3') == true ||
+                dashCodecRaw?.contains('eac3') == true;
+            final dashCodec = isAtmos
+                ? 'eac3_joc'
+                : (_normalizeCodec(dashCodecRaw, null) ?? 'flac');
             final res = TidalStreamResolution(
               url: '',
               ext: 'mp4',
               isDash: true,
               dashInfo: dashInfo,
-              sampleRate: explicitSampleRate ?? 96000,
-              bitDepth:
-                  explicitBitDepth ??
-                  (rawQuality == 'HI_RES_LOSSLESS' || rawQuality == 'HI_RES'
-                      ? 24
-                      : 16),
+              sampleRate: explicitSampleRate ?? (isAtmos ? 48000 : 96000),
+              bitDepth: explicitBitDepth ??
+                  (isAtmos
+                      ? 16
+                      : (rawQuality == 'HI_RES_LOSSLESS' || rawQuality == 'HI_RES'
+                          ? 24
+                          : 16)),
               isSampleRateExplicit: explicitSampleRate != null,
               isBitDepthExplicit: explicitBitDepth != null,
               audioQuality: rawQuality,
@@ -2293,7 +2359,7 @@ class TidalService implements NetworkSourceService {
           continue;
         }
 
-        // 2. BTS manifest (Direct unencrypted FLAC/AAC)
+        // 2. BTS manifest (Direct unencrypted FLAC/AAC or EAC3-JOC)
         if (mime == 'application/vnd.tidal.bts') {
           final Map<String, dynamic> decoded;
           try {
@@ -2329,17 +2395,22 @@ class TidalService implements NetworkSourceService {
               rawCodec ??
               (decoded['codecs'] as String?) ??
               (decoded['codec'] as String?);
-          final btsCodec = _normalizeCodec(
-            btsCodecRaw,
-            decoded['mimeType'] as String?,
-          );
+          final isAtmos = tier == 'DOLBY_ATMOS' ||
+              btsCodecRaw?.contains('ec-3') == true ||
+              btsCodecRaw?.contains('eac3') == true;
+          final btsCodec = isAtmos
+              ? 'eac3_joc'
+              : _normalizeCodec(
+                  btsCodecRaw,
+                  decoded['mimeType'] as String?,
+                );
 
           final res = TidalStreamResolution(
             url: urls.first as String,
-            ext: _extFromMime(decoded['mimeType'] as String?),
+            ext: isAtmos ? 'mp4' : _extFromMime(decoded['mimeType'] as String?),
             isDash: false,
             dashInfo: null,
-            sampleRate: explicitSampleRate ?? 44100,
+            sampleRate: explicitSampleRate ?? (isAtmos ? 48000 : 44100),
             bitDepth: explicitBitDepth ?? 16,
             isSampleRateExplicit: explicitSampleRate != null,
             isBitDepthExplicit: explicitBitDepth != null,
@@ -2377,7 +2448,6 @@ class TidalService implements NetworkSourceService {
   /// Formats the logcat diagnostic line showing the resolved stream's
   /// track title, client profile, quality tier, dynamic codec, bit depth / sample rate,
   /// bitrate, and stream container type (DASH or BTS).
-  @visibleForTesting
   static String formatStreamResolvedLog(
     String trackId,
     TidalClientProfile profile,
@@ -2390,11 +2460,13 @@ class TidalService implements NetworkSourceService {
     final kbps = res.effectiveBitrate;
     final bitrateStr = kbps != null && kbps > 0 ? '${kbps}kbps' : 'VBR';
     final typeStr = res.isDash ? 'DASH' : 'BTS';
-    final codecStr = (res.codec != null && res.codec!.isNotEmpty)
-        ? res.codec!
-        : (res.ext != null && res.ext != 'mp4'
-              ? res.ext!
-              : (res.isLossy ? 'aac' : 'flac'));
+    final codecStr = res.isDolbyAtmos
+        ? 'E-AC-3 JOC (Dolby Atmos)'
+        : ((res.codec != null && res.codec!.isNotEmpty)
+            ? res.codec!
+            : (res.ext != null && res.ext != 'mp4'
+                  ? res.ext!
+                  : (res.isLossy ? 'aac' : 'flac')));
     return '[Tidal] Stream resolved: "$title" | profile=${profile.name} | tier=${res.audioQuality} | codec=$codecStr | ${res.bitDepth}-bit/${khz}kHz | $bitrateStr | $typeStr';
   }
 
@@ -2456,6 +2528,13 @@ class TidalService implements NetworkSourceService {
   static String? _normalizeCodec(String? codec, String? mime) {
     final c = codec?.trim().toLowerCase();
     if (c != null && c.isNotEmpty) {
+      if (c == 'eac3' ||
+          c == 'eac3_joc' ||
+          c == 'ec-3' ||
+          c.contains('eac3') ||
+          c.contains('ec-3')) {
+        return 'eac3_joc';
+      }
       if (c.startsWith('mp4a')) return 'aac';
       if (c.contains('flac')) return 'flac';
       if (c.contains('alac')) return 'alac';
@@ -2464,6 +2543,9 @@ class TidalService implements NetworkSourceService {
     }
     final m = mime?.trim().toLowerCase();
     if (m != null) {
+      if (m == 'audio/eac3-joc' || m == 'audio/eac3' || m == 'audio/ec-3') {
+        return 'eac3_joc';
+      }
       if (m == 'audio/mp4' || m == 'audio/m4a' || m == 'audio/x-m4a') {
         return 'aac';
       }
@@ -4292,6 +4374,13 @@ class TidalService implements NetworkSourceService {
         tags.contains('HIRES_LOSSLESS') ||
         tags.contains('HIRES_LOSSLESS_MQA') ||
         quality == 'HI_RES_LOSSLESS';
+    final hasAtmos = tags.contains('DOLBY_ATMOS') ||
+        (rawTrackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') == true ||
+        (trackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') == true;
+    if (remoteId.isNotEmpty) {
+      _hasAtmosTagByTrackId[remoteId] = hasAtmos;
+      _evictOldestIfNeeded(_hasAtmosTagByTrackId);
+    }
     // Remember the catalog-known max tier so the stream-resolution cascade
     // can skip higher tiers this track can never satisfy. Hi-res tracks
     // keep the full cascade (subscription/region may still downgrade them);
@@ -4505,6 +4594,12 @@ class TidalStreamResolution {
   /// The client profile used to resolve this stream.
   final TidalClientProfile? profile;
 
+  /// Whether this stream is encoded in Dolby Atmos (E-AC-3 JOC).
+  bool get isDolbyAtmos =>
+      codec == 'eac3_joc' ||
+      codec == 'ec-3' ||
+      audioQuality == 'DOLBY_ATMOS';
+
   /// Bitstream family implied by [codec].
   ///
   /// The container is deliberately absent: an MP4/M4A container carries ALAC,
@@ -4605,6 +4700,11 @@ class TidalStreamResolution {
   });
 
   String get resolutionString {
+    if (isDolbyAtmos) {
+      final kbps = effectiveBitrate;
+      final bitrateStr = (kbps != null && kbps > 0) ? ' / ${kbps}kbps' : '';
+      return 'Dolby Atmos · 48kHz$bitrateStr';
+    }
     final kbps = effectiveBitrate;
     if (isLossy) {
       if (kbps != null && kbps > 0) {

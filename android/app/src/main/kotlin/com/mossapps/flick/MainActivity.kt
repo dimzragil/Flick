@@ -163,6 +163,7 @@ class MainActivity: FlutterActivity() {
     /** Matches nativeGetRustDirectUsbHardwareMute: -1 unknown, 0/1; Int.MIN_VALUE = unset. */
     private var lastObservedHardwareMute: Int = Int.MIN_VALUE
     private val priorityAnchorService by lazy { PriorityAnchorService(applicationContext) }
+    private val audioCapabilityManager by lazy { AudioCapabilityManager(applicationContext) }
     private var audioDeviceCallback: AudioDeviceCallback? = null
     // private var audioConverter: AudioConverter? = null
     // Coroutine scope for background tasks
@@ -1020,6 +1021,7 @@ class MainActivity: FlutterActivity() {
         audioDeviceChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getPlaybackDeviceInfo" -> result.success(getPlaybackDeviceInfo())
+                "getAudioCapabilities" -> result.success(audioCapabilityManager.getAudioCapabilities())
                 else -> result.notImplemented()
             }
         }
@@ -4520,6 +4522,7 @@ class MainActivity: FlutterActivity() {
             ?.any { device -> isLikelyUsbAudioDevice(device, route["routeLabel"] as? String) }
             ?: false
 
+        val capabilities = audioCapabilityManager.getAudioCapabilities()
         return mapOf(
             "hasUsbDac" to (hasUsbAudioRoute || hasAttachedUac2Device),
             "hasUsbAudioRoute" to hasUsbAudioRoute,
@@ -4528,6 +4531,10 @@ class MainActivity: FlutterActivity() {
             "model" to Build.MODEL,
             "routeType" to route["routeType"],
             "routeLabel" to route["routeLabel"],
+            "isDolbyAtmosSupported" to (capabilities["isDolbyAtmosSupported"] == true),
+            "hasSpatializer" to (capabilities["hasSpatializer"] == true),
+            "hasEac3JocDecoder" to (capabilities["hasEac3JocDecoder"] == true),
+            "hasDeviceEncoding" to (capabilities["hasDeviceEncoding"] == true),
         )
     }
 

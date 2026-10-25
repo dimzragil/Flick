@@ -133,6 +133,12 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .setExtendedVolumeEnabled(value);
   }
 
+  Future<void> setEnableDolbyAtmos(bool value) async {
+    if (state.enableDolbyAtmos == value) return;
+    state = state.copyWith(enableDolbyAtmos: value);
+    await ref.read(appPreferencesServiceProvider).setEnableDolbyAtmos(value);
+  }
+
   Future<void> setReplayGainMode(String value) async {
     if (state.replayGainMode == value) return;
     state = state.copyWith(replayGainMode: value);

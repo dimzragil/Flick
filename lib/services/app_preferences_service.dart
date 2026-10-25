@@ -115,6 +115,7 @@ class AppPreferences {
   final bool karaokeEnabled;
   final double replayGainPreampDb;
   final bool replayGainPreventClipping;
+  final bool enableDolbyAtmos;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -234,6 +235,7 @@ class AppPreferences {
     this.karaokeEnabled = true,
     this.replayGainPreampDb = 0.0,
     this.replayGainPreventClipping = true,
+    this.enableDolbyAtmos = true,
   });
 
   AppPreferences copyWith({
@@ -350,6 +352,7 @@ class AppPreferences {
     bool? karaokeEnabled,
     double? replayGainPreampDb,
     bool? replayGainPreventClipping,
+    bool? enableDolbyAtmos,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -509,6 +512,7 @@ class AppPreferences {
       replayGainPreampDb: replayGainPreampDb ?? this.replayGainPreampDb,
       replayGainPreventClipping:
           replayGainPreventClipping ?? this.replayGainPreventClipping,
+      enableDolbyAtmos: enableDolbyAtmos ?? this.enableDolbyAtmos,
     );
   }
 }
@@ -636,6 +640,7 @@ class AppPreferencesService {
   static const _replayGainPreampKey = 'audio_replaygain_preamp_db';
   static const _replayGainPreventClippingKey =
       'audio_replaygain_prevent_clipping';
+  static const _enableDolbyAtmosKey = 'audio_enable_dolby_atmos';
   static const _shuffleModeKey = 'playback_shuffle_mode';
   static const _loopModeKey = 'playback_loop_mode';
   static const _advanceListOrderKey = 'playback_advance_list_order';
@@ -794,6 +799,7 @@ class AppPreferencesService {
       replayGainPreampDb: prefs.getDouble(_replayGainPreampKey) ?? 0.0,
       replayGainPreventClipping:
           prefs.getBool(_replayGainPreventClippingKey) ?? true,
+      enableDolbyAtmos: prefs.getBool(_enableDolbyAtmosKey) ?? true,
     );
   }
 
@@ -985,6 +991,16 @@ class AppPreferencesService {
   Future<void> setLyricsKaraokeEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_lyricsKaraokeEnabledKey, value);
+  }
+
+  Future<bool> getEnableDolbyAtmos() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_enableDolbyAtmosKey) ?? true;
+  }
+
+  Future<void> setEnableDolbyAtmos(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enableDolbyAtmosKey, value);
   }
 
   Future<double> getReplayGainPreampDb() async {

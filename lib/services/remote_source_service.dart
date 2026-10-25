@@ -127,12 +127,26 @@ class RemoteSourceService {
     }
   }
 
+  /// Evict any cached stream resolution for [song] (e.g. when changing audio output mode).
+  void clearResolution(Song song) {
+    final remoteId = song.remoteId;
+    if (remoteId != null && song.sourceType == NetworkProtocol.tidal) {
+      try {
+        final service = networkSourceServiceFor(NetworkProtocol.tidal);
+        if (service is TidalService) {
+          service.clearResolution(remoteId);
+        }
+      } catch (_) {}
+    }
+  }
+
   /// Resolve a direct ranged HTTP stream for [song] when the protocol supports
   /// byte-range requests. Returns null when unsupported (UPnP/SMB) or on
   /// resolve failure — callers fall back to cache-then-play via [ensureLocal].
   Future<({String url, Map<String, String> headers})?> resolveHttpPlayback(
-    Song song,
-  ) async {
+    Song song, {
+    bool allowDolbyAtmos = false,
+  }) async {
     if (!song.isNetworkSource) return null;
     final sourceType = song.sourceType;
     final remoteId = song.remoteId;
@@ -140,8 +154,16 @@ class RemoteSourceService {
     try {
       final server = await _serverFor(song);
       final service = networkSourceServiceFor(sourceType);
-      if (service is TidalService && song.title.isNotEmpty) {
-        TidalService.recordTrackTitle(remoteId, song.title);
+      if (service is TidalService) {
+        if (song.title.isNotEmpty) {
+          TidalService.recordTrackTitle(remoteId, song.title);
+        }
+        return await service.streamDescriptor(
+          server,
+          remoteId,
+          extension: song.fileType,
+          allowDolbyAtmos: allowDolbyAtmos,
+        );
       }
       return await service.streamDescriptor(
         server,
@@ -165,7 +187,8 @@ class RemoteSourceService {
   Future<({String url, Map<String, String> headers})?> resolveRustHttpPlayback(
     Song song,
   ) async {
-    final http = await resolveHttpPlayback(song);
+    // Rust UAC2 engine strictly processes linear PCM / DoP, never bitstream EAC3-JOC Atmos.
+    final http = await resolveHttpPlayback(song, allowDolbyAtmos: false);
     if (http == null) return null;
     final sourceType = song.sourceType;
     final remoteId = song.remoteId;
