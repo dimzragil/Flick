@@ -132,4 +132,10 @@ class SongEntity {
   /// [NetworkServerEntity.id] of the server this song was synced from.
   @Index()
   int? remoteServerId;
+
+  /// Whether the track is explicit (TIDAL etc.).
+  bool? isExplicit;
+
+  /// Whether the track has a Dolby Atmos mix.
+  bool? isAtmos;
 }

@@ -1782,7 +1782,8 @@ class TidalService implements NetworkSourceService {
       unawaited(_cache.evictFile(server.id, remoteId, extension: 'mp4'));
     }
 
-    final extHint = (!allowDolbyAtmos &&
+    final extHint =
+        (!allowDolbyAtmos &&
             (_resolvedStreams[remoteId]?.isDolbyAtmos == true ||
                 _resolvedStreams[remoteId]?.ext == 'mp4'))
         ? (extension ?? 'flac')
@@ -2314,7 +2315,8 @@ class TidalService implements NetworkSourceService {
       // Probe Atmos and Hi-Res tiers (DOLBY_ATMOS, HI_RES_LOSSLESS, HI_RES) via hiRes client (DASH 24-bit FLAC / EAC3-JOC).
       // Probe Lossless CD tier (LOSSLESS) via lossless client (BTS unencrypted 16-bit FLAC).
       // Fallback tiers (HIGH, LOW) via lossless client.
-      final profile = (tier == 'DOLBY_ATMOS' ||
+      final profile =
+          (tier == 'DOLBY_ATMOS' ||
               tier == 'HI_RES_LOSSLESS' ||
               tier == 'HI_RES')
           ? TidalClientProfile.hiRes
@@ -2373,7 +2375,8 @@ class TidalService implements NetworkSourceService {
               );
             }
             final dashCodecRaw = rawCodec ?? dashInfo.codec;
-            final isAtmos = tier == 'DOLBY_ATMOS' ||
+            final isAtmos =
+                tier == 'DOLBY_ATMOS' ||
                 dashCodecRaw?.contains('ec-3') == true ||
                 dashCodecRaw?.contains('eac3') == true;
             if (isAtmos && !allowDolbyAtmos) {
@@ -2391,12 +2394,14 @@ class TidalService implements NetworkSourceService {
               isDash: true,
               dashInfo: dashInfo,
               sampleRate: explicitSampleRate ?? (isAtmos ? 48000 : 96000),
-              bitDepth: explicitBitDepth ??
+              bitDepth:
+                  explicitBitDepth ??
                   (isAtmos
                       ? 16
-                      : (rawQuality == 'HI_RES_LOSSLESS' || rawQuality == 'HI_RES'
-                          ? 24
-                          : 16)),
+                      : (rawQuality == 'HI_RES_LOSSLESS' ||
+                                rawQuality == 'HI_RES'
+                            ? 24
+                            : 16)),
               isSampleRateExplicit: explicitSampleRate != null,
               isBitDepthExplicit: explicitBitDepth != null,
               audioQuality: rawQuality,
@@ -2450,7 +2455,8 @@ class TidalService implements NetworkSourceService {
               rawCodec ??
               (decoded['codecs'] as String?) ??
               (decoded['codec'] as String?);
-          final isAtmos = tier == 'DOLBY_ATMOS' ||
+          final isAtmos =
+              tier == 'DOLBY_ATMOS' ||
               btsCodecRaw?.contains('ec-3') == true ||
               btsCodecRaw?.contains('eac3') == true;
           if (isAtmos && !allowDolbyAtmos) {
@@ -2461,10 +2467,7 @@ class TidalService implements NetworkSourceService {
           }
           final btsCodec = isAtmos
               ? 'eac3_joc'
-              : _normalizeCodec(
-                  btsCodecRaw,
-                  decoded['mimeType'] as String?,
-                );
+              : _normalizeCodec(btsCodecRaw, decoded['mimeType'] as String?);
 
           final res = TidalStreamResolution(
             url: urls.first as String,
@@ -2524,10 +2527,10 @@ class TidalService implements NetworkSourceService {
     final codecStr = res.isDolbyAtmos
         ? 'E-AC-3 JOC (Dolby Atmos)'
         : ((res.codec != null && res.codec!.isNotEmpty)
-            ? res.codec!
-            : (res.ext != null && res.ext != 'mp4'
-                  ? res.ext!
-                  : (res.isLossy ? 'aac' : 'flac')));
+              ? res.codec!
+              : (res.ext != null && res.ext != 'mp4'
+                    ? res.ext!
+                    : (res.isLossy ? 'aac' : 'flac')));
     return '[Tidal] Stream resolved: "$title" | profile=${profile.name} | tier=${res.audioQuality} | codec=$codecStr | ${res.bitDepth}-bit/${khz}kHz | $bitrateStr | $typeStr';
   }
 
@@ -2693,8 +2696,13 @@ class TidalService implements NetworkSourceService {
   @visibleForTesting
   static SongEntity? buildSongEntity(
     NetworkServerEntity server,
-    Map<String, dynamic> t,
+    Map<String, dynamic> rawTrackJson,
   ) {
+    final t =
+        rawTrackJson.containsKey('item') &&
+            rawTrackJson['item'] is Map<String, dynamic>
+        ? rawTrackJson['item'] as Map<String, dynamic>
+        : rawTrackJson;
     final remoteId = t['id']?.toString();
     if (remoteId == null) return null;
     final title = t['title'] as String?;
@@ -2727,6 +2735,14 @@ class TidalService implements NetworkSourceService {
       ..sourceType = NetworkProtocol.tidal
       ..remoteId = remoteId
       ..remoteServerId = server.id
+      ..isExplicit = t['explicit'] == true
+      ..isAtmos =
+          (rawTrackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') ==
+              true ||
+          (t['audioModes'] as List?)?.contains('DOLBY_ATMOS') == true ||
+          ((t['mediaMetadata'] as Map<String, dynamic>?)?['tags'] as List?)
+                  ?.contains('DOLBY_ATMOS') ==
+              true
       ..metadataComplete = true
       ..dateAdded = DateTime.now()
       ..lastModified = DateTime.now();
@@ -4435,8 +4451,10 @@ class TidalService implements NetworkSourceService {
         tags.contains('HIRES_LOSSLESS') ||
         tags.contains('HIRES_LOSSLESS_MQA') ||
         quality == 'HI_RES_LOSSLESS';
-    final hasAtmos = tags.contains('DOLBY_ATMOS') ||
-        (rawTrackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') == true ||
+    final hasAtmos =
+        tags.contains('DOLBY_ATMOS') ||
+        (rawTrackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') ==
+            true ||
         (trackJson['audioModes'] as List?)?.contains('DOLBY_ATMOS') == true;
     if (remoteId.isNotEmpty) {
       _hasAtmosTagByTrackId[remoteId] = hasAtmos;
@@ -4472,6 +4490,7 @@ class TidalService implements NetworkSourceService {
         (rawTrackJson['created'] as String?) ??
         (trackJson['created'] as String?);
     final dateAdded = createdStr != null ? DateTime.tryParse(createdStr) : null;
+    final explicit = trackJson['explicit'] == true;
 
     return Song(
       id: 'tidal_${server.id}_$remoteId',
@@ -4495,6 +4514,8 @@ class TidalService implements NetworkSourceService {
       remoteId: remoteId,
       remoteServerId: server.id,
       dateAdded: dateAdded,
+      isExplicit: explicit,
+      isAtmos: hasAtmos,
     );
   }
 }
@@ -4657,9 +4678,7 @@ class TidalStreamResolution {
 
   /// Whether this stream is encoded in Dolby Atmos (E-AC-3 JOC).
   bool get isDolbyAtmos =>
-      codec == 'eac3_joc' ||
-      codec == 'ec-3' ||
-      audioQuality == 'DOLBY_ATMOS';
+      codec == 'eac3_joc' || codec == 'ec-3' || audioQuality == 'DOLBY_ATMOS';
 
   /// Bitstream family implied by [codec].
   ///

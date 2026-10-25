@@ -6,7 +6,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/adaptive_color_provider.dart';
 import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/duration_format.dart';
 import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
@@ -15,6 +14,7 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/glass_search_bar.dart';
+import '../../../widgets/common/song_badges.dart';
 import '../providers/tidal_providers.dart';
 import '../../../data/repositories/tidal_search_history_repository.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
@@ -475,91 +475,88 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
     return PressScale(
       child: InkWell(
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-          onTap: () => _playSong(song, [song]),
-          child: Container(
-            padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppColors.accent.withValues(alpha: 0.18),
-                  AppColors.surfaceLight.withValues(alpha: 0.7),
-                ],
-              ),
-              border: Border.all(
-                color: AppColors.accent.withValues(alpha: 0.35),
-              ),
-            ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  child: SizedBox(
-                    width: artSize,
-                    height: artSize,
-                    child: thumbArt != null
-                        ? CachedImageWidget(
-                            imagePath: thumbArt,
-                            audioSourcePath: song.filePath,
-                            width: artSize,
-                            height: artSize,
-                            useThumbnail: true,
-                            thumbnailWidth: 320,
-                            thumbnailHeight: 320,
-                            fit: BoxFit.cover,
-                            placeholder: const FlickArtworkPlaceholder(),
-                            errorWidget: const FlickArtworkPlaceholder(),
-                          )
-                        : const FlickArtworkPlaceholder(),
-                  ),
-                ),
-                SizedBox(width: context.scaleSize(AppConstants.spacingMd)),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        song.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: context.adaptiveTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        song.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: context.adaptiveTextSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Top Result • ${song.formattedDuration}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  LucideIcons.play,
-                  color: AppColors.accent,
-                  size: context.scaleSize(32),
-                ),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        onTap: () => _playSong(song, [song]),
+        child: Container(
+          padding: EdgeInsets.all(context.scaleSize(AppConstants.spacingMd)),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.accent.withValues(alpha: 0.18),
+                AppColors.surfaceLight.withValues(alpha: 0.7),
               ],
             ),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                child: SizedBox(
+                  width: artSize,
+                  height: artSize,
+                  child: thumbArt != null
+                      ? CachedImageWidget(
+                          imagePath: thumbArt,
+                          audioSourcePath: song.filePath,
+                          width: artSize,
+                          height: artSize,
+                          useThumbnail: true,
+                          thumbnailWidth: 320,
+                          thumbnailHeight: 320,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
+                ),
+              ),
+              SizedBox(width: context.scaleSize(AppConstants.spacingMd)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: context.adaptiveTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Top Result • ${song.formattedDuration}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                LucideIcons.play,
+                color: AppColors.accent,
+                size: context.scaleSize(32),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -569,105 +566,84 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
     return PressScale(
       child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            vertical: 2,
-            horizontal: 4,
+        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          child: SizedBox(
+            width: thumbSize,
+            height: thumbSize,
+            child: thumbArt != null
+                ? CachedImageWidget(
+                    imagePath: thumbArt,
+                    audioSourcePath: song.filePath,
+                    width: thumbSize,
+                    height: thumbSize,
+                    useThumbnail: true,
+                    thumbnailWidth: 160,
+                    thumbnailHeight: 160,
+                    fit: BoxFit.cover,
+                    placeholder: const FlickArtworkPlaceholder(),
+                    errorWidget: const FlickArtworkPlaceholder(),
+                  )
+                : const FlickArtworkPlaceholder(),
           ),
-          leading: ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            child: SizedBox(
-              width: thumbSize,
-              height: thumbSize,
-              child: thumbArt != null
-                  ? CachedImageWidget(
-                      imagePath: thumbArt,
-                      audioSourcePath: song.filePath,
-                      width: thumbSize,
-                      height: thumbSize,
-                      useThumbnail: true,
-                      thumbnailWidth: 160,
-                      thumbnailHeight: 160,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
-            ),
+        ),
+        title: SongTitleRow(
+          title: song.title,
+          isExplicit: song.isExplicit,
+          isAtmos: song.isAtmos,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          subtitle: Row(
-            children: [
-              if ((song.bitDepth ?? 0) >= 24)
-                Container(
-                  margin: const EdgeInsets.only(right: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.glassBackgroundStrong,
-                    borderRadius: BorderRadius.circular(3),
-                    border: Border.all(
-                      color: const Color(0xFFE5A93C),
-                      width: 0.75,
-                    ),
-                  ),
-                  child: const Text(
-                    'Hi-Res',
-                    style: TextStyle(
-                      color: Color(0xFFE5A93C),
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: Text(
-                  [
-                    song.artist,
-                    if (song.album != null) song.album!,
-                  ].join(' • '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                formatDuration(song.duration),
+        ),
+        subtitle: Row(
+          children: [
+            Expanded(
+              child: Text(
+                [song.artist, if (song.album != null) song.album!].join(' • '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 12,
                 ),
               ),
-              IconButton(
-                icon: const Icon(
-                  LucideIcons.ellipsisVertical,
-                  size: 18,
-                  color: AppColors.textSecondary,
+            ),
+            if ((song.bitDepth ?? 0) >= 24)
+              Container(
+                margin: const EdgeInsets.only(left: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackgroundStrong,
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(
+                    color: const Color(0xFFE5A93C),
+                    width: 0.75,
+                  ),
                 ),
-                onPressed: () => SongActionsBottomSheet.show(context, song),
+                child: const Text(
+                  'Hi-Res',
+                  style: TextStyle(
+                    color: Color(0xFFE5A93C),
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-            ],
-          ),
-          onTap: () => _playSong(song, playlist),
+          ],
         ),
+        trailing: IconButton(
+          icon: const Icon(
+            LucideIcons.ellipsisVertical,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
+          onPressed: () => SongActionsBottomSheet.show(context, song),
+        ),
+        onTap: () => _playSong(song, playlist),
+      ),
     );
   }
 
@@ -702,57 +678,57 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
     return PressScale(
       child: GestureDetector(
-          onTap: () => _openAlbum(album),
-          child: Container(
-            width: cardWidth,
-            margin: const EdgeInsets.only(right: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                  child: SizedBox(
-                    width: cardWidth,
-                    height: cardWidth,
-                    child: coverUrl != null
-                        ? CachedImageWidget(
-                            imagePath: coverUrl,
-                            width: cardWidth,
-                            height: cardWidth,
-                            useThumbnail: true,
-                            thumbnailWidth: 320,
-                            thumbnailHeight: 320,
-                            fit: BoxFit.cover,
-                            placeholder: const FlickArtworkPlaceholder(),
-                            errorWidget: const FlickArtworkPlaceholder(),
-                          )
-                        : const FlickArtworkPlaceholder(),
-                  ),
+        onTap: () => _openAlbum(album),
+        child: Container(
+          width: cardWidth,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                child: SizedBox(
+                  width: cardWidth,
+                  height: cardWidth,
+                  child: coverUrl != null
+                      ? CachedImageWidget(
+                          imagePath: coverUrl,
+                          width: cardWidth,
+                          height: cardWidth,
+                          useThumbnail: true,
+                          thumbnailWidth: 320,
+                          thumbnailHeight: 320,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
-                Text(
-                  artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
+              ),
+              Text(
+                artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -782,56 +758,54 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             index: index,
             child: PressScale(
               child: GestureDetector(
-                  onTap: () => _openAlbum(album),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusMd,
-                          ),
-                          child: AspectRatio(
-                            aspectRatio: 1,
-                            child: coverUrl != null
-                                ? CachedImageWidget(
-                                    imagePath: coverUrl,
-                                    fit: BoxFit.cover,
-                                    useThumbnail: true,
-                                    thumbnailWidth: 320,
-                                    thumbnailHeight: 320,
-                                    placeholder:
-                                        const FlickArtworkPlaceholder(),
-                                    errorWidget:
-                                        const FlickArtworkPlaceholder(),
-                                  )
-                                : const FlickArtworkPlaceholder(),
-                          ),
+                onTap: () => _openAlbum(album),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusMd,
+                        ),
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: coverUrl != null
+                              ? CachedImageWidget(
+                                  imagePath: coverUrl,
+                                  fit: BoxFit.cover,
+                                  useThumbnail: true,
+                                  thumbnailWidth: 320,
+                                  thumbnailHeight: 320,
+                                  placeholder: const FlickArtworkPlaceholder(),
+                                  errorWidget: const FlickArtworkPlaceholder(),
+                                )
+                              : const FlickArtworkPlaceholder(),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
-                      Text(
-                        artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
-                        ),
+                    ),
+                    Text(
+                      artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
             ),
           );
         },
@@ -849,47 +823,47 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
     return PressScale(
       child: GestureDetector(
-          onTap: () => _openArtist(artist),
-          child: Container(
-            width: size + 16,
-            margin: const EdgeInsets.only(right: 8),
-            child: Column(
-              children: [
-                ClipOval(
-                  child: SizedBox(
-                    width: size,
-                    height: size,
-                    child: pictureUrl != null
-                        ? CachedImageWidget(
-                            imagePath: pictureUrl,
-                            width: size,
-                            height: size,
-                            useThumbnail: true,
-                            thumbnailWidth: 160,
-                            thumbnailHeight: 160,
-                            fit: BoxFit.cover,
-                            placeholder: const FlickArtworkPlaceholder(),
-                            errorWidget: const FlickArtworkPlaceholder(),
-                          )
-                        : const FlickArtworkPlaceholder(),
-                  ),
+        onTap: () => _openArtist(artist),
+        child: Container(
+          width: size + 16,
+          margin: const EdgeInsets.only(right: 8),
+          child: Column(
+            children: [
+              ClipOval(
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: pictureUrl != null
+                      ? CachedImageWidget(
+                          imagePath: pictureUrl,
+                          width: size,
+                          height: size,
+                          useThumbnail: true,
+                          thumbnailWidth: 160,
+                          thumbnailHeight: 160,
+                          fit: BoxFit.cover,
+                          placeholder: const FlickArtworkPlaceholder(),
+                          errorWidget: const FlickArtworkPlaceholder(),
+                        )
+                      : const FlickArtworkPlaceholder(),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  name,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                name,
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -914,35 +888,35 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             index: index,
             child: PressScale(
               child: ListTile(
-                  onTap: () => _openArtist(artist),
-                  leading: ClipOval(
-                    child: SizedBox(
-                      width: size,
-                      height: size,
-                      child: pictureUrl != null
-                          ? CachedImageWidget(
-                              imagePath: pictureUrl,
-                              width: size,
-                              height: size,
-                              useThumbnail: true,
-                              thumbnailWidth: 160,
-                              thumbnailHeight: 160,
-                              fit: BoxFit.cover,
-                              placeholder: const FlickArtworkPlaceholder(),
-                              errorWidget: const FlickArtworkPlaceholder(),
-                            )
-                          : const FlickArtworkPlaceholder(),
-                    ),
-                  ),
-                  title: Text(
-                    name,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                onTap: () => _openArtist(artist),
+                leading: ClipOval(
+                  child: SizedBox(
+                    width: size,
+                    height: size,
+                    child: pictureUrl != null
+                        ? CachedImageWidget(
+                            imagePath: pictureUrl,
+                            width: size,
+                            height: size,
+                            useThumbnail: true,
+                            thumbnailWidth: 160,
+                            thumbnailHeight: 160,
+                            fit: BoxFit.cover,
+                            placeholder: const FlickArtworkPlaceholder(),
+                            errorWidget: const FlickArtworkPlaceholder(),
+                          )
+                        : const FlickArtworkPlaceholder(),
                   ),
                 ),
+                title: Text(
+                  name,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
             ),
           );
         },
@@ -956,29 +930,29 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
 
     return PressScale(
       child: GestureDetector(
-          onTap: () => _openPlaylist(playlist),
-          child: Container(
-            width: cardWidth,
-            margin: const EdgeInsets.only(right: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TidalPlaylistCoverWidget(playlist: playlist, size: cardWidth),
-                const SizedBox(height: 6),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+        onTap: () => _openPlaylist(playlist),
+        child: Container(
+          width: cardWidth,
+          margin: const EdgeInsets.only(right: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TidalPlaylistCoverWidget(playlist: playlist, size: cardWidth),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -1001,26 +975,26 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
             index: index,
             child: PressScale(
               child: ListTile(
-                  onTap: () => _openPlaylist(pl),
-                  leading: TidalPlaylistCoverWidget(playlist: pl, size: size),
-                  title: Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                onTap: () => _openPlaylist(pl),
+                leading: TidalPlaylistCoverWidget(playlist: pl, size: size),
+                title: Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
-                  subtitle: trackCount != null
-                      ? Text(
-                          '$trackCount tracks',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        )
-                      : null,
                 ),
+                subtitle: trackCount != null
+                    ? Text(
+                        '$trackCount tracks',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      )
+                    : null,
+              ),
             ),
           );
         },

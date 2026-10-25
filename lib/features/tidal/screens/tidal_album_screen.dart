@@ -7,7 +7,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/adaptive_color_provider.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/duration_format.dart';
 import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
@@ -20,6 +19,7 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
+import '../../../widgets/common/song_badges.dart';
 import '../../player/widgets/sleep_timer_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -442,15 +442,16 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
     final artistId = artistMap?['id']?.toString();
     final allArtistAlbums = artistId != null && artistId.isNotEmpty
         ? (ref.watch(tidalArtistAlbumsProvider(artistId)).value ??
-            const <Map<String, dynamic>>[])
+              const <Map<String, dynamic>>[])
         : const <Map<String, dynamic>>[];
     final otherVersions = allArtistAlbums.isNotEmpty
         ? TidalAlbumDeduplication.findOtherVersions(album, allArtistAlbums)
         : const <Map<String, dynamic>>[];
     final moreFromArtist = allArtistAlbums.isNotEmpty
-        ? TidalAlbumDeduplication.filterMoreFromArtist(album, allArtistAlbums)
-            .take(10)
-            .toList()
+        ? TidalAlbumDeduplication.filterMoreFromArtist(
+            album,
+            allArtistAlbums,
+          ).take(10).toList()
         : const <Map<String, dynamic>>[];
     final coverUuid = album['cover'] as String?;
     // Perf (2026-10-13): header displays at 180px; 320px is plenty
@@ -567,7 +568,9 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                       border: Border.all(color: AppColors.glassBorder),
                     ),
                     child: Text(
-                      hasHiRes ? 'HI-RES LOSSLESS 24-BIT' : 'LOSSLESS FLAC 16-BIT',
+                      hasHiRes
+                          ? 'HI-RES LOSSLESS 24-BIT'
+                          : 'LOSSLESS FLAC 16-BIT',
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 10,
@@ -656,10 +659,10 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                           ),
                         ),
                       ),
-                      title: Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      title: SongTitleRow(
+                        title: song.title,
+                        isExplicit: song.isExplicit,
+                        isAtmos: song.isAtmos,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 14,
@@ -668,9 +671,20 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                       ),
                       subtitle: Row(
                         children: [
+                          Expanded(
+                            child: Text(
+                              song.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
                           if ((song.bitDepth ?? 0) >= 24)
                             Container(
-                              margin: const EdgeInsets.only(right: 6),
+                              margin: const EdgeInsets.only(left: 6),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 4,
                                 vertical: 1,
@@ -692,39 +706,16 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                                 ),
                               ),
                             ),
-                          Expanded(
-                            child: Text(
-                              song.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            formatDuration(song.duration),
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              LucideIcons.ellipsisVertical,
-                              size: 18,
-                              color: AppColors.textSecondary,
-                            ),
-                            onPressed: () =>
-                                SongActionsBottomSheet.show(context, song),
-                          ),
-                        ],
+                      trailing: IconButton(
+                        icon: const Icon(
+                          LucideIcons.ellipsisVertical,
+                          size: 18,
+                          color: AppColors.textSecondary,
+                        ),
+                        onPressed: () =>
+                            SongActionsBottomSheet.show(context, song),
                       ),
                       onTap: () => _playSong(song, tracks),
                     ),
@@ -734,11 +725,10 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
             ),
           ),
           if (otherVersions.isNotEmpty)
-            _buildOtherVersionsSliver(
-              context,
-              versions: otherVersions,
-            ),
-          if (artistId != null && artistId.isNotEmpty && moreFromArtist.isNotEmpty)
+            _buildOtherVersionsSliver(context, versions: otherVersions),
+          if (artistId != null &&
+              artistId.isNotEmpty &&
+              moreFromArtist.isNotEmpty)
             _buildMoreFromArtistSliver(
               context,
               artistName: artist,
@@ -783,8 +773,8 @@ class _MoreAlbumCard extends StatelessWidget {
     final mediaMeta = album['mediaMetadata'] as Map<String, dynamic>?;
     final tags =
         (mediaMeta?['tags'] as List<dynamic>?)?.cast<String>() ?? const [];
-    final isHiRes = tags.contains('HIRES_LOSSLESS') ||
-        tags.contains('HIRES_LOSSLESS_MQA');
+    final isHiRes =
+        tags.contains('HIRES_LOSSLESS') || tags.contains('HIRES_LOSSLESS_MQA');
     final isLossless =
         tags.contains('LOSSLESS') || album['audioQuality'] == 'LOSSLESS';
 

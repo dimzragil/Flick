@@ -80,80 +80,86 @@ const SongEntitySchema = CollectionSchema(
       name: r'hasLocalEdits',
       type: IsarType.bool,
     ),
+    r'isAtmos': PropertySchema(id: 19, name: r'isAtmos', type: IsarType.bool),
+    r'isExplicit': PropertySchema(
+      id: 20,
+      name: r'isExplicit',
+      type: IsarType.bool,
+    ),
     r'lastModified': PropertySchema(
-      id: 19,
+      id: 21,
       name: r'lastModified',
       type: IsarType.dateTime,
     ),
     r'mediaStoreUri': PropertySchema(
-      id: 20,
+      id: 22,
       name: r'mediaStoreUri',
       type: IsarType.string,
     ),
     r'metadataComplete': PropertySchema(
-      id: 21,
+      id: 23,
       name: r'metadataComplete',
       type: IsarType.bool,
     ),
     r'readMode': PropertySchema(
-      id: 22,
+      id: 24,
       name: r'readMode',
       type: IsarType.string,
     ),
     r'remoteId': PropertySchema(
-      id: 23,
+      id: 25,
       name: r'remoteId',
       type: IsarType.string,
     ),
     r'remoteServerId': PropertySchema(
-      id: 24,
+      id: 26,
       name: r'remoteServerId',
       type: IsarType.long,
     ),
     r'replaygainAlbumGain': PropertySchema(
-      id: 25,
+      id: 27,
       name: r'replaygainAlbumGain',
       type: IsarType.double,
     ),
     r'replaygainAlbumPeak': PropertySchema(
-      id: 26,
+      id: 28,
       name: r'replaygainAlbumPeak',
       type: IsarType.double,
     ),
     r'replaygainTrackGain': PropertySchema(
-      id: 27,
+      id: 29,
       name: r'replaygainTrackGain',
       type: IsarType.double,
     ),
     r'replaygainTrackPeak': PropertySchema(
-      id: 28,
+      id: 30,
       name: r'replaygainTrackPeak',
       type: IsarType.double,
     ),
-    r'ripper': PropertySchema(id: 29, name: r'ripper', type: IsarType.string),
+    r'ripper': PropertySchema(id: 31, name: r'ripper', type: IsarType.string),
     r'sampleRate': PropertySchema(
-      id: 30,
+      id: 32,
       name: r'sampleRate',
       type: IsarType.long,
     ),
     r'sourceType': PropertySchema(
-      id: 31,
+      id: 33,
       name: r'sourceType',
       type: IsarType.string,
     ),
     r'startOffsetMs': PropertySchema(
-      id: 32,
+      id: 34,
       name: r'startOffsetMs',
       type: IsarType.long,
     ),
-    r'testCrc': PropertySchema(id: 33, name: r'testCrc', type: IsarType.string),
-    r'title': PropertySchema(id: 34, name: r'title', type: IsarType.string),
+    r'testCrc': PropertySchema(id: 35, name: r'testCrc', type: IsarType.string),
+    r'title': PropertySchema(id: 36, name: r'title', type: IsarType.string),
     r'trackNumber': PropertySchema(
-      id: 35,
+      id: 37,
       name: r'trackNumber',
       type: IsarType.long,
     ),
-    r'year': PropertySchema(id: 36, name: r'year', type: IsarType.long),
+    r'year': PropertySchema(id: 38, name: r'year', type: IsarType.long),
   },
 
   estimateSize: _songEntityEstimateSize,
@@ -435,24 +441,26 @@ void _songEntitySerialize(
   writer.writeString(offsets[16], object.folderUri);
   writer.writeString(offsets[17], object.genre);
   writer.writeBool(offsets[18], object.hasLocalEdits);
-  writer.writeDateTime(offsets[19], object.lastModified);
-  writer.writeString(offsets[20], object.mediaStoreUri);
-  writer.writeBool(offsets[21], object.metadataComplete);
-  writer.writeString(offsets[22], object.readMode);
-  writer.writeString(offsets[23], object.remoteId);
-  writer.writeLong(offsets[24], object.remoteServerId);
-  writer.writeDouble(offsets[25], object.replaygainAlbumGain);
-  writer.writeDouble(offsets[26], object.replaygainAlbumPeak);
-  writer.writeDouble(offsets[27], object.replaygainTrackGain);
-  writer.writeDouble(offsets[28], object.replaygainTrackPeak);
-  writer.writeString(offsets[29], object.ripper);
-  writer.writeLong(offsets[30], object.sampleRate);
-  writer.writeString(offsets[31], object.sourceType);
-  writer.writeLong(offsets[32], object.startOffsetMs);
-  writer.writeString(offsets[33], object.testCrc);
-  writer.writeString(offsets[34], object.title);
-  writer.writeLong(offsets[35], object.trackNumber);
-  writer.writeLong(offsets[36], object.year);
+  writer.writeBool(offsets[19], object.isAtmos);
+  writer.writeBool(offsets[20], object.isExplicit);
+  writer.writeDateTime(offsets[21], object.lastModified);
+  writer.writeString(offsets[22], object.mediaStoreUri);
+  writer.writeBool(offsets[23], object.metadataComplete);
+  writer.writeString(offsets[24], object.readMode);
+  writer.writeString(offsets[25], object.remoteId);
+  writer.writeLong(offsets[26], object.remoteServerId);
+  writer.writeDouble(offsets[27], object.replaygainAlbumGain);
+  writer.writeDouble(offsets[28], object.replaygainAlbumPeak);
+  writer.writeDouble(offsets[29], object.replaygainTrackGain);
+  writer.writeDouble(offsets[30], object.replaygainTrackPeak);
+  writer.writeString(offsets[31], object.ripper);
+  writer.writeLong(offsets[32], object.sampleRate);
+  writer.writeString(offsets[33], object.sourceType);
+  writer.writeLong(offsets[34], object.startOffsetMs);
+  writer.writeString(offsets[35], object.testCrc);
+  writer.writeString(offsets[36], object.title);
+  writer.writeLong(offsets[37], object.trackNumber);
+  writer.writeLong(offsets[38], object.year);
 }
 
 SongEntity _songEntityDeserialize(
@@ -482,24 +490,26 @@ SongEntity _songEntityDeserialize(
   object.genre = reader.readStringOrNull(offsets[17]);
   object.hasLocalEdits = reader.readBool(offsets[18]);
   object.id = id;
-  object.lastModified = reader.readDateTimeOrNull(offsets[19]);
-  object.mediaStoreUri = reader.readStringOrNull(offsets[20]);
-  object.metadataComplete = reader.readBool(offsets[21]);
-  object.readMode = reader.readStringOrNull(offsets[22]);
-  object.remoteId = reader.readStringOrNull(offsets[23]);
-  object.remoteServerId = reader.readLongOrNull(offsets[24]);
-  object.replaygainAlbumGain = reader.readDoubleOrNull(offsets[25]);
-  object.replaygainAlbumPeak = reader.readDoubleOrNull(offsets[26]);
-  object.replaygainTrackGain = reader.readDoubleOrNull(offsets[27]);
-  object.replaygainTrackPeak = reader.readDoubleOrNull(offsets[28]);
-  object.ripper = reader.readStringOrNull(offsets[29]);
-  object.sampleRate = reader.readLongOrNull(offsets[30]);
-  object.sourceType = reader.readStringOrNull(offsets[31]);
-  object.startOffsetMs = reader.readLongOrNull(offsets[32]);
-  object.testCrc = reader.readStringOrNull(offsets[33]);
-  object.title = reader.readString(offsets[34]);
-  object.trackNumber = reader.readLongOrNull(offsets[35]);
-  object.year = reader.readLongOrNull(offsets[36]);
+  object.isAtmos = reader.readBoolOrNull(offsets[19]);
+  object.isExplicit = reader.readBoolOrNull(offsets[20]);
+  object.lastModified = reader.readDateTimeOrNull(offsets[21]);
+  object.mediaStoreUri = reader.readStringOrNull(offsets[22]);
+  object.metadataComplete = reader.readBool(offsets[23]);
+  object.readMode = reader.readStringOrNull(offsets[24]);
+  object.remoteId = reader.readStringOrNull(offsets[25]);
+  object.remoteServerId = reader.readLongOrNull(offsets[26]);
+  object.replaygainAlbumGain = reader.readDoubleOrNull(offsets[27]);
+  object.replaygainAlbumPeak = reader.readDoubleOrNull(offsets[28]);
+  object.replaygainTrackGain = reader.readDoubleOrNull(offsets[29]);
+  object.replaygainTrackPeak = reader.readDoubleOrNull(offsets[30]);
+  object.ripper = reader.readStringOrNull(offsets[31]);
+  object.sampleRate = reader.readLongOrNull(offsets[32]);
+  object.sourceType = reader.readStringOrNull(offsets[33]);
+  object.startOffsetMs = reader.readLongOrNull(offsets[34]);
+  object.testCrc = reader.readStringOrNull(offsets[35]);
+  object.title = reader.readString(offsets[36]);
+  object.trackNumber = reader.readLongOrNull(offsets[37]);
+  object.year = reader.readLongOrNull(offsets[38]);
   return object;
 }
 
@@ -549,29 +559,29 @@ P _songEntityDeserializeProp<P>(
     case 18:
       return (reader.readBool(offset)) as P;
     case 19:
-      return (reader.readDateTimeOrNull(offset)) as P;
+      return (reader.readBoolOrNull(offset)) as P;
     case 20:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBoolOrNull(offset)) as P;
     case 21:
-      return (reader.readBool(offset)) as P;
+      return (reader.readDateTimeOrNull(offset)) as P;
     case 22:
       return (reader.readStringOrNull(offset)) as P;
     case 23:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 24:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 25:
-      return (reader.readDoubleOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 26:
-      return (reader.readDoubleOrNull(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 27:
       return (reader.readDoubleOrNull(offset)) as P;
     case 28:
       return (reader.readDoubleOrNull(offset)) as P;
     case 29:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readDoubleOrNull(offset)) as P;
     case 30:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readDoubleOrNull(offset)) as P;
     case 31:
       return (reader.readStringOrNull(offset)) as P;
     case 32:
@@ -579,10 +589,14 @@ P _songEntityDeserializeProp<P>(
     case 33:
       return (reader.readStringOrNull(offset)) as P;
     case 34:
-      return (reader.readString(offset)) as P;
-    case 35:
       return (reader.readLongOrNull(offset)) as P;
+    case 35:
+      return (reader.readStringOrNull(offset)) as P;
     case 36:
+      return (reader.readString(offset)) as P;
+    case 37:
+      return (reader.readLongOrNull(offset)) as P;
+    case 38:
       return (reader.readLongOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -3971,6 +3985,61 @@ extension SongEntityQueryFilter
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> isAtmosIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'isAtmos'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  isAtmosIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'isAtmos'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> isAtmosEqualTo(
+    bool? value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'isAtmos', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  isExplicitIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'isExplicit'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  isExplicitIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'isExplicit'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> isExplicitEqualTo(
+    bool? value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'isExplicit', value: value),
+      );
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
   lastModifiedIsNull() {
     return QueryBuilder.apply(this, (query) {
@@ -6154,6 +6223,30 @@ extension SongEntityQuerySortBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByIsAtmos() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isAtmos', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByIsAtmosDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isAtmos', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByIsExplicit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isExplicit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByIsExplicitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isExplicit', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByLastModified() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'lastModified', Sort.asc);
@@ -6623,6 +6716,30 @@ extension SongEntityQuerySortThenBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByIsAtmos() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isAtmos', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByIsAtmosDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isAtmos', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByIsExplicit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isExplicit', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByIsExplicitDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isExplicit', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByLastModified() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'lastModified', Sort.asc);
@@ -6984,6 +7101,18 @@ extension SongEntityQueryWhereDistinct
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByIsAtmos() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isAtmos');
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByIsExplicit() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isExplicit');
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByLastModified() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'lastModified');
@@ -7233,6 +7362,18 @@ extension SongEntityQueryProperty
   QueryBuilder<SongEntity, bool, QQueryOperations> hasLocalEditsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'hasLocalEdits');
+    });
+  }
+
+  QueryBuilder<SongEntity, bool?, QQueryOperations> isAtmosProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isAtmos');
+    });
+  }
+
+  QueryBuilder<SongEntity, bool?, QQueryOperations> isExplicitProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isExplicit');
     });
   }
 

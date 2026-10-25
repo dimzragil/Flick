@@ -106,6 +106,38 @@ class TidalHomeItem {
     return false;
   }
 
+  bool? get isExplicit {
+    if (raw['explicit'] == true) return true;
+    if (raw['item'] is Map && raw['item']['explicit'] == true) return true;
+    return null;
+  }
+
+  bool? get isAtmos {
+    final tags =
+        (raw['mediaMetadata'] is Map && raw['mediaMetadata']['tags'] is List)
+        ? raw['mediaMetadata']['tags'] as List
+        : (raw['tags'] is List ? raw['tags'] as List : const []);
+    if (tags.contains('DOLBY_ATMOS')) return true;
+    final modes = raw['audioModes'] is List
+        ? raw['audioModes'] as List
+        : const [];
+    if (modes.contains('DOLBY_ATMOS')) return true;
+    if (raw['item'] is Map) {
+      final itemMap = raw['item'] as Map;
+      final itemModes = itemMap['audioModes'] is List
+          ? itemMap['audioModes'] as List
+          : const [];
+      if (itemModes.contains('DOLBY_ATMOS')) return true;
+      final itemTags =
+          (itemMap['mediaMetadata'] is Map &&
+              itemMap['mediaMetadata']['tags'] is List)
+          ? itemMap['mediaMetadata']['tags'] as List
+          : (itemMap['tags'] is List ? itemMap['tags'] as List : const []);
+      if (itemTags.contains('DOLBY_ATMOS')) return true;
+    }
+    return null;
+  }
+
   /// Extract a TidalHomeItem from either a flat object or a `{ type, data }` wrapper.
   factory TidalHomeItem.fromJson(
     Map<String, dynamic> json, {

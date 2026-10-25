@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flick/widgets/common/flick_dialog.dart';
+import 'package:flick/widgets/common/song_badges.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -576,9 +577,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
     final sorted = List<AlbumGroup>.from(albums);
     switch (_albumSortOption) {
       case _AlbumGridSortOption.name:
-        sorted.sort(
-          (a, b) => compareCaseInsensitive(a.albumName, b.albumName),
-        );
+        sorted.sort((a, b) => compareCaseInsensitive(a.albumName, b.albumName));
       case _AlbumGridSortOption.artist:
         sorted.sort((a, b) {
           final c = compareCaseInsensitive(a.albumArtist, b.albumArtist);
@@ -1443,7 +1442,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
                     ),
                     error: (error, _) => Padding(
                       padding: const EdgeInsets.all(AppConstants.spacingXl),
-                      child: Text('Error loading playlists: ${friendlyErrorMessage(error)}'),
+                      child: Text(
+                        'Error loading playlists: ${friendlyErrorMessage(error)}',
+                      ),
                     ),
                     data: (state) => ListView(
                       shrinkWrap: true,
@@ -1530,9 +1531,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
     }
 
     if (mounted) {
-      _showSongActionSnackBar(
-        'Created $name and added ${songs.length} songs',
-      );
+      _showSongActionSnackBar('Created $name and added ${songs.length} songs');
       _exitSelectionMode();
     }
   }
@@ -1948,9 +1947,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
                       currentSort: currentSort,
                       currentFilter: currentFilter,
                       onSortChanged: (option) {
-                        ref
-                            .read(songsProvider.notifier)
-                            .setSortOption(option);
+                        ref.read(songsProvider.notifier).setSortOption(option);
                         setState(() {
                           _selectedIndex = 0;
                           _lastSyncedSong = null;
@@ -2244,10 +2241,10 @@ class _SongListTile extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    SongTitleRow(
+                      title: song.title,
+                      isExplicit: song.isExplicit,
+                      isAtmos: song.isAtmos,
                       style: titleStyle,
                     ),
                     const SizedBox(height: 2),

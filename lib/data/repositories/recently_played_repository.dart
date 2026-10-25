@@ -730,6 +730,8 @@ class RecentlyPlayedRepository {
       sourceType: entity.sourceType,
       remoteId: entity.remoteId,
       remoteServerId: entity.remoteServerId,
+      isExplicit: entity.isExplicit,
+      isAtmos: entity.isAtmos,
     );
   }
 

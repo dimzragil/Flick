@@ -7,7 +7,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../widgets/common/blurred_song_background.dart';
 import '../../../core/theme/adaptive_color_provider.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/duration_format.dart';
 import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
@@ -17,6 +16,7 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
+import '../../../widgets/common/song_badges.dart';
 import '../../player/widgets/sleep_timer_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -514,10 +514,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                                 : const FlickArtworkPlaceholder(),
                           ),
                         ),
-                        title: Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        title: SongTitleRow(
+                          title: song.title,
+                          isExplicit: song.isExplicit,
+                          isAtmos: song.isAtmos,
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 14,
@@ -526,9 +526,20 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                         ),
                         subtitle: Row(
                           children: [
+                            Expanded(
+                              child: Text(
+                                song.album ?? song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
                             if ((song.bitDepth ?? 0) >= 24)
                               Container(
-                                margin: const EdgeInsets.only(right: 6),
+                                margin: const EdgeInsets.only(left: 6),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 4,
                                   vertical: 1,
@@ -550,39 +561,16 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                                   ),
                                 ),
                               ),
-                            Expanded(
-                              child: Text(
-                                song.album ?? song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
                           ],
                         ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              formatDuration(song.duration),
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                LucideIcons.ellipsisVertical,
-                                size: 18,
-                                color: AppColors.textSecondary,
-                              ),
-                              onPressed: () =>
-                                  SongActionsBottomSheet.show(context, song),
-                            ),
-                          ],
+                        trailing: IconButton(
+                          icon: const Icon(
+                            LucideIcons.ellipsisVertical,
+                            size: 18,
+                            color: AppColors.textSecondary,
+                          ),
+                          onPressed: () =>
+                              SongActionsBottomSheet.show(context, song),
                         ),
                         onTap: () => _playSong(song, topTracks),
                       ),

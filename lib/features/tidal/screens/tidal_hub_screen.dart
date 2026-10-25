@@ -20,6 +20,7 @@ import '../../../services/player_service.dart';
 import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
+import '../../../widgets/common/song_badges.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
@@ -1663,10 +1664,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 : const FlickArtworkPlaceholder(),
           ),
         ),
-        title: Text(
-          item.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: SongTitleRow(
+          title: item.title,
+          isExplicit: item.isExplicit,
+          isAtmos: item.isAtmos,
           style: const TextStyle(
             color: AppColors.textPrimary,
             fontSize: 14,

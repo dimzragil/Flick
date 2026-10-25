@@ -23,6 +23,7 @@ import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/animated_album_art.dart';
 import 'package:flick/widgets/common/scroll_fade_wrapper.dart';
 import 'package:flick/widgets/common/song_tile_thumbnail.dart';
+import 'package:flick/widgets/common/song_badges.dart';
 import 'package:flick/widgets/common/detail_header.dart';
 import 'package:flick/widgets/common/detail_description.dart';
 import 'package:flick/widgets/common/flick_dialog.dart';
@@ -871,13 +872,13 @@ class _SongTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      song.title,
+                    SongTitleRow(
+                      title: song.title,
+                      isExplicit: song.isExplicit,
+                      isAtmos: song.isAtmos,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(

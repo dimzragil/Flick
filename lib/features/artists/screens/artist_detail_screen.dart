@@ -29,6 +29,7 @@ import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 import 'package:flick/widgets/common/animated_album_art.dart';
 import 'package:flick/widgets/common/scroll_fade_wrapper.dart';
 import 'package:flick/widgets/common/song_tile_thumbnail.dart';
+import 'package:flick/widgets/common/song_badges.dart';
 import 'package:flick/widgets/common/detail_header.dart';
 import 'package:flick/widgets/common/detail_description.dart';
 import 'package:flick/widgets/common/flick_dialog.dart';
@@ -384,7 +385,8 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
 
   Future<void> _toggleFavoriteAll() async {
     if (widget.songs.isEmpty) return;
-    final favIds = ref.read(favoritesProvider).value?.favoriteIds ?? const <String>{};
+    final favIds =
+        ref.read(favoritesProvider).value?.favoriteIds ?? const <String>{};
     final notifier = ref.read(favoritesProvider.notifier);
     final isAll = widget.songs.every((s) => favIds.contains(s.id));
     if (isAll) {
@@ -503,9 +505,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          updated
-              ? 'Apple Music data updated'
-              : 'Apple Music data unavailable',
+          updated ? 'Apple Music data updated' : 'Apple Music data unavailable',
         ),
       ),
     );
@@ -592,17 +592,16 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
         duration: AppConstants.animationSlow,
         curve: Curves.easeOut,
         builder: (context, animatedBg, _) {
-        final resolvedBg = animatedBg ?? AppColors.background;
-        final prefs = ref.watch(appPreferencesProvider);
-        final appleMusic = ref
-            .watch(appleMusicArtistProvider(widget.artistName))
-            .value;
-        final appleBio = appleMusic?.info?.biography?.trim();
-        final similarArtists =
-            appleMusic?.info?.similarArtists ??
-            const <AppleMusicSimilarArtist>[];
-        final topSongs =
-            appleMusic?.topSongs ?? const <AppleMusicTopSong>[];
+          final resolvedBg = animatedBg ?? AppColors.background;
+          final prefs = ref.watch(appPreferencesProvider);
+          final appleMusic = ref
+              .watch(appleMusicArtistProvider(widget.artistName))
+              .value;
+          final appleBio = appleMusic?.info?.biography?.trim();
+          final similarArtists =
+              appleMusic?.info?.similarArtists ??
+              const <AppleMusicSimilarArtist>[];
+          final topSongs = appleMusic?.topSongs ?? const <AppleMusicTopSong>[];
           return Stack(
             children: [
               Scaffold(
@@ -644,27 +643,28 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
                               onQueue: _queueAll,
                               onMore: _showMore,
                               primaryColor: _artistColor,
-                             ),
-                           ),
-                         ),
-                         SliverToBoxAdapter(
-                           child:
-                               DetailDescription(descriptionKey: _descriptionKey),
+                            ),
                           ),
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: AppConstants.spacingMd),
+                        ),
+                        SliverToBoxAdapter(
+                          child: DetailDescription(
+                            descriptionKey: _descriptionKey,
                           ),
-                          if (appleBio != null && appleBio.isNotEmpty)
-                            _buildSectionTitle(context, 'About'),
-                         if (appleBio != null && appleBio.isNotEmpty)
-                           SliverToBoxAdapter(
-                             child: FetchedDescription(text: appleBio),
-                           ),
-                         const SliverToBoxAdapter(
-                           child: SizedBox(height: AppConstants.spacingLg),
-                         ),
-                         if (_artistAlbums.length > 1)
-                           _buildSectionTitle(context, 'Albums'),
+                        ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: AppConstants.spacingMd),
+                        ),
+                        if (appleBio != null && appleBio.isNotEmpty)
+                          _buildSectionTitle(context, 'About'),
+                        if (appleBio != null && appleBio.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: FetchedDescription(text: appleBio),
+                          ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: AppConstants.spacingLg),
+                        ),
+                        if (_artistAlbums.length > 1)
+                          _buildSectionTitle(context, 'Albums'),
                         if (_artistAlbums.length > 1)
                           SliverToBoxAdapter(
                             child: SizedBox(
@@ -851,9 +851,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
                         alignment: Alignment.centerLeft,
                         child: Text(
                           widget.artistName,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: context.adaptiveTextPrimary,
                                 fontWeight: FontWeight.w600,
@@ -863,12 +861,9 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen>
                       ),
                       Text(
                         '${_albumGroups.length} albums • ${widget.songs.length} songs',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(
-                              color: context.adaptiveTextSecondary,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.adaptiveTextSecondary,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1136,8 +1131,14 @@ class _MostPlayedCardState extends State<_MostPlayedCard>
                     imagePath: widget.song.albumArt,
                     audioSourcePath: widget.song.filePath,
                     fit: BoxFit.cover,
-                    placeholder: const FlickArtworkPlaceholder(size: 22, opacity: 0.9),
-                    errorWidget: const FlickArtworkPlaceholder(size: 22, opacity: 0.9),
+                    placeholder: const FlickArtworkPlaceholder(
+                      size: 22,
+                      opacity: 0.9,
+                    ),
+                    errorWidget: const FlickArtworkPlaceholder(
+                      size: 22,
+                      opacity: 0.9,
+                    ),
                   ),
                 ),
               ),
@@ -1147,14 +1148,14 @@ class _MostPlayedCardState extends State<_MostPlayedCard>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      widget.song.title,
+                    SongTitleRow(
+                      title: widget.song.title,
+                      isExplicit: widget.song.isExplicit,
+                      isAtmos: widget.song.isAtmos,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: context.adaptiveTextPrimary,
                         fontWeight: FontWeight.w600,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1257,13 +1258,13 @@ class _SongTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      song.title,
+                    SongTitleRow(
+                      title: song.title,
+                      isExplicit: song.isExplicit,
+                      isAtmos: song.isAtmos,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(

@@ -11,6 +11,7 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/display_mode_wrapper.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
+import '../../../widgets/common/song_badges.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -137,103 +138,85 @@ class TidalLikedSongsScreen extends ConsumerWidget {
 
     return PressScale(
       child: ListTile(
-          dense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            vertical: 2,
-            horizontal: 4,
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+          child: SizedBox(
+            width: thumbSize,
+            height: thumbSize,
+            child: thumbArt != null
+                ? CachedImageWidget(
+                    imagePath: thumbArt,
+                    audioSourcePath: song.filePath,
+                    width: thumbSize,
+                    height: thumbSize,
+                    useThumbnail: true,
+                    thumbnailWidth: 160,
+                    thumbnailHeight: 160,
+                    fit: BoxFit.cover,
+                    placeholder: const FlickArtworkPlaceholder(),
+                    errorWidget: const FlickArtworkPlaceholder(),
+                  )
+                : const FlickArtworkPlaceholder(),
           ),
-          leading: ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            child: SizedBox(
-              width: thumbSize,
-              height: thumbSize,
-              child: thumbArt != null
-                  ? CachedImageWidget(
-                      imagePath: thumbArt,
-                      audioSourcePath: song.filePath,
-                      width: thumbSize,
-                      height: thumbSize,
-                      useThumbnail: true,
-                      thumbnailWidth: 160,
-                      thumbnailHeight: 160,
-                      fit: BoxFit.cover,
-                      placeholder: const FlickArtworkPlaceholder(),
-                      errorWidget: const FlickArtworkPlaceholder(),
-                    )
-                  : const FlickArtworkPlaceholder(),
-            ),
+        ),
+        title: SongTitleRow(
+          title: song.title,
+          isExplicit: song.isExplicit,
+          isAtmos: song.isAtmos,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          subtitle: Row(
-            children: [
-              if (isHiRes)
-                Container(
-                  margin: const EdgeInsets.only(right: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.glassBackgroundStrong,
-                    borderRadius: BorderRadius.circular(3),
-                    border: Border.all(
-                      color: const Color(0xFFE5A93C),
-                      width: 0.75,
-                    ),
-                  ),
-                  child: const Text(
-                    'Hi-Res',
-                    style: TextStyle(
-                      color: Color(0xFFE5A93C),
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: Text(
-                  song.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                song.formattedDuration,
+        ),
+        subtitle: Row(
+          children: [
+            Expanded(
+              child: Text(
+                song.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 12,
                 ),
               ),
-              IconButton(
-                icon: const Icon(
-                  LucideIcons.ellipsisVertical,
-                  color: AppColors.textSecondary,
-                  size: 18,
+            ),
+            if (isHiRes)
+              Container(
+                margin: const EdgeInsets.only(left: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackgroundStrong,
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(
+                    color: const Color(0xFFE5A93C),
+                    width: 0.75,
+                  ),
                 ),
-                onPressed: () => SongActionsBottomSheet.show(context, song),
+                child: const Text(
+                  'Hi-Res',
+                  style: TextStyle(
+                    color: Color(0xFFE5A93C),
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-            ],
-          ),
-          onTap: () => _playSong(context, song, playlist),
+          ],
         ),
+        trailing: IconButton(
+          icon: const Icon(
+            LucideIcons.ellipsisVertical,
+            color: AppColors.textSecondary,
+            size: 18,
+          ),
+          onPressed: () => SongActionsBottomSheet.show(context, song),
+        ),
+        onTap: () => _playSong(context, song, playlist),
+      ),
     );
   }
 }

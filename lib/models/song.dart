@@ -103,6 +103,12 @@ class Song {
   /// [NetworkServerEntity.id] of the server this song was synced from.
   final int? remoteServerId;
 
+  /// Whether the track is explicit (TIDAL etc.).
+  final bool? isExplicit;
+
+  /// Whether the track has a Dolby Atmos mix.
+  final bool? isAtmos;
+
   const Song({
     required this.id,
     required this.title,
@@ -138,6 +144,8 @@ class Song {
     this.sourceType,
     this.remoteId,
     this.remoteServerId,
+    this.isExplicit,
+    this.isAtmos,
   });
 
   /// Convert this song to JSON for playback state persistence.
@@ -176,6 +184,8 @@ class Song {
     'sourceType': sourceType,
     'remoteId': remoteId,
     'remoteServerId': remoteServerId,
+    'isExplicit': isExplicit,
+    'isAtmos': isAtmos,
   };
 
   /// Recreate a song from persisted JSON, tolerating absent or mistyped fields.
@@ -229,6 +239,8 @@ class Song {
       sourceType: stringValue('sourceType'),
       remoteId: stringValue('remoteId'),
       remoteServerId: intValue('remoteServerId'),
+      isExplicit: boolValue('isExplicit'),
+      isAtmos: boolValue('isAtmos'),
     );
   }
 
@@ -243,7 +255,11 @@ class Song {
     if (sampleRate != null && sampleRate! >= 2822400) return true;
     final ext = filePath?.split('.').last.toLowerCase() ?? '';
     if (_dsdExtensions.contains(ext)) return true;
-    if (ext == _wavpackExtension && (fileType.toUpperCase() == 'WV-DSD' || (sampleRate != null && sampleRate! >= 2822400))) return true;
+    if (ext == _wavpackExtension &&
+        (fileType.toUpperCase() == 'WV-DSD' ||
+            (sampleRate != null && sampleRate! >= 2822400))) {
+      return true;
+    }
     final ft = fileType.toUpperCase();
     return ft == 'DSF' || ft == 'DFF' || ft == 'DSD' || ft == 'WV-DSD';
   }
@@ -326,6 +342,8 @@ class Song {
     String? sourceType,
     String? remoteId,
     int? remoteServerId,
+    bool? isExplicit,
+    bool? isAtmos,
   }) {
     return Song(
       id: id ?? this.id,
@@ -362,6 +380,8 @@ class Song {
       sourceType: sourceType ?? this.sourceType,
       remoteId: remoteId ?? this.remoteId,
       remoteServerId: remoteServerId ?? this.remoteServerId,
+      isExplicit: isExplicit ?? this.isExplicit,
+      isAtmos: isAtmos ?? this.isAtmos,
     );
   }
 

@@ -9,6 +9,7 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/blurred_song_background.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
+import 'package:flick/widgets/common/song_badges.dart';
 import 'package:flick/widgets/common/surface_icon_button.dart';
 
 class QueueScreen extends ConsumerStatefulWidget {
@@ -574,10 +575,10 @@ class _NowPlayingCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                SongTitleRow(
+                  title: song.title,
+                  isExplicit: song.isExplicit,
+                  isAtmos: song.isAtmos,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: context.adaptiveTextPrimary,
                     fontWeight: FontWeight.w700,
@@ -684,10 +685,10 @@ class _UpcomingTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      SongTitleRow(
+                        title: song.title,
+                        isExplicit: song.isExplicit,
+                        isAtmos: song.isAtmos,
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: context.adaptiveTextPrimary,
                           fontWeight: FontWeight.w600,
@@ -846,10 +847,10 @@ class _QueueTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      SongTitleRow(
+                        title: song.title,
+                        isExplicit: song.isExplicit,
+                        isAtmos: song.isAtmos,
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: context.adaptiveTextPrimary,
                           fontWeight: FontWeight.w600,
