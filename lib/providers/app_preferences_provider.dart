@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flick/services/app_preferences_service.dart';
+import 'package:flick/services/remote_source_service.dart';
 
 final appPreferencesServiceProvider = Provider<AppPreferencesService>((ref) {
   return AppPreferencesService();
@@ -137,6 +138,7 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
     if (state.enableDolbyAtmos == value) return;
     state = state.copyWith(enableDolbyAtmos: value);
     await ref.read(appPreferencesServiceProvider).setEnableDolbyAtmos(value);
+    RemoteSourceService.instance.clearAllResolutions();
   }
 
   Future<void> setReplayGainMode(String value) async {

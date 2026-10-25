@@ -2314,11 +2314,25 @@ class PlayerService {
   /// When Bit-Perfect USB DAC Mode is active, Dolby Atmos is STRICTLY DISABLED
   /// to prioritize pure Bit-Perfect Hi-Res Lossless Stereo PCM.
   Future<bool> _shouldAllowDolbyAtmos() async {
+    // 1. Bit-Perfect or USB DAC mode: strictly disabled to prioritize linear PCM stereo
     if (isBitPerfectModeEnabled) return false;
     if (currentEngineType == AudioEngineType.usbDacExperimental) return false;
-    if (!AndroidAudioDeviceService.instance.deviceInfoNotifier.value.isDolbyAtmosSupported) {
+    if (_sessionManager.selectedMode == AudioEngineType.usbDacExperimental) return false;
+    final dev = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+    if (dev.hasUsbDac ||
+        dev.hasAttachedUac2Device ||
+        dev.isUsbRoute ||
+        dev.looksLikeUsbAudioRoute) {
       return false;
     }
+    if (_uac2Service.currentDeviceStatus?.isExternalRoute == true) {
+      return false;
+    }
+
+    // 2. Hardware Atmos capability check
+    if (!dev.isDolbyAtmosSupported) return false;
+
+    // 3. User preference toggle check
     return await _appPreferencesService.getEnableDolbyAtmos();
   }
 

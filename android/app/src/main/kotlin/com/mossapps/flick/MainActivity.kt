@@ -4535,6 +4535,7 @@ class MainActivity: FlutterActivity() {
             "hasSpatializer" to (capabilities["hasSpatializer"] == true),
             "hasEac3JocDecoder" to (capabilities["hasEac3JocDecoder"] == true),
             "hasDeviceEncoding" to (capabilities["hasDeviceEncoding"] == true),
+            "hasDolbyEffect" to (capabilities["hasDolbyEffect"] == true),
         )
     }
 

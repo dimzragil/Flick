@@ -366,6 +366,13 @@ class TidalService implements NetworkSourceService {
     streamResolutionVersion.value++;
   }
 
+  /// Evict all resolved streams from memory and delete all temporary DASH manifests.
+  void clearAllResolutions() {
+    _resolvedStreams.clear();
+    unawaited(_dashManifests.evictAll());
+    streamResolutionVersion.value++;
+  }
+
   /// Uppercase display label for a track's resolved codec ("FLAC", "AAC",
   /// ...), or null when the track hasn't resolved (yet) or the codec is
   /// unknown. Pure in-memory lookup.
@@ -1759,12 +1766,24 @@ class TidalService implements NetworkSourceService {
     String? extension,
     bool allowDolbyAtmos = false,
   }) async {
+    // Invalidate stale Atmos resolution when Atmos is not allowed
+    if (!allowDolbyAtmos && _resolvedStreams[remoteId]?.isDolbyAtmos == true) {
+      _resolvedStreams.remove(remoteId);
+      unawaited(_dashManifests.evict(remoteId));
+    }
+
+    final extHint = (!allowDolbyAtmos &&
+            (_resolvedStreams[remoteId]?.isDolbyAtmos == true ||
+                _resolvedStreams[remoteId]?.ext == 'mp4'))
+        ? (extension ?? 'flac')
+        : (_resolvedStreams[remoteId]?.ext ?? extension ?? 'flac');
+
     // 1. If already cached locally, return null so playback uses the local file directly.
     try {
       final cached = await _cache.getPath(
         server.id,
         remoteId,
-        extension: _resolvedStreams[remoteId]?.ext ?? extension ?? 'mp4',
+        extension: extHint,
       );
       if (cached != null) {
         return null;
@@ -1928,10 +1947,15 @@ class TidalService implements NetworkSourceService {
     // the song's file type: the DASH pump downloads hi-res tracks as
     // `<hash>.mp4` while `song.fileType` stays `'flac'`. Without this, a late
     // rearm misses the cached mp4 and re-downloads the whole track (~25s).
+    // Ensure we don't return an Atmos MP4 for standard local playback / download
+    if (_resolvedStreams[remoteId]?.isDolbyAtmos == true) {
+      _resolvedStreams.remove(remoteId);
+      unawaited(_dashManifests.evict(remoteId));
+    }
     final cached = await _cache.getPath(
       server.id,
       remoteId,
-      extension: _resolvedStreams[remoteId]?.ext ?? extension,
+      extension: _resolvedStreams[remoteId]?.ext ?? extension ?? 'flac',
     );
     if (cached != null) return cached;
 
@@ -2327,6 +2351,12 @@ class TidalService implements NetworkSourceService {
             final isAtmos = tier == 'DOLBY_ATMOS' ||
                 dashCodecRaw?.contains('ec-3') == true ||
                 dashCodecRaw?.contains('eac3') == true;
+            if (isAtmos && !allowDolbyAtmos) {
+              devLog(
+                '[Tidal] Rejecting Atmos/EAC3 DASH stream for $trackId because allowDolbyAtmos is false',
+              );
+              continue;
+            }
             final dashCodec = isAtmos
                 ? 'eac3_joc'
                 : (_normalizeCodec(dashCodecRaw, null) ?? 'flac');
@@ -2398,6 +2428,12 @@ class TidalService implements NetworkSourceService {
           final isAtmos = tier == 'DOLBY_ATMOS' ||
               btsCodecRaw?.contains('ec-3') == true ||
               btsCodecRaw?.contains('eac3') == true;
+          if (isAtmos && !allowDolbyAtmos) {
+            devLog(
+              '[Tidal] Rejecting Atmos/EAC3 BTS stream for $trackId because allowDolbyAtmos is false',
+            );
+            continue;
+          }
           final btsCodec = isAtmos
               ? 'eac3_joc'
               : _normalizeCodec(

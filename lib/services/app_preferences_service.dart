@@ -235,7 +235,7 @@ class AppPreferences {
     this.karaokeEnabled = true,
     this.replayGainPreampDb = 0.0,
     this.replayGainPreventClipping = true,
-    this.enableDolbyAtmos = true,
+    this.enableDolbyAtmos = false,
   });
 
   AppPreferences copyWith({
@@ -799,7 +799,7 @@ class AppPreferencesService {
       replayGainPreampDb: prefs.getDouble(_replayGainPreampKey) ?? 0.0,
       replayGainPreventClipping:
           prefs.getBool(_replayGainPreventClippingKey) ?? true,
-      enableDolbyAtmos: prefs.getBool(_enableDolbyAtmosKey) ?? true,
+      enableDolbyAtmos: prefs.getBool(_enableDolbyAtmosKey) ?? false,
     );
   }
 
@@ -995,7 +995,7 @@ class AppPreferencesService {
 
   Future<bool> getEnableDolbyAtmos() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_enableDolbyAtmosKey) ?? true;
+    return prefs.getBool(_enableDolbyAtmosKey) ?? false;
   }
 
   Future<void> setEnableDolbyAtmos(bool value) async {

@@ -18,6 +18,7 @@ class AndroidPlaybackDeviceInfo {
     this.hasSpatializer = false,
     this.hasEac3JocDecoder = false,
     this.hasDeviceEncoding = false,
+    this.hasDolbyEffect = false,
   });
 
   final bool hasUsbDac;
@@ -30,6 +31,7 @@ class AndroidPlaybackDeviceInfo {
   final bool hasSpatializer;
   final bool hasEac3JocDecoder;
   final bool hasDeviceEncoding;
+  final bool hasDolbyEffect;
 
   bool get isUsbRoute => routeType == 'usb';
   bool get isInternalRoute => routeType == 'internal';
@@ -82,6 +84,7 @@ class AndroidPlaybackDeviceInfo {
       hasSpatializer: raw['hasSpatializer'] == true,
       hasEac3JocDecoder: raw['hasEac3JocDecoder'] == true,
       hasDeviceEncoding: raw['hasDeviceEncoding'] == true,
+      hasDolbyEffect: raw['hasDolbyEffect'] == true,
     );
   }
 
@@ -94,6 +97,7 @@ class AndroidPlaybackDeviceInfo {
     hasSpatializer: false,
     hasEac3JocDecoder: false,
     hasDeviceEncoding: false,
+    hasDolbyEffect: false,
   );
 }
 

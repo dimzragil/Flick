@@ -299,5 +299,67 @@ void main() {
       expect(service.getResolvedStream('track-switch-104')?.isDolbyAtmos, isFalse);
       expect(service.getResolvedStream('track-switch-104')?.codec, 'flac');
     });
+
+    test('tuki reference track fallback: when allowDolbyAtmos is false, EAC3/Atmos in HiRes probe is rejected and cascade falls back to LOSSLESS FLAC', () async {
+      final requestedTiers = <String>[];
+      final client = MockClient((request) async {
+        if (request.url.path.contains('/playbackinfopostpaywall')) {
+          final tier = request.url.queryParameters['audioquality'] ?? '';
+          requestedTiers.add(tier);
+          // Suppose the server attempts to serve an Atmos manifest on HI_RES_LOSSLESS:
+          if (tier == 'HI_RES_LOSSLESS') {
+            return http.Response(
+              jsonEncode({
+                'manifest': _atmosBtsManifest(),
+                'manifestMimeType': 'application/vnd.tidal.bts',
+                'audioQuality': 'DOLBY_ATMOS',
+                'codec': 'ec-3',
+              }),
+              200,
+            );
+          }
+          if (tier == 'HI_RES') {
+            return http.Response('{"error": "Not available"}', 404);
+          }
+          // The stereo fallback tier for tuki tracks (CD quality 16/44.1 FLAC):
+          if (tier == 'LOSSLESS') {
+            return http.Response(
+              jsonEncode({
+                'manifest': _stereoLosslessBtsManifest(),
+                'manifestMimeType': 'application/vnd.tidal.bts',
+                'audioQuality': 'LOSSLESS',
+                'codec': 'flac',
+                'sampleRate': 44100,
+                'bitDepth': 16,
+              }),
+              200,
+            );
+          }
+        }
+        return http.Response('{"error": "Not found"}', 404);
+      });
+
+      final service = TidalService.create(client: client, networkCache: cache);
+      final server = _server(token: _validToken());
+
+      final res = await service.streamDescriptor(
+        server,
+        '426577366', // bansanka track ID
+        allowDolbyAtmos: false,
+      );
+
+      expect(res, isNotNull);
+      // HI_RES_LOSSLESS was probed, but its ec-3 manifest was rejected because allowDolbyAtmos == false
+      expect(requestedTiers, contains('HI_RES_LOSSLESS'));
+      expect(requestedTiers, contains('LOSSLESS'));
+
+      final resolved = service.getResolvedStream('426577366');
+      expect(resolved, isNotNull);
+      expect(resolved!.isDolbyAtmos, isFalse);
+      expect(resolved.codec, 'flac');
+      expect(resolved.sampleRate, 44100);
+      expect(resolved.bitDepth, 16);
+      expect(resolved.audioQuality, 'LOSSLESS');
+    });
   });
 }

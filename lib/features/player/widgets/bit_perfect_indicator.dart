@@ -4,9 +4,11 @@ import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/models/album_color_mode.dart';
+import 'package:flick/models/audio_engine_type.dart';
 import 'package:flick/models/audio_output_diagnostics.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
+import 'package:flick/services/android_audio_device_service.dart';
 import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/sources/tidal_service.dart';
@@ -664,9 +666,16 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         widget.song.remoteId != null &&
         TidalService.hasAtmosTag(widget.song.remoteId!);
     if (isTrackAtmosTagged && resolved?.isDolbyAtmos != true) {
-      final reason = widget.playerService.isBitPerfectModeEnabled
+      final dev = AndroidAudioDeviceService.instance.deviceInfoNotifier.value;
+      final isAtmosUnsupported = !dev.isDolbyAtmosSupported;
+      final reason = (widget.playerService.isBitPerfectModeEnabled ||
+              widget.playerService.currentEngineType ==
+                  AudioEngineType.usbDacExperimental ||
+              dev.hasUsbDac)
           ? 'Bypassed (Bit-Perfect USB DAC Mode)'
-          : 'Playing in Stereo (Fallback)';
+          : (isAtmosUnsupported
+              ? 'Playing in Stereo (Hardware Unsupported)'
+              : 'Playing in Stereo (Dolby Atmos Disabled)');
       rows.add(_buildRow(context, label: 'Atmos Mode', value: reason));
     }
 

@@ -140,6 +140,16 @@ class RemoteSourceService {
     }
   }
 
+  /// Evict all cached stream resolutions across all tracks (e.g. when toggling Dolby Atmos).
+  void clearAllResolutions() {
+    try {
+      final service = networkSourceServiceFor(NetworkProtocol.tidal);
+      if (service is TidalService) {
+        service.clearAllResolutions();
+      }
+    } catch (_) {}
+  }
+
   /// Resolve a direct ranged HTTP stream for [song] when the protocol supports
   /// byte-range requests. Returns null when unsupported (UPnP/SMB) or on
   /// resolve failure — callers fall back to cache-then-play via [ensureLocal].
