@@ -181,6 +181,93 @@ void main() {
   );
 
   testWidgets(
+    'TidalHubScreen carousels keep independent offsets across dispose/remount',
+    (tester) async {
+      // Regression test for the bbba76e6 virtualization fallout: keyless
+      // horizontal carousels under the vertical feed's PageStorageKey all
+      // shared one PageStorage slot, so a remounted carousel restored
+      // another carousel's (or the feed's) offset, clamped to its own end.
+      final sections = [
+        TidalHomeSection(
+          title: 'Carousel 0',
+          sectionType: 'HORIZONTAL_LIST',
+          items: [
+            for (var j = 0; j < 10; j++)
+              TidalHomeItem(id: 'c0-$j', title: 'C0 Item $j', type: 'ALBUM'),
+          ],
+        ),
+        TidalHomeSection(
+          title: 'Carousel 1',
+          sectionType: 'HORIZONTAL_LIST',
+          items: [
+            for (var j = 0; j < 10; j++)
+              TidalHomeItem(id: 'c1-$j', title: 'C1 Item $j', type: 'ALBUM'),
+          ],
+        ),
+        for (var i = 2; i < 12; i++)
+          TidalHomeSection(
+            title: 'Carousel $i',
+            sectionType: 'HORIZONTAL_LIST',
+            items: [
+              TidalHomeItem(id: 'item-$i', title: 'Item $i', type: 'ALBUM'),
+            ],
+          ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentSongProvider.overrideWith((ref) => null),
+            tidalServerProvider.overrideWith(
+              () => _MockTidalServerNotifier(_serverWithToken()),
+            ),
+            tidalUserPlaylistsProvider.overrideWith((ref) async => []),
+            tidalHomeFeedProvider.overrideWith(
+              (ref, slug) async => TidalHomeFeed(sections: sections),
+            ),
+            tidalLikedSongsProvider.overrideWith((ref) async => []),
+          ],
+          child: const MaterialApp(home: TidalHubScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll the first carousel right; its offset is saved on scroll end.
+      await tester.drag(find.text('C0 Item 0'), const Offset(-400, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('C0 Item 0'), findsNothing);
+
+      // Scroll the feed to the bottom (disposing the top sections) and back
+      // up: remounted carousels must restore their OWN offset, not a shared
+      // one — Carousel 1 never scrolled, so it comes back at the start.
+      await tester.scrollUntilVisible(
+        find.text('Carousel 11'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Carousel 1'),
+        -400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('C1 Item 0'), findsOneWidget);
+
+      await tester.scrollUntilVisible(
+        find.text('Carousel 0'),
+        -400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      // Carousel 0 remembers its own scroll position (still scrolled right).
+      expect(find.text('C0 Item 0'), findsNothing);
+      expect(find.text('C0 Item 4'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'TidalSearchScreen displays search bar and category filter chips',
     (tester) async {
       await tester.pumpWidget(
@@ -756,7 +843,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final albumCoverUrl = TidalService.artistPictureUrl('abc-cover', size: 320);
+      final albumCoverUrl = TidalService.artistPictureUrl(
+        'abc-cover',
+        size: 320,
+      );
       expect(albumCoverUrl, isNotEmpty);
       final avatar = find.descendant(
         of: find.byType(ClipOval),

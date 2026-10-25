@@ -110,11 +110,19 @@ class _StaggeredEntranceState extends State<StaggeredEntrance> {
 /// entrance. Once it closes — shortly after the screen (or its content) first
 /// built — children that mount later render statically, so scrolling never
 /// replays the animation.
+///
+/// A window that itself lives inside a lazily inflated list (e.g. a section
+/// of a virtualized feed) is disposed and remounted on scroll, which would
+/// reopen a fresh window every time. For such windows pass
+/// [initiallyOpen] = false after the first close (via [onClosed]) so the
+/// entrance stays one-shot for the screen visit instead of replaying.
 class StaggeredEntranceWindow extends StatefulWidget {
   const StaggeredEntranceWindow({
     super.key,
     required this.child,
     this.duration = const Duration(milliseconds: 650),
+    this.initiallyOpen = true,
+    this.onClosed,
   });
 
   /// The screen content containing the staggered list(s).
@@ -122,6 +130,13 @@ class StaggeredEntranceWindow extends StatefulWidget {
 
   /// How long entrances are allowed after the first build.
   final Duration duration;
+
+  /// Whether the window starts open. Pass false when remounting a window
+  /// whose entrance already played, so its children render statically.
+  final bool initiallyOpen;
+
+  /// Called exactly once when the window closes after being open.
+  final VoidCallback? onClosed;
 
   /// Whether entrances may still play in this build context.
   ///
@@ -144,9 +159,15 @@ class _StaggeredEntranceWindowState extends State<StaggeredEntranceWindow> {
   @override
   void initState() {
     super.initState();
-    _closeTimer = Timer(widget.duration, () {
-      if (mounted && _open) setState(() => _open = false);
-    });
+    _open = widget.initiallyOpen;
+    if (_open) {
+      _closeTimer = Timer(widget.duration, () {
+        if (mounted && _open) {
+          setState(() => _open = false);
+          widget.onClosed?.call();
+        }
+      });
+    }
   }
 
   @override

@@ -56,40 +56,75 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('renders instantly for children mounted after the window closed',
-      (tester) async {
-    var showRow = false;
-    late StateSetter setState;
+  testWidgets(
+    'renders instantly for children mounted after the window closed',
+    (tester) async {
+      var showRow = false;
+      late StateSetter setState;
 
+      await tester.pumpWidget(
+        _host(
+          StaggeredEntranceWindow(
+            child: StatefulBuilder(
+              builder: (context, setter) {
+                setState = setter;
+                return showRow
+                    ? const StaggeredEntrance(index: 3, child: Text('late row'))
+                    : const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Let the entrance window close.
+      await tester.pump(const Duration(milliseconds: 700));
+
+      setState(() => showRow = true);
+      await tester.pump();
+
+      // No entrance: fully visible (and in place) right away.
+      expect(_fadeValue(tester), 1.0);
+      expect(_slideTarget(tester), Offset.zero);
+    },
+  );
+
+  testWidgets('stays closed when initiallyOpen is false', (tester) async {
     await tester.pumpWidget(
       _host(
-        StaggeredEntranceWindow(
-          child: StatefulBuilder(
-            builder: (context, setter) {
-              setState = setter;
-              return showRow
-                  ? const StaggeredEntrance(index: 3, child: Text('late row'))
-                  : const SizedBox.shrink();
-            },
-          ),
+        const StaggeredEntranceWindow(
+          initiallyOpen: false,
+          child: StaggeredEntrance(index: 2, child: Text('row')),
         ),
       ),
     );
-
-    // Let the entrance window close.
-    await tester.pump(const Duration(milliseconds: 700));
-
-    setState(() => showRow = true);
     await tester.pump();
 
-    // No entrance: fully visible (and in place) right away.
+    // No entrance: fully visible (and in place) right away, even though the
+    // window never opened — this is what a remounted window must do so a
+    // lazily inflated section does not replay its entrance on scroll back.
     expect(_fadeValue(tester), 1.0);
     expect(_slideTarget(tester), Offset.zero);
   });
 
-  testWidgets('renders instantly when animations are disabled', (
-    tester,
-  ) async {
+  testWidgets('calls onClosed when the window closes', (tester) async {
+    var closed = false;
+    await tester.pumpWidget(
+      _host(
+        StaggeredEntranceWindow(
+          duration: const Duration(milliseconds: 100),
+          onClosed: () => closed = true,
+          child: const StaggeredEntrance(index: 0, child: Text('row')),
+        ),
+      ),
+    );
+
+    expect(closed, isFalse);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(closed, isTrue);
+  });
+
+  testWidgets('renders instantly when animations are disabled', (tester) async {
     AppConstants.setAnimationsEnabled(false);
     addTearDown(() => AppConstants.setAnimationsEnabled(true));
 

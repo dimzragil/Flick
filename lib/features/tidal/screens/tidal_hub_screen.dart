@@ -52,6 +52,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   String? _signInError;
   String _activeFeedSlug = 'static';
 
+  // One-shot gate for the playlist entrance window: once the window closes,
+  // later remounts of the playlist section (the virtualized feed disposes
+  // scrolled-out sections) must render statically instead of replaying the
+  // entrance on every scroll back up.
+  bool _playlistEntranceClosed = false;
+
   Future<void> _signIn() async {
     setState(() {
       _isSigningIn = true;
@@ -1114,8 +1120,16 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                   }
                 }
                 // Window anchored to the playlist content itself so the
-                // entrance plays when this async section resolves.
+                // entrance plays when this async section resolves. Once it
+                // closes it stays closed for this screen visit, so scrolling
+                // the section out and back in does not replay the entrance.
                 return StaggeredEntranceWindow(
+                  initiallyOpen: !_playlistEntranceClosed,
+                  onClosed: () {
+                    if (mounted) {
+                      setState(() => _playlistEntranceClosed = true);
+                    }
+                  },
                   child: Column(children: children),
                 );
               },
@@ -1180,6 +1194,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           child: SizedBox(
             height: 38,
             child: ListView.builder(
+              // Own PageStorage slot: without a key this row shared one
+              // slot with every other keyless horizontal list under the
+              // vertical feed's PageStorageKey, so a remount after scroll
+              // restored another row's offset (see carousel/compact below).
+              key: const PageStorageKey<String>('tidal-hub-tabs'),
               scrollDirection: Axis.horizontal,
               // Perf (2026-10-13): reduced cacheExtent to limit
               // offscreen image decodes during scroll.
@@ -1451,6 +1470,12 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         SizedBox(
           height: 205,
           child: ListView.builder(
+            // Own PageStorage slot per section (scope is 'sec$i'): without
+            // this key, PageStorage computed the slot from the ancestor
+            // vertical feed's PageStorageKey alone, so ALL carousels shared
+            // one slot — a remounted carousel restored another carousel's
+            // (or the feed's) offset, clamped to its own end.
+            key: PageStorageKey<String>('tidal-hub-carousel-$scope'),
             scrollDirection: Axis.horizontal,
             // Perf (2026-10-13): reduced cacheExtent to limit
             // offscreen image decodes during scroll.
@@ -1733,6 +1758,10 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         SizedBox(
           height: 124,
           child: ListView.builder(
+            // Own PageStorage slot per section, same shared-slot bug as the
+            // carousel above (keyless horizontal lists under the vertical
+            // feed's PageStorageKey all restored one common offset).
+            key: PageStorageKey<String>('tidal-hub-compact-$scope'),
             scrollDirection: Axis.horizontal,
             // Perf (2026-10-13): reduced cacheExtent to limit
             // offscreen image decodes during scroll.
