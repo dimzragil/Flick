@@ -16,6 +16,7 @@ import 'package:flick/services/metadata_editor_service.dart';
 import 'package:flick/services/music_folder_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/features/player/widgets/player_navigation.dart';
+import 'package:flick/features/player/widgets/song_metadata_sheet.dart';
 import 'package:flick/src/rust/api/metadata_editor.dart' as rust_metadata;
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -91,59 +92,60 @@ class SongActionsBottomSheet extends ConsumerWidget {
                 onRemoveFromPlaylist!.call();
               },
             ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.heart,
-            highlighted: isFavorite,
-            label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-            onTap: () async {
-              await ref
-                  .read(favoritesProvider.notifier)
-                  .toggleFavorite(song.id, song: song);
-              PlayerService().refreshNotificationState();
-              if (context.mounted) {
-                Navigator.pop(context);
-              }
-            },
-          ),
-          if (onSelect != null)
+          if (isTidal) ...[
             _buildActionTile(
               context: context,
-              icon: LucideIcons.checkCheck,
-              label: 'Select',
-              onTap: () {
-                Navigator.pop(context);
-                onSelect?.call();
+              icon: LucideIcons.listPlus,
+              label: 'Play Next',
+              onTap: () async {
+                await ref.read(playerProvider.notifier).addToQueue(song);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Will play next: "${song.title}"'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
               },
             ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.listPlus,
-            label: 'Play Next',
-            onTap: () async {
-              await ref.read(playerProvider.notifier).addToQueue(song);
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Will play next: "${song.title}"'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-          ),
-          if (!isTidal)
             _buildActionTile(
               context: context,
-              icon: LucideIcons.listMusic,
-              label: 'Add to Playlist',
+              icon: LucideIcons.heart,
+              highlighted: isFavorite,
+              label: isFavorite
+                  ? 'Remove from My Favorites'
+                  : 'Add to My Favorites',
+              onTap: () async {
+                await ref
+                    .read(favoritesProvider.notifier)
+                    .toggleFavorite(song.id, song: song);
+                PlayerService().refreshNotificationState();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.listPlus,
+              label: 'Add to Tidal Playlist',
               onTap: () {
                 Navigator.pop(context);
                 AddToPlaylistSheet.show(rootContext, song);
               },
             ),
-          if (isTidal) ...[
+            if (song.filePath != null && !song.isExternal)
+              _buildActionTile(
+                context: context,
+                icon: LucideIcons.share2,
+                label: 'Share',
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(Share.shareXFiles([XFile(song.filePath!)]));
+                },
+              ),
             _buildActionTile(
               context: context,
               icon: LucideIcons.radio,
@@ -186,15 +188,89 @@ class SongActionsBottomSheet extends ConsumerWidget {
             ),
             _buildActionTile(
               context: context,
+              icon: LucideIcons.users,
+              label: 'Credits',
+              onTap: () {
+                Navigator.pop(context);
+                SongMetadataSheet.show(rootContext, song);
+              },
+            ),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.user,
+              label: 'Go to Artist',
+              onTap: () {
+                Navigator.pop(context);
+                PlayerNavigation(
+                  playerService: PlayerService(),
+                  songRepository: ref.read(songRepositoryProvider),
+                ).openArtistFromSong(rootContext, song);
+              },
+            ),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.disc,
+              label: 'Go to Album',
+              onTap: () {
+                Navigator.pop(context);
+                PlayerNavigation(
+                  playerService: PlayerService(),
+                  songRepository: ref.read(songRepositoryProvider),
+                ).openAlbumFromSong(rootContext, song);
+              },
+            ),
+          ] else ...[
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.heart,
+              highlighted: isFavorite,
+              label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+              onTap: () async {
+                await ref
+                    .read(favoritesProvider.notifier)
+                    .toggleFavorite(song.id, song: song);
+                PlayerService().refreshNotificationState();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            if (onSelect != null)
+              _buildActionTile(
+                context: context,
+                icon: LucideIcons.checkCheck,
+                label: 'Select',
+                onTap: () {
+                  Navigator.pop(context);
+                  onSelect?.call();
+                },
+              ),
+            _buildActionTile(
+              context: context,
               icon: LucideIcons.listPlus,
-              label: 'Add to TIDAL Playlist',
+              label: 'Play Next',
+              onTap: () async {
+                await ref.read(playerProvider.notifier).addToQueue(song);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Will play next: "${song.title}"'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.listMusic,
+              label: 'Add to Playlist',
               onTap: () {
                 Navigator.pop(context);
                 AddToPlaylistSheet.show(rootContext, song);
               },
             ),
-          ],
-          if (!isTidal)
             _buildActionTile(
               context: context,
               icon: LucideIcons.image,
@@ -212,70 +288,70 @@ class SongActionsBottomSheet extends ConsumerWidget {
                 });
               },
             ),
-          if (!isTidal &&
-              song.filePath != null &&
-              song.startOffsetMs == null &&
-              !song.isExternal)
+            if (song.filePath != null &&
+                song.startOffsetMs == null &&
+                !song.isExternal)
+              _buildActionTile(
+                context: context,
+                icon: LucideIcons.pencil,
+                label: 'Edit Metadata',
+                onTap: () {
+                  Navigator.pop(context);
+                  Future.delayed(Duration.zero, () async {
+                    final saved = await MetadataEditorBottomSheet.show(
+                      rootContext,
+                      song,
+                    );
+                    if (saved && rootContext.mounted) {
+                      ref.invalidate(songsProvider);
+                    }
+                  });
+                },
+              ),
             _buildActionTile(
               context: context,
-              icon: LucideIcons.pencil,
-              label: 'Edit Metadata',
+              icon: LucideIcons.info,
+              label: 'View Metadata',
               onTap: () {
                 Navigator.pop(context);
-                Future.delayed(Duration.zero, () async {
-                  final saved = await MetadataEditorBottomSheet.show(
-                    rootContext,
-                    song,
-                  );
-                  if (saved && rootContext.mounted) {
-                    ref.invalidate(songsProvider);
-                  }
-                });
+                _showMetadataSheet(context);
               },
             ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.info,
-            label: 'View Metadata',
-            onTap: () {
-              Navigator.pop(context);
-              _showMetadataSheet(context);
-            },
-          ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.user,
-            label: 'Go to Artist',
-            onTap: () {
-              Navigator.pop(context);
-              PlayerNavigation(
-                playerService: PlayerService(),
-                songRepository: ref.read(songRepositoryProvider),
-              ).openArtistFromSong(rootContext, song);
-            },
-          ),
-          _buildActionTile(
-            context: context,
-            icon: LucideIcons.disc,
-            label: 'Go to Album',
-            onTap: () {
-              Navigator.pop(context);
-              PlayerNavigation(
-                playerService: PlayerService(),
-                songRepository: ref.read(songRepositoryProvider),
-              ).openAlbumFromSong(rootContext, song);
-            },
-          ),
-          if (song.filePath != null && !song.isExternal)
             _buildActionTile(
               context: context,
-              icon: LucideIcons.share2,
-              label: 'Share',
+              icon: LucideIcons.user,
+              label: 'Go to Artist',
               onTap: () {
                 Navigator.pop(context);
-                unawaited(Share.shareXFiles([XFile(song.filePath!)]));
+                PlayerNavigation(
+                  playerService: PlayerService(),
+                  songRepository: ref.read(songRepositoryProvider),
+                ).openArtistFromSong(rootContext, song);
               },
             ),
+            _buildActionTile(
+              context: context,
+              icon: LucideIcons.disc,
+              label: 'Go to Album',
+              onTap: () {
+                Navigator.pop(context);
+                PlayerNavigation(
+                  playerService: PlayerService(),
+                  songRepository: ref.read(songRepositoryProvider),
+                ).openAlbumFromSong(rootContext, song);
+              },
+            ),
+            if (song.filePath != null && !song.isExternal)
+              _buildActionTile(
+                context: context,
+                icon: LucideIcons.share2,
+                label: 'Share',
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(Share.shareXFiles([XFile(song.filePath!)]));
+                },
+              ),
+          ],
           const SizedBox(height: AppConstants.spacingSm),
           if (!isTidal) ...[
             Divider(height: 1, color: AppColors.glassBorderStrong),

@@ -285,7 +285,7 @@ class SongActionsSheet extends ConsumerWidget {
                         _buildSongActionTile(
                           context: sheetContext,
                           icon: LucideIcons.info,
-                          label: 'View Metadata',
+                          label: 'Credits',
                           onTap: () {
                             Navigator.pop(sheetContext);
                             SongMetadataSheet.show(context, activeSong);
