@@ -600,7 +600,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         ),
         subtitle: Row(
           children: [
-            Expanded(
+            Flexible(
               child: Text(
                 [song.artist, if (song.album != null) song.album!].join(' • '),
                 maxLines: 1,
@@ -611,27 +611,7 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                 ),
               ),
             ),
-            if ((song.bitDepth ?? 0) >= 24)
-              Container(
-                margin: const EdgeInsets.only(left: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: AppColors.glassBackgroundStrong,
-                  borderRadius: BorderRadius.circular(3),
-                  border: Border.all(
-                    color: const Color(0xFFE5A93C),
-                    width: 0.75,
-                  ),
-                ),
-                child: const Text(
-                  'Hi-Res',
-                  style: TextStyle(
-                    color: Color(0xFFE5A93C),
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            if ((song.bitDepth ?? 0) >= 24) const HiResBadge(),
           ],
         ),
         trailing: IconButton(

@@ -126,4 +126,58 @@ void main() {
       expect(explicitTopRight.dx, lessThanOrEqualTo(250.0));
     });
   });
+
+  group('HiResBadge widget tests', () {
+    testWidgets('renders uppercase HI-RES with transparent background', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: HiResBadge())),
+      );
+
+      expect(find.text('HI-RES'), findsOneWidget);
+      final container = tester.widget<Container>(find.byType(Container).first);
+      final decoration = container.decoration as BoxDecoration;
+      expect(decoration.color, Colors.transparent);
+      expect(decoration.border, isNotNull);
+    });
+
+    testWidgets(
+      'sits immediately next to short artist name rather than far right',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 300,
+                child: Row(
+                  children: [
+                    const Flexible(
+                      child: Text(
+                        'tuki.',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const HiResBadge(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+        final artistTopRight = tester.getTopRight(find.text('tuki.'));
+        final hiResTopLeft = tester.getTopLeft(find.byType(HiResBadge));
+        final hiResTextTopLeft = tester.getTopLeft(find.text('HI-RES'));
+
+        // HiResBadge starts immediately adjacent to the artist text
+        expect(hiResTopLeft.dx, closeTo(artistTopRight.dx, 0.5));
+        // Text inside badge accounts for 6px margin, 0.75px border, and 4px padding
+        expect(hiResTextTopLeft.dx - artistTopRight.dx, closeTo(10.75, 0.1));
+        // And hiResTopLeft is directly next to the short name, not at the 300px far right edge
+        expect(hiResTopLeft.dx, lessThan(100.0));
+      },
+    );
+  });
 }

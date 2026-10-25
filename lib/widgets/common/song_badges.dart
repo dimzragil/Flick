@@ -86,6 +86,34 @@ class ExplicitBadge extends StatelessWidget {
   }
 }
 
+/// Shared badge widget displaying the 'HI-RES' indicator on song rows.
+class HiResBadge extends StatelessWidget {
+  final EdgeInsetsGeometry margin;
+
+  const HiResBadge({super.key, this.margin = const EdgeInsets.only(left: 6)});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(color: const Color(0xFFE5A93C), width: 0.75),
+      ),
+      child: const Text(
+        'HI-RES',
+        style: TextStyle(
+          color: Color(0xFFE5A93C),
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
 /// Shared icon widget displaying the Dolby Atmos emblem on song rows.
 class DolbyAtmosIcon extends StatelessWidget {
   final Color? color;

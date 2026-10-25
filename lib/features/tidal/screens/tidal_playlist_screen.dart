@@ -472,7 +472,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen>
                       ),
                       subtitle: Row(
                         children: [
-                          Expanded(
+                          Flexible(
                             child: Text(
                               song.artist,
                               maxLines: 1,
@@ -483,30 +483,7 @@ class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen>
                               ),
                             ),
                           ),
-                          if (isHiRes)
-                            Container(
-                              margin: const EdgeInsets.only(left: 6),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.glassBackgroundStrong,
-                                borderRadius: BorderRadius.circular(3),
-                                border: Border.all(
-                                  color: const Color(0xFFE5A93C),
-                                  width: 0.75,
-                                ),
-                              ),
-                              child: const Text(
-                                'Hi-Res',
-                                style: TextStyle(
-                                  color: Color(0xFFE5A93C),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
+                          if (isHiRes) const HiResBadge(),
                         ],
                       ),
                       trailing: IconButton(

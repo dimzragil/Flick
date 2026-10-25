@@ -526,7 +526,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                         ),
                         subtitle: Row(
                           children: [
-                            Expanded(
+                            Flexible(
                               child: Text(
                                 song.album ?? song.artist,
                                 maxLines: 1,
@@ -537,30 +537,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                                 ),
                               ),
                             ),
-                            if ((song.bitDepth ?? 0) >= 24)
-                              Container(
-                                margin: const EdgeInsets.only(left: 6),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.glassBackgroundStrong,
-                                  borderRadius: BorderRadius.circular(3),
-                                  border: Border.all(
-                                    color: AppColors.glassBorder,
-                                    width: 0.75,
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Hi-Res',
-                                  style: TextStyle(
-                                    color: Color(0xFFE5A93C),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                            if ((song.bitDepth ?? 0) >= 24) const HiResBadge(),
                           ],
                         ),
                         trailing: IconButton(
