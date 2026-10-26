@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/src/rust/frb_generated.dart';
 import 'package:flick/app/app.dart';
 import 'package:flick/data/database.dart';
+import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/audio_cache_maintenance.dart';
+import 'package:flick/services/display_mode_service.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/services/player_service.dart';
@@ -145,7 +146,8 @@ Future<void> _bootstrapAppAfterFirstFrame() async {
 
 Future<void> _setOptimalDisplayMode() async {
   try {
-    await FlutterDisplayMode.setHighRefreshRate();
+    final mode = await AppPreferencesService().getRefreshRateMode();
+    await DisplayModeService().applyPreference(mode);
   } catch (e) {
     devLog('Display mode not supported: $e');
   }

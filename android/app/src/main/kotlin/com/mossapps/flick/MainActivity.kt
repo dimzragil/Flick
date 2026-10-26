@@ -62,7 +62,10 @@ import android.provider.MediaStore
 import androidx.mediarouter.media.MediaRouter
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.view.Display
 import android.view.KeyEvent
+import android.view.Surface
+import android.view.SurfaceHolder
 import android.util.Log
 import android.os.PowerManager
 import android.os.storage.StorageManager
@@ -70,6 +73,7 @@ import android.os.storage.StorageVolume
 import androidx.documentfile.provider.DocumentFile
 import com.mossapps.flick.audiofx.JustAudioProcessingController
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterSurfaceView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -180,6 +184,95 @@ class MainActivity: FlutterActivity() {
     private var castController: CastController? = null
     private var castEventSink: EventChannel.EventSink? = null
     private var dlnaRouteProvider: DlnaRouteProvider? = null
+    private var currentRefreshRateMode: String = "high"
+    private var flutterSurface: Surface? = null
+
+    private fun getMaxDisplayRefreshRate(): Float {
+        return try {
+            val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            }
+            val modes = d?.supportedModes ?: emptyArray()
+            modes.map { it.refreshRate }.maxOrNull() ?: 60f
+        } catch (_: Exception) {
+            60f
+        }
+    }
+
+    private fun applyNativeRefreshRate(mode: String) {
+        currentRefreshRateMode = mode
+        val maxHz = getMaxDisplayRefreshRate()
+
+        try {
+            val currentWindow = window ?: return
+            val params = currentWindow.attributes
+
+            val targetRate = when (mode) {
+                "high" -> maxHz
+                "standard" -> 60f
+                "adaptive" -> 0f
+                else -> maxHz
+            }
+            params.preferredRefreshRate = targetRate
+
+            // Attempt setting min/max display refresh rate via reflection for VRR on Android 12+ if supported by OEM
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val minHz = if (mode == "adaptive") 0f else targetRate
+                    val maxHzVal = if (mode == "adaptive") 0f else targetRate
+                    params.javaClass.getField("preferredMinDisplayRefreshRate").setFloat(params, minHz)
+                    params.javaClass.getField("preferredMaxDisplayRefreshRate").setFloat(params, maxHzVal)
+                } catch (_: Exception) {}
+            }
+
+            currentWindow.attributes = params
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                flutterSurface?.let { surface ->
+                    if (surface.isValid) {
+                        surface.setFrameRate(targetRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to apply native refresh rate ($mode): ${e.message}")
+        }
+    }
+
+    override fun onFlutterSurfaceViewCreated(flutterSurfaceView: FlutterSurfaceView) {
+        super.onFlutterSurfaceViewCreated(flutterSurfaceView)
+        applyNativeRefreshRate(currentRefreshRateMode)
+        flutterSurfaceView.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                flutterSurface = holder.surface
+                applyNativeRefreshRate(currentRefreshRateMode)
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                flutterSurface = holder.surface
+                applyNativeRefreshRate(currentRefreshRateMode)
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                flutterSurface = null
+            }
+        })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyNativeRefreshRate(currentRefreshRateMode)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyNativeRefreshRate(currentRefreshRateMode)
+        }
+    }
 
     // Load the Rust shared library before calling into native startup hooks.
     init {
@@ -837,6 +930,14 @@ class MainActivity: FlutterActivity() {
                     }
                     "returnToLocker" -> {
                         result.success(returnToLocker())
+                    }
+                    "setNativeRefreshRate" -> {
+                        val mode = call.argument<String>("mode") ?: "high"
+                        applyNativeRefreshRate(mode)
+                        result.success(true)
+                    }
+                    "getMaxRefreshRate" -> {
+                        result.success(getMaxDisplayRefreshRate().toDouble())
                     }
                     else -> result.notImplemented()
                 }
