@@ -20,7 +20,7 @@ import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/song_badges.dart';
-import '../../player/widgets/sleep_timer_bottom_sheet.dart';
+import '../widgets/tidal_entity_share.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
@@ -196,13 +196,13 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
           ),
         DetailMoreSheetItem(
           icon: LucideIcons.link,
-          label: 'Copy TIDAL link',
+          label: 'Copy link',
           onTap: _copyTidalLink,
         ),
         DetailMoreSheetItem(
-          icon: LucideIcons.moonStar,
-          label: 'Sleep timer',
-          onTap: () => SleepTimerBottomSheet.show(context, PlayerService()),
+          icon: LucideIcons.share2,
+          label: 'Share',
+          onTap: () => _share(album),
         ),
       ],
     );
@@ -215,7 +215,28 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('TIDAL link copied')));
+    ).showSnackBar(const SnackBar(content: Text('Link copied')));
+  }
+
+  void _share(Map<String, dynamic> album) {
+    final title =
+        (album['title'] as String?) ??
+        widget.initialAlbumData?['title'] ??
+        'Album';
+    final artistMap = album['artist'] as Map<String, dynamic>?;
+    final artist = (artistMap?['name'] as String?);
+    final coverUuid = album['cover'] as String?;
+    final coverUrl = coverUuid != null
+        ? TidalService.coverUrl(coverUuid, size: 320)
+        : null;
+    shareTidalEntity(
+      context: context,
+      type: TidalShareEntityType.album,
+      id: widget.albumId,
+      title: title,
+      subtitle: artist,
+      coverUrl: coverUrl,
+    );
   }
 
   Widget _sectionTitle(BuildContext context, String title) {

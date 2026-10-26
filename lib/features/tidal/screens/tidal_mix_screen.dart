@@ -18,7 +18,7 @@ import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/song_badges.dart';
-import '../../player/widgets/sleep_timer_bottom_sheet.dart';
+import '../widgets/tidal_entity_share.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
@@ -88,19 +88,20 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen>
     return tag == null ? cover : Hero(tag: tag, child: cover);
   }
 
-  void _showMore() {
+  void _showMore({String? title, String? subtitle, String? coverUrl}) {
     DetailMoreSheet.show(
       context,
       items: [
         DetailMoreSheetItem(
           icon: LucideIcons.link,
-          label: 'Copy TIDAL link',
+          label: 'Copy link',
           onTap: _copyTidalLink,
         ),
         DetailMoreSheetItem(
-          icon: LucideIcons.moonStar,
-          label: 'Sleep timer',
-          onTap: () => SleepTimerBottomSheet.show(context, PlayerService()),
+          icon: LucideIcons.share2,
+          label: 'Share',
+          onTap: () =>
+              _share(title: title, subtitle: subtitle, coverUrl: coverUrl),
         ),
       ],
     );
@@ -113,7 +114,21 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('TIDAL link copied')));
+    ).showSnackBar(const SnackBar(content: Text('Link copied')));
+  }
+
+  void _share({String? title, String? subtitle, String? coverUrl}) {
+    final resolvedTitle = (title != null && title.isNotEmpty)
+        ? title
+        : (widget.initialTitle ?? 'Mix');
+    shareTidalEntity(
+      context: context,
+      type: TidalShareEntityType.mix,
+      id: widget.mixId,
+      title: resolvedTitle,
+      subtitle: subtitle,
+      coverUrl: coverUrl,
+    );
   }
 
   Widget _sectionTitle(BuildContext context, String title) {
@@ -379,7 +394,11 @@ class _TidalMixScreenState extends ConsumerState<TidalMixScreen>
                   onShuffle: () => _shuffleAll(tracks),
                   onPlay: () => _playAll(tracks),
                   onQueue: null,
-                  onMore: _showMore,
+                  onMore: () => _showMore(
+                    title: title,
+                    subtitle: subtitle,
+                    coverUrl: imageUrl,
+                  ),
                   primaryColor: dominantColor,
                 ),
               ),

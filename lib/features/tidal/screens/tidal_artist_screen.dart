@@ -17,7 +17,7 @@ import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/song_badges.dart';
-import '../../player/widgets/sleep_timer_bottom_sheet.dart';
+import '../widgets/tidal_entity_share.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
@@ -139,19 +139,19 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     }
   }
 
-  void _showMore() {
+  void _showMore({String? name, String? coverUrl}) {
     DetailMoreSheet.show(
       context,
       items: [
         DetailMoreSheetItem(
           icon: LucideIcons.link,
-          label: 'Copy TIDAL link',
+          label: 'Copy link',
           onTap: _copyTidalLink,
         ),
         DetailMoreSheetItem(
-          icon: LucideIcons.moonStar,
-          label: 'Sleep timer',
-          onTap: () => SleepTimerBottomSheet.show(context, PlayerService()),
+          icon: LucideIcons.share2,
+          label: 'Share',
+          onTap: () => _share(name: name, coverUrl: coverUrl),
         ),
       ],
     );
@@ -164,7 +164,20 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('TIDAL link copied')));
+    ).showSnackBar(const SnackBar(content: Text('Link copied')));
+  }
+
+  void _share({String? name, String? coverUrl}) {
+    final title = (name != null && name.isNotEmpty)
+        ? name
+        : (widget.initialArtistData?['name'] ?? 'Artist');
+    shareTidalEntity(
+      context: context,
+      type: TidalShareEntityType.artist,
+      id: widget.artistId,
+      title: title,
+      coverUrl: coverUrl,
+    );
   }
 
   Widget _sectionTitle(BuildContext context, String title) {
@@ -421,7 +434,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                       onShuffle: () => _shuffleAll(topTracks),
                       onPlay: () => _playAll(topTracks),
                       onQueue: null,
-                      onMore: _showMore,
+                      onMore: () => _showMore(name: name, coverUrl: pictureUrl),
                       primaryColor: dominantColor,
                       toggleActiveIcon: LucideIcons.userCheck,
                       toggleInactiveIcon: LucideIcons.userPlus,
