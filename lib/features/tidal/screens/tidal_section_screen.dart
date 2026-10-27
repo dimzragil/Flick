@@ -26,11 +26,7 @@ class _TidalSectionScreenState extends ConsumerState<TidalSectionScreen> {
     final children = <Widget>[
       TickerMode(
         enabled: section == TidalSection.hub,
-        child: TidalHubScreen(
-          key: const ValueKey('tidal-hub'),
-          onOpenSearch: () =>
-              ref.read(tidalSectionProvider.notifier).show(TidalSection.search),
-        ),
+        child: TidalHubScreen(key: const ValueKey('tidal-hub')),
       ),
       if (_hasOpenedSearch)
         TickerMode(

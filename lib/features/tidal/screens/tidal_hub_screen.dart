@@ -1,9 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:animations/animations.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -24,9 +19,7 @@ import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
 import '../widgets/tidal_error_widget.dart';
-import '../widgets/tidal_import_playlist_dialog.dart';
 import '../widgets/tidal_now_playing_title.dart';
-import '../widgets/tidal_playlist_cover_widget.dart';
 import '../widgets/tidal_shimmer.dart';
 import '../widgets/tidal_tab_pill.dart';
 import '../../player/widgets/add_to_playlist_sheet.dart';
@@ -35,14 +28,9 @@ import 'tidal_album_screen.dart';
 import 'tidal_artist_screen.dart';
 import 'tidal_mix_screen.dart';
 import 'tidal_playlist_screen.dart';
-import 'tidal_search_screen.dart';
-import 'tidal_liked_songs_screen.dart';
-import 'package:flick/core/utils/error_display.dart';
 
 class TidalHubScreen extends ConsumerStatefulWidget {
-  final VoidCallback? onOpenSearch;
-
-  const TidalHubScreen({super.key, this.onOpenSearch});
+  const TidalHubScreen({super.key});
 
   @override
   ConsumerState<TidalHubScreen> createState() => _TidalHubScreenState();
@@ -61,12 +49,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   String? _verificationUri;
   String? _signInError;
   String _activeFeedSlug = 'static';
-
-  // One-shot gate for the playlist entrance window: once the window closes,
-  // later remounts of the playlist section (the virtualized feed disposes
-  // scrolled-out sections) must render statically instead of replaying the
-  // entrance on every scroll back up.
-  bool _playlistEntranceClosed = false;
 
   Future<void> _signIn() async {
     setState(() {
@@ -139,20 +121,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     if (confirmed == true) {
       await ref.read(tidalServerProvider.notifier).signOut();
     }
-  }
-
-  void _openSearch() {
-    final onOpenSearch = widget.onOpenSearch;
-    if (onOpenSearch != null) {
-      onOpenSearch();
-      return;
-    }
-    NavigationHelper.pushSharedAxis(
-      context,
-      (_) => const TidalSearchScreen(),
-      // Lateral move to a sibling top-level destination: horizontal axis.
-      transitionType: SharedAxisTransitionType.horizontal,
-    );
   }
 
   /// Hero tag for a hub cover, derived from the ID that the destination
@@ -422,317 +390,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     );
   }
 
-  void _openPlaylistTracks(Map<String, dynamic> pl, {String? heroTag}) {
-    final playlistId = pl['uuid']?.toString() ?? pl['id']?.toString();
-    if (playlistId == null) return;
-    final imageUrl = TidalService.extractPlaylistCover(pl, size: 640);
-    NavigationHelper.pushSharedAxis(
-      context,
-      (_) => TidalPlaylistScreen(
-        playlistId: playlistId,
-        initialTitle: pl['title'] as String?,
-        initialImageUrl: (imageUrl != null && imageUrl.isNotEmpty)
-            ? imageUrl
-            : null,
-        initialTrackCount:
-            ((pl['numberOfTracks'] ?? pl['numberOfItems']) as num?)?.toInt(),
-        heroTag: heroTag,
-      ),
-    );
-  }
-
-  Future<void> _showCreatePlaylistDialog() async {
-    final titleController = TextEditingController();
-    final descController = TextEditingController();
-
-    try {
-      await showDialog<bool>(
-        context: context,
-        builder: (ctx) {
-          bool isSubmitting = false;
-          String? errorText;
-
-          return StatefulBuilder(
-            builder: (dialogCtx, setDialogState) {
-              return AlertDialog(
-                backgroundColor: AppColors.surface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  side: const BorderSide(color: AppColors.glassBorder),
-                ),
-                title: const Row(
-                  children: [
-                    Icon(
-                      LucideIcons.listPlus,
-                      color: Color(0xD9FFFFFF),
-                      size: 22,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'New TIDAL Playlist',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      autofocus: true,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: InputDecoration(
-                        hintText: 'Playlist title',
-                        hintStyle: const TextStyle(
-                          color: AppColors.textSecondary,
-                        ),
-                        filled: true,
-                        fillColor: AppColors.surfaceLight,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusSm,
-                          ),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusSm,
-                          ),
-                          borderSide: const BorderSide(
-                            color: Color(0xD9FFFFFF),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descController,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText: 'Description (optional)',
-                        hintStyle: const TextStyle(
-                          color: AppColors.textSecondary,
-                        ),
-                        filled: true,
-                        fillColor: AppColors.surfaceLight,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusSm,
-                          ),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusSm,
-                          ),
-                          borderSide: const BorderSide(
-                            color: Color(0xD9FFFFFF),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (errorText != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        errorText!,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: isSubmitting
-                        ? null
-                        : () => Navigator.pop(dialogCtx, false),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(color: AppColors.textSecondary),
-                    ),
-                  ),
-                  FilledButton(
-                    onPressed: isSubmitting
-                        ? null
-                        : () async {
-                            final title = titleController.text.trim();
-                            if (title.isEmpty) {
-                              setDialogState(
-                                () => errorText = 'Title is required',
-                              );
-                              return;
-                            }
-                            setDialogState(() {
-                              isSubmitting = true;
-                              errorText = null;
-                            });
-                            try {
-                              final server = await ref.read(
-                                tidalServerProvider.future,
-                              );
-                              if (server == null) {
-                                setDialogState(() {
-                                  isSubmitting = false;
-                                  errorText = 'Not logged in to TIDAL';
-                                });
-                                return;
-                              }
-                              final result = await ref
-                                  .read(tidalPlaylistMutationsProvider)
-                                  .createPlaylist(
-                                    server,
-                                    title: title,
-                                    description: descController.text.trim(),
-                                  );
-                              if (dialogCtx.mounted) {
-                                Navigator.pop(dialogCtx, true);
-                              }
-
-                              final plId =
-                                  result['uuid']?.toString() ??
-                                  result['id']?.toString() ??
-                                  (result['data'] as Map?)?['id']?.toString();
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Playlist "$title" created on TIDAL!',
-                                    ),
-                                    backgroundColor: AppColors.surface,
-                                  ),
-                                );
-                                if (plId != null && plId.isNotEmpty) {
-                                  NavigationHelper.pushSharedAxis(
-                                    context,
-                                    (_) => TidalPlaylistScreen(
-                                      playlistId: plId,
-                                      initialTitle: title,
-                                      initialSubtitle: descController.text
-                                          .trim(),
-                                      initialTrackCount: 0,
-                                    ),
-                                  );
-                                }
-                              }
-                            } catch (e) {
-                              setDialogState(() {
-                                isSubmitting = false;
-                                errorText = e.toString();
-                              });
-                            }
-                          },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF00A2C7),
-                      foregroundColor: Colors.white,
-                    ),
-                    child: isSubmitting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text('Create'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-    } finally {
-      titleController.dispose();
-      descController.dispose();
-    }
-  }
-
-  Future<void> _importPlaylistFromJson() async {
-    try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['json'],
-      );
-
-      if (result == null ||
-          result.files.isEmpty ||
-          result.files.single.path == null) {
-        return;
-      }
-
-      final file = File(result.files.single.path!);
-      final content = await file.readAsString();
-      final decoded = jsonDecode(content);
-
-      List<dynamic> items;
-      if (decoded is List) {
-        items = decoded;
-      } else if (decoded is Map<String, dynamic> && decoded['tracks'] is List) {
-        items = decoded['tracks'] as List;
-      } else if (decoded is Map<String, dynamic> && decoded['items'] is List) {
-        items = decoded['items'] as List;
-      } else {
-        throw const FormatException('Expected a JSON array of tracks.');
-      }
-
-      final parsedTracks = <JsonPlaylistTrack>[];
-      for (final item in items) {
-        if (item is Map<String, dynamic>) {
-          parsedTracks.add(JsonPlaylistTrack.fromJson(item));
-        }
-      }
-
-      if (parsedTracks.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No valid track metadata found in the JSON file.'),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-        return;
-      }
-
-      // Derive clean default playlist name from file name
-      String defaultName = result.files.single.name;
-      if (defaultName.toLowerCase().endsWith('.json')) {
-        defaultName = defaultName.substring(0, defaultName.length - 5);
-      }
-      defaultName = defaultName
-          .replaceAll(RegExp(r'[\-_]'), ' ')
-          .replaceAll(RegExp(r'\s*\([^)]*\)'), '')
-          .trim();
-      if (defaultName.isEmpty) defaultName = 'Imported Playlist';
-
-      if (mounted) {
-        await TidalImportPlaylistDialog.show(
-          context,
-          tracks: parsedTracks,
-          defaultPlaylistName: defaultName,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to read JSON: ${friendlyErrorMessage(e)}'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isLoggedIn = ref.watch(tidalAuthStateProvider);
@@ -760,14 +417,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
           actions: [
             if (isLoggedIn) ...[
-              IconButton(
-                icon: const Icon(
-                  LucideIcons.search,
-                  color: AppColors.textSecondary,
-                ),
-                tooltip: 'Search',
-                onPressed: _openSearch,
-              ),
               IconButton(
                 icon: const Icon(
                   LucideIcons.logOut,
@@ -966,219 +615,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
         ),
         SizedBox(height: context.scaleSize(_kTidalSectionGap)),
 
-        // 4. My Playlists Section
-        SizedBox(
-          height: 22,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'My Playlists',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    constraints: const BoxConstraints.tightFor(
-                      width: 22,
-                      height: 22,
-                    ),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      LucideIcons.fileSpreadsheet,
-                      size: 19,
-                      color: Color(0xD9FFFFFF),
-                    ),
-                    tooltip: 'Import Playlist from JSON',
-                    onPressed: _importPlaylistFromJson,
-                  ),
-                  IconButton(
-                    constraints: const BoxConstraints.tightFor(
-                      width: 22,
-                      height: 22,
-                    ),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      LucideIcons.plus,
-                      size: 20,
-                      color: Color(0xD9FFFFFF),
-                    ),
-                    tooltip: 'Create TIDAL Playlist',
-                    onPressed: _showCreatePlaylistDialog,
-                  ),
-                  IconButton(
-                    constraints: const BoxConstraints.tightFor(
-                      width: 22,
-                      height: 22,
-                    ),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      LucideIcons.refreshCw,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
-                    tooltip: 'Refresh Playlists',
-                    onPressed: () {
-                      unawaited(
-                        ref
-                            .read(tidalPlaylistMutationsProvider)
-                            .refreshUserPlaylists(),
-                      );
-                      ref.invalidate(tidalLikedSongsProvider);
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        SizedBox(height: _kTidalTitleContentGap),
-
-        // Scoped Consumer: playlist updates rebuild only this section.
-        Consumer(
-          builder: (context, ref, _) {
-            final playlistsAsync = ref.watch(tidalUserPlaylistsProvider);
-            return playlistsAsync.when(
-              loading: () => const TidalListSkeleton(
-                rows: 4,
-                thumbSize: 52,
-                trailingWidth: null,
-              ),
-              error: (err, _) => TidalErrorWidget(
-                error: err,
-                contextLabel: 'Could not load playlists',
-                onRetry: () {
-                  invalidateTidalPlaylistsCache();
-                  ref.invalidate(tidalUserPlaylistsProvider);
-                },
-              ),
-              data: (playlists) {
-                // Column instead of shrinkWrap ListView: shrinkWrap already
-                // defeats builder laziness (all items are laid out anyway),
-                // so a Column avoids the nested Scrollable/Viewport overhead.
-                // Liked Songs is always pinned first, then user playlists.
-                var entranceIndex = 0;
-                final children = <Widget>[
-                  StaggeredEntrance(
-                    index: entranceIndex++,
-                    child: _buildLikedSongsTile(),
-                  ),
-                ];
-                if (playlists.isEmpty) {
-                  children.add(
-                    StaggeredEntrance(
-                      index: entranceIndex++,
-                      child: Container(
-                        padding: EdgeInsets.all(
-                          context.scaleSize(AppConstants.spacingLg),
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.glassBackground,
-                          borderRadius: BorderRadius.circular(
-                            AppConstants.radiusMd,
-                          ),
-                          border: Border.all(color: AppColors.glassBorder),
-                        ),
-                        child: Column(
-                          children: [
-                            const Text(
-                              'No playlists found in your TIDAL library.',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 10,
-                              runSpacing: 8,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _showCreatePlaylistDialog,
-                                  icon: const Icon(
-                                    LucideIcons.plus,
-                                    size: 16,
-                                    color: Color(0xD9FFFFFF),
-                                  ),
-                                  label: const Text(
-                                    'Create Playlist',
-                                    style: TextStyle(color: Color(0xD9FFFFFF)),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(
-                                      color: Color(0xD9FFFFFF),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppConstants.radiusSm,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: _importPlaylistFromJson,
-                                  icon: const Icon(
-                                    LucideIcons.fileSpreadsheet,
-                                    size: 16,
-                                    color: Color(0xD9FFFFFF),
-                                  ),
-                                  label: const Text(
-                                    'Import JSON',
-                                    style: TextStyle(color: Color(0xD9FFFFFF)),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(
-                                      color: Color(0xD9FFFFFF),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppConstants.radiusSm,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                } else {
-                  for (var i = 0; i < playlists.length; i++) {
-                    children.add(
-                      StaggeredEntrance(
-                        index: entranceIndex++,
-                        child: _buildPlaylistTile(playlists[i], index: i),
-                      ),
-                    );
-                  }
-                }
-                // Window anchored to the playlist content itself so the
-                // entrance plays when this async section resolves. Once it
-                // closes it stays closed for this screen visit, so scrolling
-                // the section out and back in does not replay the entrance.
-                return StaggeredEntranceWindow(
-                  initiallyOpen: !_playlistEntranceClosed,
-                  onClosed: () {
-                    if (mounted) {
-                      setState(() => _playlistEntranceClosed = true);
-                    }
-                  },
-                  child: Column(children: children),
-                );
-              },
-            );
-          },
-        ),
-        // Clearance lets the last playlist tile scroll above the mini-player
-        // and navigation bar, which overlay the screen content.
         SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
       ],
     );
@@ -1187,15 +623,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       color: const Color(0xD9FFFFFF),
       backgroundColor: AppColors.surface,
       onRefresh: () async {
-        // Manual refresh is an explicit request for fresh data: clear the
-        // active feed's TTL entry and let the mutations helper bypass the
-        // playlist cache before rebuilding.
+        // Manual refresh reloads the active feed.
         invalidateTidalHubCache(feedSlug: _activeFeedSlug);
-        await Future.wait([
-          ref.refresh(tidalHomeFeedProvider(_activeFeedSlug).future),
-          ref.read(tidalPlaylistMutationsProvider).refreshUserPlaylists(),
-          ref.refresh(tidalLikedSongsProvider.future),
-        ]);
+        final _ = await ref.refresh(
+          tidalHomeFeedProvider(_activeFeedSlug).future,
+        );
       },
       // The entrance window starts when the feed content first builds (not at
       // screen open), so the stagger still plays when the async feed resolves
@@ -1326,53 +758,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       }
     }
     return -1;
-  }
-
-  Widget _buildPlaylistTile(Map<String, dynamic> pl, {required int index}) {
-    final title = pl['title'] as String? ?? 'Playlist';
-    final trackCount = (pl['numberOfTracks'] ?? pl['numberOfItems']) as num?;
-    final size = context.scaleSize(52);
-    final playlistId = pl['uuid']?.toString() ?? pl['id']?.toString();
-    final heroTag = playlistId == null || playlistId.isEmpty
-        ? null
-        : 'tidal-cover-$playlistId@lib-$index';
-
-    return PressScale(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 4),
-        leading: heroTag == null
-            ? TidalPlaylistCoverWidget(playlist: pl, size: size)
-            : Hero(
-                tag: heroTag,
-                child: TidalPlaylistCoverWidget(playlist: pl, size: size),
-              ),
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: trackCount != null
-            ? Text(
-                '$trackCount tracks',
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
-              )
-            : null,
-        trailing: const Icon(
-          LucideIcons.chevronRight,
-          size: 18,
-          color: AppColors.textSecondary,
-        ),
-        onTap: () => _openPlaylistTracks(pl, heroTag: heroTag),
-      ),
-    );
   }
 
   Widget _buildShortcutGrid(
@@ -1999,77 +1384,6 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  /// "Liked Songs" tile — pinned as the first item in My Playlists.
-  /// Opens the full TIDAL favorites collection.
-  Widget _buildLikedSongsTile() {
-    final likedAsync = ref.watch(tidalLikedSongsProvider);
-    final size = context.scaleSize(52);
-
-    return PressScale(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-        leading: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Colors.pinkAccent, Colors.purpleAccent],
-            ),
-          ),
-          child: Icon(
-            LucideIcons.heart,
-            color: Colors.white,
-            size: context.scaleSize(24),
-          ),
-        ),
-        title: const Text(
-          'Liked Songs',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: likedAsync.when(
-          data: (songs) => Text(
-            '${songs.length} tracks',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-          loading: () => const Text(
-            'Loading...',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          error: (err, _) => Text(
-            isTidalRateLimitError(err)
-                ? 'Rate limited — try again soon'
-                : 'Could not load',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-        ),
-        trailing: const Icon(
-          LucideIcons.chevronRight,
-          color: AppColors.textSecondary,
-          size: 18,
-        ),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const TidalLikedSongsScreen()),
-          );
-        },
       ),
     );
   }

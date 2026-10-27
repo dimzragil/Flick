@@ -32,7 +32,7 @@ class TidalPlaylistScreen extends ConsumerStatefulWidget {
   final String? initialSubtitle;
   final int? initialTrackCount;
 
-  /// Matches the tag of the hub card's cover [Hero], when opened from one.
+  /// Matches the tag of the source cover [Hero], when opened from a tile.
   final String? heroTag;
 
   const TidalPlaylistScreen({
@@ -52,8 +52,8 @@ class TidalPlaylistScreen extends ConsumerStatefulWidget {
 
 class _TidalPlaylistScreenState extends ConsumerState<TidalPlaylistScreen>
     with TidalDominantColor {
-  /// Wraps [cover] in a [Hero] when this screen was opened from a hub card
-  /// that supplied a matching [TidalPlaylistScreen.heroTag].
+  /// Wraps [cover] in a [Hero] when the source tile supplied a matching
+  /// [TidalPlaylistScreen.heroTag].
   Widget _withCoverHero(Widget cover) {
     final tag = widget.heroTag;
     return tag == null ? cover : Hero(tag: tag, child: cover);

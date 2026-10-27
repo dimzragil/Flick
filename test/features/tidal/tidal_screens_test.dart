@@ -118,7 +118,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('Search'), findsOneWidget);
+    expect(find.byTooltip('Search'), findsNothing);
     expect(
       find.byWidgetPredicate(
         (w) =>
@@ -129,8 +129,8 @@ void main() {
       ),
       findsWidgets,
     );
-    expect(find.text('My Playlists'), findsOneWidget);
-    expect(find.text('My Audiophile Tracks'), findsOneWidget);
+    expect(find.text('My Playlists'), findsNothing);
+    expect(find.text('My Audiophile Tracks'), findsNothing);
   });
 
   testWidgets(
@@ -530,7 +530,7 @@ void main() {
           tidalServerProvider.overrideWith(
             () => _MockTidalServerNotifier(_serverWithToken()),
           ),
-          // Feed and playlists stay pending so the skeletons stay mounted.
+          // Feed stays pending so its skeleton remains mounted.
           // Never pumpAndSettle here: the shimmer repeats forever.
           tidalHomeFeedProvider.overrideWith(
             (ref, slug) => Completer<TidalHomeFeed>().future,
@@ -547,7 +547,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byType(TidalHubFeedSkeleton), findsOneWidget);
-    expect(find.byType(TidalListSkeleton), findsOneWidget);
+    expect(find.byType(TidalListSkeleton), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
