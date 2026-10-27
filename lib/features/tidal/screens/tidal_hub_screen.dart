@@ -20,12 +20,12 @@ import '../../../services/player_service.dart';
 import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
-import '../../../widgets/common/song_badges.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
 import '../widgets/tidal_error_widget.dart';
 import '../widgets/tidal_import_playlist_dialog.dart';
+import '../widgets/tidal_now_playing_title.dart';
 import '../widgets/tidal_playlist_cover_widget.dart';
 import '../widgets/tidal_shimmer.dart';
 import '../widgets/tidal_tab_pill.dart';
@@ -1697,8 +1697,9 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
                 : const FlickArtworkPlaceholder(),
           ),
         ),
-        title: SongTitleRow(
+        title: TidalNowPlayingTitle(
           title: item.title,
+          tidalTrackId: item.id,
           isExplicit: item.isExplicit,
           isAtmos: item.isAtmos,
           style: const TextStyle(

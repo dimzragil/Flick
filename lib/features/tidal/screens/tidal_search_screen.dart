@@ -14,7 +14,6 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
 import '../../../widgets/common/glass_search_bar.dart';
-import '../../../widgets/common/song_badges.dart';
 import '../providers/tidal_providers.dart';
 import '../../../data/repositories/tidal_search_history_repository.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
@@ -23,6 +22,7 @@ import 'tidal_artist_screen.dart';
 import 'tidal_playlist_screen.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
+import '../widgets/tidal_now_playing_title.dart';
 import '../widgets/tidal_playlist_cover_widget.dart';
 import '../widgets/tidal_shimmer.dart';
 import '../widgets/tidal_tab_pill.dart';
@@ -588,8 +588,9 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
                 : const FlickArtworkPlaceholder(),
           ),
         ),
-        title: SongTitleRow(
+        title: TidalNowPlayingTitle(
           title: song.title,
+          songId: song.id,
           isExplicit: song.isExplicit,
           isAtmos: song.isAtmos,
           isHiRes: (song.bitDepth ?? 0) >= 24,

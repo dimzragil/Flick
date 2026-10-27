@@ -19,8 +19,8 @@ import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/detail_header.dart';
 import '../../../widgets/common/fetched_description.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
-import '../../../widgets/common/song_badges.dart';
 import '../widgets/tidal_entity_share.dart';
+import '../widgets/tidal_now_playing_title.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
@@ -680,8 +680,9 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                           ),
                         ),
                       ),
-                      title: SongTitleRow(
+                      title: TidalNowPlayingTitle(
                         title: song.title,
+                        songId: song.id,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
                         isHiRes: (song.bitDepth ?? 0) >= 24,

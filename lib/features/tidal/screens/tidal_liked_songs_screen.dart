@@ -11,11 +11,11 @@ import '../../../services/sources/tidal_service.dart';
 import '../../../widgets/common/cached_image_widget.dart';
 import '../../../widgets/common/display_mode_wrapper.dart';
 import '../../../widgets/common/flick_artwork_placeholder.dart';
-import '../../../widgets/common/song_badges.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import '../providers/tidal_providers.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/staggered_entrance.dart';
+import '../widgets/tidal_now_playing_title.dart';
 import '../widgets/tidal_shimmer.dart';
 
 /// Full "Liked Songs" collection — the user's TIDAL favorite tracks.
@@ -161,8 +161,9 @@ class TidalLikedSongsScreen extends ConsumerWidget {
                 : const FlickArtworkPlaceholder(),
           ),
         ),
-        title: SongTitleRow(
+        title: TidalNowPlayingTitle(
           title: song.title,
+          songId: song.id,
           isExplicit: song.isExplicit,
           isAtmos: song.isAtmos,
           isHiRes: isHiRes,

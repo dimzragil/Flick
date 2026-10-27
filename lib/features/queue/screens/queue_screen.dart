@@ -4,12 +4,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
+import 'package:flick/features/tidal/widgets/tidal_now_playing_title.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/blurred_song_background.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
-import 'package:flick/widgets/common/song_badges.dart';
 import 'package:flick/widgets/common/surface_icon_button.dart';
 
 class QueueScreen extends ConsumerStatefulWidget {
@@ -575,8 +575,9 @@ class _NowPlayingCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                SongTitleRow(
+                TidalNowPlayingTitle(
                   title: song.title,
+                  songId: song.id,
                   isExplicit: song.isExplicit,
                   isAtmos: song.isAtmos,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -685,8 +686,9 @@ class _UpcomingTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SongTitleRow(
+                      TidalNowPlayingTitle(
                         title: song.title,
+                        songId: song.id,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -847,8 +849,9 @@ class _QueueTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SongTitleRow(
+                      TidalNowPlayingTitle(
                         title: song.title,
+                        songId: song.id,
                         isExplicit: song.isExplicit,
                         isAtmos: song.isAtmos,
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(

@@ -25,6 +25,10 @@ class AppColors {
   static const Color accentLight = Color(0xFFF5F5F5);
   static const Color accentDim = Color(0xFF808080);
 
+  // TIDAL now-playing title highlight, keyed to delivered stream quality.
+  static const Color nowPlayingHiRes = Color(0xFFFFD700); // gold
+  static const Color nowPlayingCdAndBelow = Color(0xFF00E5FF); // cyan-blue
+
   // Glassmorphism Colors
   static const Color glassBackground = Color(0x0DFFFFFF); // 5% white
   static const Color glassBackgroundStrong = Color(0x26FFFFFF); // 15% white
