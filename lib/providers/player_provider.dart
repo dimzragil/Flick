@@ -195,7 +195,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   /// Play a song, optionally with a playlist context.
-  Future<void> play(Song song, {List<Song>? playlist, PlaybackContext? context}) async {
+  Future<void> play(
+    Song song, {
+    List<Song>? playlist,
+    PlaybackContext? context,
+  }) async {
     await _service.play(song, playlist: playlist, context: context);
   }
 
@@ -241,6 +245,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   Future<int> addToQueue(Song song) async {
     return _service.addToQueue(song);
+  }
+
+  Future<void> playSuggestedTrack(Song song) {
+    return _service.playSuggestedTrack(song);
   }
 
   Future<void> playFromQueueIndex(int index) async {
@@ -357,6 +365,15 @@ final playerProvider = NotifierProvider<PlayerNotifier, PlayerState>(
 /// those changes.
 final currentSongProvider = Provider<Song?>((ref) {
   return ref.watch(playerProvider).currentSong;
+});
+
+/// TIDAL Radio suggestions for the current song. The service owns the
+/// per-seed session cache shared with prepopulate and queue-end autoplay.
+final suggestedTracksProvider = FutureProvider<List<Song>>((ref) async {
+  final song = ref.watch(currentSongProvider);
+  ref.watch(queueProvider);
+  ref.watch(upNextProvider);
+  return ref.read(playerServiceProvider).getSuggestedRadioTracks(song);
 });
 
 /// Is playing selector.

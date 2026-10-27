@@ -5,6 +5,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/features/tidal/widgets/tidal_now_playing_title.dart';
+import 'package:flick/features/songs/widgets/song_actions_button.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/blurred_song_background.dart';
@@ -12,14 +13,189 @@ import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/flick_artwork_placeholder.dart';
 import 'package:flick/widgets/common/surface_icon_button.dart';
 
-class QueueScreen extends ConsumerStatefulWidget {
+class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
 
   @override
-  ConsumerState<QueueScreen> createState() => _QueueScreenState();
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: AppColors.backgroundGradient,
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                TabBar(
+                  labelColor: context.adaptiveTextPrimary,
+                  unselectedLabelColor: context.adaptiveTextTertiary,
+                  labelStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  unselectedLabelStyle: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  indicatorColor: AppColors.accent,
+                  tabs: const [
+                    Tab(text: 'Play queue'),
+                    Tab(text: 'Suggested tracks'),
+                  ],
+                ),
+                const Expanded(
+                  child: TabBarView(
+                    children: [_PlayQueueTab(), _SuggestedTracksTab()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _QueueScreenState extends ConsumerState<QueueScreen> {
+class _PlayQueueTab extends ConsumerStatefulWidget {
+  const _PlayQueueTab();
+
+  @override
+  ConsumerState<_PlayQueueTab> createState() => _QueueScreenState();
+}
+
+class _SuggestedTracksTab extends ConsumerWidget {
+  const _SuggestedTracksTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final suggestions = ref.watch(suggestedTracksProvider);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: BlurredSongBackground(
+        child: suggestions.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (_, __) => const _NoSuggestedTracks(),
+          data: (songs) => songs.isEmpty
+              ? const _NoSuggestedTracks()
+              : CustomScrollView(
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppConstants.spacingLg,
+                        AppConstants.spacingMd,
+                        AppConstants.spacingLg,
+                        AppConstants.navBarHeight + 120,
+                      ),
+                      sliver: SliverList.builder(
+                        itemCount: songs.length,
+                        itemBuilder: (context, index) => _SuggestedTile(
+                          song: songs[index],
+                          onTap: () => ref
+                              .read(playerProvider.notifier)
+                              .playSuggestedTrack(songs[index]),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoSuggestedTracks extends StatelessWidget {
+  const _NoSuggestedTracks();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(AppConstants.spacingXl),
+      child: Text(
+        'No suggested tracks available for this track',
+        textAlign: TextAlign.center,
+        style: Theme.of(
+          context,
+        ).textTheme.bodyMedium?.copyWith(color: context.adaptiveTextSecondary),
+      ),
+    ),
+  );
+}
+
+class _SuggestedTile extends StatelessWidget {
+  final Song song;
+  final VoidCallback onTap;
+
+  const _SuggestedTile({required this.song, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingMd,
+            vertical: AppConstants.spacingSm,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.surfaceLight.withValues(alpha: 0.7),
+                AppColors.surface.withValues(alpha: 0.82),
+              ],
+            ),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          child: Row(
+            children: [
+              _Artwork(song: song),
+              const SizedBox(width: AppConstants.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TidalNowPlayingTitle(
+                      title: song.title,
+                      songId: song.id,
+                      isExplicit: song.isExplicit,
+                      isAtmos: song.isAtmos,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SongActionsButton(song: song),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _QueueScreenState extends ConsumerState<_PlayQueueTab> {
   bool _selectionMode = false;
   final Set<String> _selectedKeys = {};
 
