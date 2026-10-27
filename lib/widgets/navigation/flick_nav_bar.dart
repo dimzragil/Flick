@@ -5,6 +5,7 @@ import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/models/nav_bar_config.dart';
+import 'package:flick/features/tidal/providers/tidal_section_provider.dart';
 
 class FlickNavBar extends StatefulWidget {
   final int currentIndex;
@@ -15,6 +16,9 @@ class FlickNavBar extends StatefulWidget {
   final NavBarConfig config;
   final bool collapsed;
   final bool separateMiniPlayer;
+  final bool tidalSectionActive;
+  final TidalSection tidalSection;
+  final ValueChanged<TidalSection>? onTidalSectionTap;
 
   const FlickNavBar({
     super.key,
@@ -26,6 +30,9 @@ class FlickNavBar extends StatefulWidget {
     this.miniPlayerWidget,
     this.collapsed = false,
     this.separateMiniPlayer = false,
+    this.tidalSectionActive = false,
+    this.tidalSection = TidalSection.hub,
+    this.onTidalSectionTap,
   });
 
   @override
@@ -71,7 +78,9 @@ class _FlickNavBarState extends State<FlickNavBar> {
             ),
             borderRadius: borderRadius,
             border: Border.all(
-              color: widget.collapsed ? Colors.transparent : AppColors.glassBorder,
+              color: widget.collapsed
+                  ? Colors.transparent
+                  : AppColors.glassBorder,
               width: 1,
             ),
             boxShadow: widget.collapsed
@@ -135,49 +144,131 @@ class _FlickNavBarState extends State<FlickNavBar> {
     const minTapTargetSize = 48.0;
 
     final missingEssentials = widget.config.missingEssentials;
-    final isOnMissingEssential = missingEssentials.any((b) => b.pageIndex == widget.currentIndex);
+    final isOnMissingEssential = missingEssentials.any(
+      (b) => b.pageIndex == widget.currentIndex,
+    );
+
+    final visibleButtons = buttons
+        .where((button) => !widget.config.hidden.contains(button))
+        .toList();
+    final tidalEnabled = visibleButtons.contains(NavBarButton.tidal);
+    final entries = <NavBarButton>[];
+    for (final button in visibleButtons) {
+      entries.add(button);
+      if (button == NavBarButton.tidal && tidalEnabled) {
+        entries.addAll(const [
+          NavBarButton.tidalSearch,
+          NavBarButton.collection,
+        ]);
+      }
+    }
+    final activeCount =
+        visibleButtons.length +
+        (widget.tidalSectionActive && tidalEnabled ? 2 : 0);
 
     return GestureDetector(
       onLongPress: widget.onBottomBarSettings,
       child: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: itemPadding,
-          vertical: context.scaleSize(AppConstants.spacingXs) * widget.config.barSizeFactor,
+          vertical:
+              context.scaleSize(AppConstants.spacingXs) *
+              widget.config.barSizeFactor,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            ...List.generate(
-              buttons.length,
-              (index) {
-                final button = buttons[index];
-                return Expanded(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: minTapTargetSize),
-                    child: _FlickNavItem(
-                      button: button,
-                      isSelected: widget.currentIndex == button.pageIndex,
-                      config: widget.config,
-                      onTap: () => widget.onTap(button.pageIndex),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final slots = activeCount + (missingEssentials.isNotEmpty ? 1 : 0);
+            final slotWidth = slots == 0 ? 0.0 : constraints.maxWidth / slots;
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final button in entries)
+                  _AnimatedNavSlot(
+                    key: ValueKey(button),
+                    width:
+                        NavBarConfig.sectionOnlyButtons.contains(button) &&
+                            !widget.tidalSectionActive
+                        ? 0
+                        : slotWidth,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: minTapTargetSize,
+                      ),
+                      child: _FlickNavItem(
+                        button: button,
+                        isSelected: switch (button) {
+                          NavBarButton.tidal =>
+                            widget.currentIndex == button.pageIndex &&
+                                widget.tidalSection == TidalSection.hub,
+                          NavBarButton.tidalSearch =>
+                            widget.currentIndex == button.pageIndex &&
+                                widget.tidalSection == TidalSection.search,
+                          NavBarButton.collection =>
+                            widget.currentIndex == button.pageIndex &&
+                                widget.tidalSection == TidalSection.collection,
+                          _ => widget.currentIndex == button.pageIndex,
+                        },
+                        config: widget.config,
+                        onTap: () {
+                          if (button == NavBarButton.tidalSearch) {
+                            widget.onTidalSectionTap?.call(TidalSection.search);
+                          } else if (button == NavBarButton.collection) {
+                            widget.onTidalSectionTap?.call(
+                              TidalSection.collection,
+                            );
+                          } else {
+                            widget.onTap(button.pageIndex);
+                          }
+                        },
+                      ),
                     ),
                   ),
-                );
-              },
-            ),
-            if (missingEssentials.isNotEmpty)
-              Expanded(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: minTapTargetSize),
-                  child: _OverflowNavItem(
-                    isSelected: isOnMissingEssential,
-                    config: widget.config,
-                    missingButtons: missingEssentials,
-                    onSelect: (button) => widget.onTap(button.pageIndex),
-                    onBottomBarSettings: widget.onBottomBarSettings,
+                if (missingEssentials.isNotEmpty)
+                  _AnimatedNavSlot(
+                    width: slotWidth,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: minTapTargetSize,
+                      ),
+                      child: _OverflowNavItem(
+                        isSelected: isOnMissingEssential,
+                        config: widget.config,
+                        missingButtons: missingEssentials,
+                        onSelect: (button) => widget.onTap(button.pageIndex),
+                        onBottomBarSettings: widget.onBottomBarSettings,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-          ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedNavSlot extends StatelessWidget {
+  final double width;
+  final Widget child;
+
+  const _AnimatedNavSlot({super.key, required this.width, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: AppConstants.animationNormal,
+      curve: Curves.easeOutCubic,
+      width: width,
+      child: ClipRect(
+        child: ExcludeSemantics(
+          excluding: width == 0,
+          child: AnimatedOpacity(
+            duration: AppConstants.animationNormal,
+            curve: Curves.easeOutCubic,
+            opacity: width == 0 ? 0 : 1,
+            child: IgnorePointer(ignoring: width == 0, child: child),
+          ),
         ),
       ),
     );
@@ -204,10 +295,13 @@ class _OverflowNavItem extends StatelessWidget {
     final iconFactor = config.iconSizeFactor;
     final barSizeFactor = config.barSizeFactor;
 
-    final iconSize = context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
+    final iconSize =
+        context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
     final fontSize = context.responsiveText(8.0) * barSizeFactor;
-    final horizontalPadding = context.scaleSize(AppConstants.spacingMd) * config.buttonSpacingFactor;
-    final verticalPadding = context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
+    final horizontalPadding =
+        context.scaleSize(AppConstants.spacingMd) * config.buttonSpacingFactor;
+    final verticalPadding =
+        context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
     final spacing = context.scaleSize(2.0) * config.buttonSpacingFactor;
 
     final color = isSelected ? AppColors.activeState : AppColors.inactiveState;
@@ -227,11 +321,7 @@ class _OverflowNavItem extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              LucideIcons.ellipsis,
-              color: color,
-              size: iconSize,
-            ),
+            Icon(LucideIcons.ellipsis, color: color, size: iconSize),
             SizedBox(height: spacing),
             if (config.showLabels)
               Flexible(
@@ -244,7 +334,9 @@ class _OverflowNavItem extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: 'ProductSans',
                       fontSize: fontSize,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w400,
                       color: color,
                       letterSpacing: 0.4,
                     ),
@@ -265,11 +357,15 @@ class _OverflowNavItem extends StatelessWidget {
 
     final menuWidth = 180.0;
     final itemHeight = 48.0;
-    final totalHeight = itemHeight * missingButtons.length +
+    final totalHeight =
+        itemHeight * missingButtons.length +
         (onBottomBarSettings != null ? itemHeight + 1 : 0) +
         8.0;
 
-    final left = (offset.dx + size.width / 2 - menuWidth / 2).clamp(8.0, MediaQuery.of(context).size.width - menuWidth - 8.0);
+    final left = (offset.dx + size.width / 2 - menuWidth / 2).clamp(
+      8.0,
+      MediaQuery.of(context).size.width - menuWidth - 8.0,
+    );
     final top = offset.dy - totalHeight - 8.0;
 
     late OverlayEntry entry;
@@ -333,12 +429,14 @@ class _OverflowMenuPopupState extends State<_OverflowMenuPopup>
       duration: AppConstants.animationFast,
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.85,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _controller.forward();
   }
 
@@ -412,10 +510,17 @@ class _OverflowMenuPopupState extends State<_OverflowMenuPopup>
                             widget.onDismiss();
                           }),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                             child: Row(
                               children: [
-                                navBarButtonIcon(button, size: 20, color: AppColors.textSecondary),
+                                navBarButtonIcon(
+                                  button,
+                                  size: 20,
+                                  color: AppColors.textSecondary,
+                                ),
                                 const SizedBox(width: 12),
                                 Flexible(
                                   child: Text(
@@ -449,13 +554,18 @@ class _OverflowMenuPopupState extends State<_OverflowMenuPopup>
                             widget.onDismiss();
                           }),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                             child: Row(
                               children: [
                                 Icon(
                                   LucideIcons.settings,
                                   size: 20,
-                                  color: AppColors.accent.withValues(alpha: 0.85),
+                                  color: AppColors.accent.withValues(
+                                    alpha: 0.85,
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
                                 Flexible(
@@ -467,7 +577,9 @@ class _OverflowMenuPopupState extends State<_OverflowMenuPopup>
                                       fontFamily: 'ProductSans',
                                       fontSize: 14,
                                       fontWeight: FontWeight.w500,
-                                      color: AppColors.accent.withValues(alpha: 0.85),
+                                      color: AppColors.accent.withValues(
+                                        alpha: 0.85,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -581,10 +693,13 @@ class _FlickNavItemState extends State<_FlickNavItem>
     final horizontalPaddingFactor = widget.config.buttonSpacingFactor;
     final barSizeFactor = widget.config.barSizeFactor;
 
-    final iconSize = context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
+    final iconSize =
+        context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
     final fontSize = context.responsiveText(8.0) * barSizeFactor;
-    final horizontalPadding = context.scaleSize(AppConstants.spacingMd) * horizontalPaddingFactor;
-    final verticalPadding = context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
+    final horizontalPadding =
+        context.scaleSize(AppConstants.spacingMd) * horizontalPaddingFactor;
+    final verticalPadding =
+        context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
     final spacing = context.scaleSize(2.0) * spacerFactor;
 
     return GestureDetector(
@@ -626,8 +741,13 @@ class _FlickNavItemState extends State<_FlickNavItem>
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          widget.button.label,
-                          maxLines: 1,
+                          widget.button == NavBarButton.tidalSearch
+                              ? 'TIDAL\nSearch'
+                              : widget.button.label,
+                          semanticsLabel: widget.button.label,
+                          maxLines: widget.button == NavBarButton.tidalSearch
+                              ? 2
+                              : 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontFamily: 'ProductSans',
@@ -646,7 +766,7 @@ class _FlickNavItemState extends State<_FlickNavItem>
             ),
           );
         },
-        ),
-      );
-    }
+      ),
+    );
   }
+}

@@ -39,7 +39,9 @@ enum TidalSearchCategory {
 }
 
 class TidalSearchScreen extends ConsumerStatefulWidget {
-  const TidalSearchScreen({super.key});
+  final bool showBackButton;
+
+  const TidalSearchScreen({super.key, this.showBackButton = true});
 
   @override
   ConsumerState<TidalSearchScreen> createState() => _TidalSearchScreenState();
@@ -128,13 +130,16 @@ class _TidalSearchScreenState extends ConsumerState<TidalSearchScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          leading: IconButton(
-            icon: const Icon(
-              LucideIcons.arrowLeft,
-              color: AppColors.textPrimary,
-            ),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+          automaticallyImplyLeading: widget.showBackButton,
+          leading: widget.showBackButton
+              ? IconButton(
+                  icon: const Icon(
+                    LucideIcons.arrowLeft,
+                    color: AppColors.textPrimary,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                )
+              : null,
           title: const Text(
             'TIDAL Search',
             style: TextStyle(

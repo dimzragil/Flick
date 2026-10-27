@@ -326,6 +326,28 @@ void main() {
     },
   );
 
+  testWidgets('TidalSearchScreen has no back button in section mode', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+        ],
+        child: const MaterialApp(
+          home: TidalSearchScreen(showBackButton: false),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AppBar>(find.byType(AppBar)).leading, isNull);
+  });
+
   testWidgets('TidalAlbumScreen displays album details and tracklist', (
     tester,
   ) async {

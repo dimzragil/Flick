@@ -20,7 +20,8 @@ import 'package:flick/features/folders/screens/folders_screen.dart';
 import 'package:flick/features/playlists/screens/playlists_screen.dart';
 import 'package:flick/features/favorites/screens/favorites_screen.dart';
 import 'package:flick/features/search/screens/search_screen.dart';
-import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_section_screen.dart';
+import 'package:flick/features/tidal/providers/tidal_section_provider.dart';
 import 'package:flick/core/navigation/nav_bar_visibility_observer.dart';
 import 'package:flick/core/navigation/root_navigator.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
@@ -149,8 +150,8 @@ class _MainShellState extends ConsumerState<MainShell>
         initialConfig.orderedButtons.contains(NavBarButton.tidal)
         ? NavBarButton.tidal.pageIndex
         : initialConfig.orderedButtons.contains(NavBarButton.songs)
-            ? NavBarButton.songs.pageIndex
-            : NavBarButton.menu.pageIndex;
+        ? NavBarButton.songs.pageIndex
+        : NavBarButton.menu.pageIndex;
     ref.read(navigationIndexProvider.notifier).setIndex(defaultPage);
     final initialIndex = ref.read(navigationIndexProvider);
     final initialOrder = _getPageOrder(initialConfig);
@@ -273,6 +274,10 @@ class _MainShellState extends ConsumerState<MainShell>
         }
 
         _showNavBar();
+        if (next == NavBarButton.tidal.pageIndex &&
+            previous != NavBarButton.tidal.pageIndex) {
+          ref.read(tidalSectionProvider.notifier).reset();
+        }
 
         void animateToTab() {
           if (!_pageController.hasClients) {
@@ -332,10 +337,7 @@ class _MainShellState extends ConsumerState<MainShell>
       _onPlaybackIssue,
     );
 
-    ref.listenManual<AsyncValue<int>>(
-      libraryWarmupProvider,
-      _onWarmupChanged,
-    );
+    ref.listenManual<AsyncValue<int>>(libraryWarmupProvider, _onWarmupChanged);
 
     ref.listenManual<AppPreferences>(appPreferencesProvider, (previous, next) {
       if (!mounted) return;
@@ -394,9 +396,9 @@ class _MainShellState extends ConsumerState<MainShell>
         nextMilestone: next.next,
         nextRemaining: next.next == null ? null : next.remaining,
         onSupportTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SupportFlickScreen()),
-          );
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const SupportFlickScreen()));
         },
       ),
     );
@@ -614,7 +616,9 @@ class _MainShellState extends ConsumerState<MainShell>
   }
 
   void _onNavBarVisibilityChanged(bool isVisible) {
-    final separated = ref.read(appPreferencesProvider).separateMiniPlayerFromNavBar;
+    final separated = ref
+        .read(appPreferencesProvider)
+        .separateMiniPlayerFromNavBar;
     if (separated) {
       if (_navBarAnimationController.isAnimating ||
           _navBarAnimationController.value != 0) {
@@ -718,190 +722,208 @@ class _MainShellState extends ConsumerState<MainShell>
               onPointerMove: (_) => _onUserInteraction(),
               child: Stack(
                 children: [
-                // Base Gradient
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: AppColors.backgroundGradient,
+                  // Base Gradient
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: AppColors.backgroundGradient,
+                    ),
                   ),
-                ),
 
-                // Persistent Background - always on for all bottom-bar screens
-                Positioned.fill(
-                  child: Consumer(
-                    builder: (context, ref, _) {
-                      final currentSong = ref.watch(currentSongProvider);
-                      return AmbientBackground(song: currentSong);
-                    },
+                  // Persistent Background - always on for all bottom-bar screens
+                  Positioned.fill(
+                    child: Consumer(
+                      builder: (context, ref, _) {
+                        final currentSong = ref.watch(currentSongProvider);
+                        return AmbientBackground(song: currentSong);
+                      },
+                    ),
                   ),
-                ),
 
-                // Nested navigator: tabs + detail screens below the bar.
-                Positioned.fill(
-                  child: Builder(
-                    builder: (nestedContext) {
-                      final mq = MediaQuery.of(nestedContext);
-                      final inflated = mq.copyWith(
-                        padding: mq.padding.copyWith(
-                          bottom: mq.padding.bottom + _kNestedBarClearance,
-                        ),
-                        viewPadding: mq.viewPadding.copyWith(
-                          bottom:
-                              mq.viewPadding.bottom + _kNestedBarClearance,
-                        ),
-                      );
-                      return MediaQuery(
-                        data: inflated,
-                        child: Navigator(
-                          key: nestedNavigatorKey,
-                          initialRoute: '/',
-                          observers: [_navBarVisibilityObserver],
-                          onGenerateRoute: (settings) {
-                            if (settings.name == '/') {
-                              return PageRouteBuilder<void>(
-                                settings: settings,
-                                pageBuilder: (routeContext, _, __) =>
-                                    MediaQuery.removePadding(
-                                  context: routeContext,
-                                  removeBottom: true,
-                                  child: Consumer(
-                                    builder: (context, ref, _) {
-                                      final currentIdx =
-                                          ref.watch(navigationIndexProvider);
-                                      final cfg =
-                                          ref.watch(navBarConfigProvider);
-                                      final order = _getPageOrder(cfg);
-                                      return PageView(
-                                        controller: _pageController,
-                                        physics:
-                                            const ClampingScrollPhysics(),
-                                        onPageChanged: (position) {
-                                          final currentConfig = ref.read(
-                                              navBarConfigProvider);
-                                          final currentOrder =
-                                              _getPageOrder(currentConfig);
-                                          if (position < 0 ||
-                                              position >=
-                                                  currentOrder.length) {
-                                            return;
-                                          }
-                                          if (_programmaticPageTarget == null &&
-                                              position != _lastHapticPage) {
-                                            AppHaptics.selection();
-                                          }
-                                          _lastHapticPage = position;
-                                          // Android's DRR drops the panel to
-                                          // 60 Hz while media plays or during
-                                          // touch idle. Re-assert the user's
-                                          // preference on every visible-tab
-                                          // change so browsing never stays
-                                          // stuck at the lower rate.
-                                          unawaited(
-                                            DisplayModeService().applyPreference(
-                                              ref
-                                                  .read(appPreferencesProvider)
-                                                  .refreshRateMode,
-                                            ),
-                                          );
-                                          final enabledCount = currentConfig
-                                              .orderedButtons.length;
-                                          if (position >= enabledCount) {
+                  // Nested navigator: tabs + detail screens below the bar.
+                  Positioned.fill(
+                    child: Builder(
+                      builder: (nestedContext) {
+                        final mq = MediaQuery.of(nestedContext);
+                        final inflated = mq.copyWith(
+                          padding: mq.padding.copyWith(
+                            bottom: mq.padding.bottom + _kNestedBarClearance,
+                          ),
+                          viewPadding: mq.viewPadding.copyWith(
+                            bottom:
+                                mq.viewPadding.bottom + _kNestedBarClearance,
+                          ),
+                        );
+                        return MediaQuery(
+                          data: inflated,
+                          child: Navigator(
+                            key: nestedNavigatorKey,
+                            initialRoute: '/',
+                            observers: [_navBarVisibilityObserver],
+                            onGenerateRoute: (settings) {
+                              if (settings.name == '/') {
+                                return PageRouteBuilder<void>(
+                                  settings: settings,
+                                  pageBuilder: (routeContext, _, __) => MediaQuery.removePadding(
+                                    context: routeContext,
+                                    removeBottom: true,
+                                    child: Consumer(
+                                      builder: (context, ref, _) {
+                                        final currentIdx = ref.watch(
+                                          navigationIndexProvider,
+                                        );
+                                        final cfg = ref.watch(
+                                          navBarConfigProvider,
+                                        );
+                                        final order = _getPageOrder(cfg);
+                                        return PageView(
+                                          controller: _pageController,
+                                          physics:
+                                              const ClampingScrollPhysics(),
+                                          onPageChanged: (position) {
+                                            final currentConfig = ref.read(
+                                              navBarConfigProvider,
+                                            );
+                                            final currentOrder = _getPageOrder(
+                                              currentConfig,
+                                            );
+                                            if (position < 0 ||
+                                                position >=
+                                                    currentOrder.length) {
+                                              return;
+                                            }
                                             if (_programmaticPageTarget ==
-                                                position) {
-                                              _programmaticPageTarget = null;
+                                                    null &&
+                                                position != _lastHapticPage) {
+                                              AppHaptics.selection();
+                                            }
+                                            _lastHapticPage = position;
+                                            // Android's DRR drops the panel to
+                                            // 60 Hz while media plays or during
+                                            // touch idle. Re-assert the user's
+                                            // preference on every visible-tab
+                                            // change so browsing never stays
+                                            // stuck at the lower rate.
+                                            unawaited(
+                                              DisplayModeService()
+                                                  .applyPreference(
+                                                    ref
+                                                        .read(
+                                                          appPreferencesProvider,
+                                                        )
+                                                        .refreshRateMode,
+                                                  ),
+                                            );
+                                            final enabledCount = currentConfig
+                                                .orderedButtons
+                                                .length;
+                                            if (position >= enabledCount) {
+                                              if (_programmaticPageTarget ==
+                                                  position) {
+                                                _programmaticPageTarget = null;
+                                                final pageIndex =
+                                                    currentOrder[position]
+                                                        .pageIndex;
+                                                if (ref.read(
+                                                      navigationIndexProvider,
+                                                    ) !=
+                                                    pageIndex) {
+                                                  ref
+                                                      .read(
+                                                        navigationIndexProvider
+                                                            .notifier,
+                                                      )
+                                                      .setIndex(pageIndex);
+                                                }
+                                                return;
+                                              }
+                                              if (_programmaticPageTarget !=
+                                                  null) {
+                                                return;
+                                              }
                                               final pageIndex =
                                                   currentOrder[position]
                                                       .pageIndex;
                                               if (ref.read(
-                                                      navigationIndexProvider) !=
+                                                    navigationIndexProvider,
+                                                  ) !=
                                                   pageIndex) {
                                                 ref
                                                     .read(
-                                                        navigationIndexProvider
-                                                            .notifier)
+                                                      navigationIndexProvider
+                                                          .notifier,
+                                                    )
                                                     .setIndex(pageIndex);
                                               }
                                               return;
                                             }
-                                            if (_programmaticPageTarget !=
-                                                null) {
-                                              return;
+                                            if (_programmaticPageTarget ==
+                                                position) {
+                                              _programmaticPageTarget = null;
                                             }
                                             final pageIndex =
-                                                currentOrder[position].pageIndex;
+                                                currentOrder[position]
+                                                    .pageIndex;
                                             if (ref.read(
-                                                    navigationIndexProvider) !=
+                                                  navigationIndexProvider,
+                                                ) !=
                                                 pageIndex) {
                                               ref
-                                                  .read(navigationIndexProvider
-                                                      .notifier)
+                                                  .read(
+                                                    navigationIndexProvider
+                                                        .notifier,
+                                                  )
                                                   .setIndex(pageIndex);
                                             }
-                                            return;
-                                          }
-                                          if (_programmaticPageTarget ==
-                                              position) {
-                                            _programmaticPageTarget = null;
-                                          }
-                                          final pageIndex =
-                                              currentOrder[position].pageIndex;
-                                          if (ref.read(
-                                                  navigationIndexProvider) !=
-                                              pageIndex) {
-                                            ref
-                                                .read(navigationIndexProvider
-                                                    .notifier)
-                                                .setIndex(pageIndex);
-                                          }
-                                        },
-                                        children: order.map((button) {
-                                          return _buildTab(
-                                            tabIndex: button.pageIndex,
-                                            currentIndex: currentIdx,
-                                            child: _buildScreen(button),
-                                          );
-                                        }).toList(),
-                                      );
-                                    },
+                                          },
+                                          children: order.map((button) {
+                                            return _buildTab(
+                                              tabIndex: button.pageIndex,
+                                              currentIndex: currentIdx,
+                                              child: _buildScreen(button),
+                                            );
+                                          }).toList(),
+                                        );
+                                      },
+                                    ),
                                   ),
-                                ),
-                                transitionDuration: Duration.zero,
-                              );
-                            }
-                            return null;
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                // Unified Bottom Bar (Mini Player + Navigation)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: RepaintBoundary(
-                    child: SlideTransition(
-                      position: _navBarSlideAnimation,
-                      child: _buildUnifiedBottomBar(),
+                                  transitionDuration: Duration.zero,
+                                );
+                              }
+                              return null;
+                            },
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
 
-                // Floating island mini-player (draggable pill)
-                const FloatingMiniPlayer(),
+                  // Unified Bottom Bar (Mini Player + Navigation)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: RepaintBoundary(
+                      child: SlideTransition(
+                        position: _navBarSlideAnimation,
+                        child: _buildUnifiedBottomBar(),
+                      ),
+                    ),
+                  ),
 
-                // Pinned scan/preload progress bubble (overlay minimized)
-                const Positioned.fill(child: FloatingScanProgress()),
+                  // Floating island mini-player (draggable pill)
+                  const FloatingMiniPlayer(),
 
-                // Interactive tutorial overlay
-                const Positioned.fill(child: TutorialOverlay()),
+                  // Pinned scan/preload progress bubble (overlay minimized)
+                  const Positioned.fill(child: FloatingScanProgress()),
 
-                // USB DAC attach → auto bit-perfect switch (decline-aware)
-                const UsbBitPerfectPrompt(),
-              ],
+                  // Interactive tutorial overlay
+                  const Positioned.fill(child: TutorialOverlay()),
+
+                  // USB DAC attach → auto bit-perfect switch (decline-aware)
+                  const UsbBitPerfectPrompt(),
+                ],
+              ),
             ),
-          ),
           ),
         ),
       ),
@@ -942,7 +964,9 @@ class _MainShellState extends ConsumerState<MainShell>
         key: ValueKey('favorites'),
       ),
       NavBarButton.search => const SearchScreen(key: ValueKey('search')),
-      NavBarButton.tidal => const TidalHubScreen(key: ValueKey('tidal')),
+      NavBarButton.tidal => const TidalSectionScreen(key: ValueKey('tidal')),
+      NavBarButton.tidalSearch ||
+      NavBarButton.collection => const SizedBox.shrink(),
     };
   }
 
@@ -963,6 +987,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
   Widget _buildUnifiedBottomBar() {
     final currentIndex = ref.watch(navigationIndexProvider);
+    final tidalSection = ref.watch(tidalSectionProvider);
     final navBarConfig = ref.watch(navBarConfigProvider);
     final appPrefs = ref.watch(appPreferencesProvider);
     final separated = appPrefs.separateMiniPlayerFromNavBar;
@@ -975,9 +1000,21 @@ class _MainShellState extends ConsumerState<MainShell>
       target: TutorialTarget.navBar,
       child: FlickNavBar(
         currentIndex: currentIndex,
+        tidalSectionActive: currentIndex == NavBarButton.tidal.pageIndex,
+        tidalSection: tidalSection,
+        onTidalSectionTap: (section) {
+          final nested = nestedNavigatorKey.currentState;
+          if (nested != null && nested.canPop()) {
+            nested.popUntil((route) => route.isFirst);
+          }
+          ref.read(tidalSectionProvider.notifier).show(section);
+        },
         config: navBarConfig,
         collapsed: collapsed,
         onTap: (index) {
+          if (index == NavBarButton.tidal.pageIndex) {
+            ref.read(tidalSectionProvider.notifier).reset();
+          }
           final nested = nestedNavigatorKey.currentState;
           if (nested != null && nested.canPop()) {
             nested.popUntil((route) => route.isFirst);
@@ -1100,14 +1137,16 @@ class _EmbeddedMiniPlayerState extends ConsumerState<_EmbeddedMiniPlayer> {
           isNext
               ? (isNewSong ? 0.5 : -0.5)
               : isPrevious
-                  ? (isNewSong ? -0.5 : 0.5)
-                  : 0,
+              ? (isNewSong ? -0.5 : 0.5)
+              : 0,
           0,
         );
 
         return SlideTransition(
-          position: Tween<Offset>(begin: slideBegin, end: Offset.zero)
-              .animate(animation),
+          position: Tween<Offset>(
+            begin: slideBegin,
+            end: Offset.zero,
+          ).animate(animation),
           child: ScaleTransition(
             scale: Tween<double>(begin: 0.95, end: 1.0).animate(animation),
             child: FadeTransition(
@@ -1121,103 +1160,109 @@ class _EmbeddedMiniPlayerState extends ConsumerState<_EmbeddedMiniPlayer> {
         key: ValueKey('mini_player_song_$newSongId'),
         mainAxisSize: MainAxisSize.max,
         children: [
-            // Album Art
-            Hero(
-              tag: 'mini_player_art',
-              child: Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
-                  ),
+          // Album Art
+          Hero(
+            tag: 'mini_player_art',
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
                 ),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
-                  ),
-                  child: currentSong.albumArt != null
-                      ? CachedImageWidget(
-                          imagePath: currentSong.albumArt!,
-                          audioSourcePath: currentSong.filePath,
-                          fit: BoxFit.cover,
-                          useThumbnail: true,
-                          thumbnailWidth: 128,
-                          thumbnailHeight: 128,
-                          placeholder: const ColoredBox(
-                            color: AppColors.surface,
-                            child: FlickArtworkPlaceholder(size: 26, opacity: 0.9),
-                          ),
-                          errorWidget: const ColoredBox(
-                            color: AppColors.surface,
-                            child: FlickArtworkPlaceholder(size: 26, opacity: 0.9),
-                          ),
-                        )
-                      : const ColoredBox(
+              ),
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                ),
+                child: currentSong.albumArt != null
+                    ? CachedImageWidget(
+                        imagePath: currentSong.albumArt!,
+                        audioSourcePath: currentSong.filePath,
+                        fit: BoxFit.cover,
+                        useThumbnail: true,
+                        thumbnailWidth: 128,
+                        thumbnailHeight: 128,
+                        placeholder: const ColoredBox(
                           color: AppColors.surface,
-                          child: FlickArtworkPlaceholder(size: 26, opacity: 0.9),
+                          child: FlickArtworkPlaceholder(
+                            size: 26,
+                            opacity: 0.9,
+                          ),
                         ),
-                ),
+                        errorWidget: const ColoredBox(
+                          color: AppColors.surface,
+                          child: FlickArtworkPlaceholder(
+                            size: 26,
+                            opacity: 0.9,
+                          ),
+                        ),
+                      )
+                    : const ColoredBox(
+                        color: AppColors.surface,
+                        child: FlickArtworkPlaceholder(size: 26, opacity: 0.9),
+                      ),
               ),
             ),
+          ),
 
-            const SizedBox(width: 12),
+          const SizedBox(width: 12),
 
-            // Song Info
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    currentSong.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: context.adaptiveTextPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    currentSong.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontSize: 12,
-                      color: context.adaptiveTextSecondary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Play/Pause Button
-            Consumer(
-              builder: (context, ref, _) {
-                final isPlaying = ref.watch(isPlayingProvider);
-                return IconButton(
-                  onPressed: () =>
-                      ref.read(playerProvider.notifier).togglePlayPause(),
-                  icon: Icon(
-                    isPlaying ? LucideIcons.pause : LucideIcons.play,
+          // Song Info
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  currentSong.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                     color: context.adaptiveTextPrimary,
-                    size: 20,
                   ),
-                );
-              },
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  currentSong.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: 12,
+                    color: context.adaptiveTextSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-          ],
-        ),
-      );
+          ),
+
+          // Play/Pause Button
+          Consumer(
+            builder: (context, ref, _) {
+              final isPlaying = ref.watch(isPlayingProvider);
+              return IconButton(
+                onPressed: () =>
+                    ref.read(playerProvider.notifier).togglePlayPause(),
+                icon: Icon(
+                  isPlaying ? LucideIcons.pause : LucideIcons.play,
+                  color: context.adaptiveTextPrimary,
+                  size: 20,
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+    );
   }
 
   Widget _buildVisualizer() {
@@ -1327,29 +1372,26 @@ class _EmbeddedMiniPlayerState extends ConsumerState<_EmbeddedMiniPlayer> {
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeOutCubic,
                 transitionBuilder: (child, animation) {
-                  final isEntering = child.key == const ValueKey('mini_player_visualizer');
+                  final isEntering =
+                      child.key == const ValueKey('mini_player_visualizer');
                   final offset = isEntering
                       ? const Offset(0.3, 0)
                       : const Offset(-0.3, 0);
                   return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: offset,
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
-                    )),
-                    child: FadeTransition(
-                      opacity: animation,
-                      child: child,
-                    ),
+                    position: Tween<Offset>(begin: offset, end: Offset.zero)
+                        .animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
+                    child: FadeTransition(opacity: animation, child: child),
                   );
                 },
                 child: _showVisualizer
                     ? _buildVisualizer()
                     : _buildSongInfo(currentSong),
               ),
-
             ],
           ),
         ),

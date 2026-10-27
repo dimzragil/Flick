@@ -12,7 +12,9 @@ enum NavBarButton {
   playlists(6, 'Playlists', LucideIcons.listMusic),
   favorites(7, 'Favorites', LucideIcons.heart),
   search(8, 'Search', LucideIcons.search),
-  tidal(9, 'Tidal', LucideIcons.waves);
+  tidal(9, 'Tidal', LucideIcons.waves),
+  tidalSearch(9, 'TIDAL Search', LucideIcons.search),
+  collection(9, 'Collection', LucideIcons.library);
 
   const NavBarButton(this.pageIndex, this.label, this.icon);
 
@@ -76,6 +78,20 @@ class NavBarConfig {
   static const defaultConfig = NavBarConfig();
 
   List<NavBarButton> get orderedButtons => enabledButtons;
+
+  /// These section switches are rendered by [FlickNavBar] while TIDAL is
+  /// active. They are never configurable main tabs.
+  static const sectionOnlyButtons = {
+    NavBarButton.tidalSearch,
+    NavBarButton.collection,
+  };
+
+  NavBarConfig withoutSectionButtons() => copyWith(
+    enabledButtons: enabledButtons
+        .where((button) => !sectionOnlyButtons.contains(button))
+        .toList(),
+    hidden: hidden.difference(sectionOnlyButtons),
+  );
 
   bool get hasAllEssential =>
       enabledButtons.contains(NavBarButton.menu) &&

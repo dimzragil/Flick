@@ -40,7 +40,9 @@ import 'tidal_liked_songs_screen.dart';
 import 'package:flick/core/utils/error_display.dart';
 
 class TidalHubScreen extends ConsumerStatefulWidget {
-  const TidalHubScreen({super.key});
+  final VoidCallback? onOpenSearch;
+
+  const TidalHubScreen({super.key, this.onOpenSearch});
 
   @override
   ConsumerState<TidalHubScreen> createState() => _TidalHubScreenState();
@@ -140,6 +142,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   }
 
   void _openSearch() {
+    final onOpenSearch = widget.onOpenSearch;
+    if (onOpenSearch != null) {
+      onOpenSearch();
+      return;
+    }
     NavigationHelper.pushSharedAxis(
       context,
       (_) => const TidalSearchScreen(),

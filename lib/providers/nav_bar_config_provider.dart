@@ -37,8 +37,10 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
         : <NavBarButton>{};
 
     state = NavBarConfig(
-      enabledButtons: buttons.isEmpty ? NavBarConfig.allButtons : buttons,
-      hidden: hidden,
+      enabledButtons: (buttons.isEmpty ? NavBarConfig.allButtons : buttons)
+          .where((button) => !NavBarConfig.sectionOnlyButtons.contains(button))
+          .toList(),
+      hidden: hidden.difference(NavBarConfig.sectionOnlyButtons),
       barSizeFactor: prefs.getDouble(_sizeKey) ?? 1.0,
       buttonSpacingFactor: prefs.getDouble(_spacingKey) ?? 1.0,
       iconSizeFactor: prefs.getDouble(_iconSizeKey) ?? 1.0,
@@ -80,8 +82,12 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_buttonsKey, _serializeButtons(state.enabledButtons));
-    await prefs.setString(_hiddenKey, _serializeButtonSet(state.hidden));
+    final config = state.withoutSectionButtons();
+    await prefs.setString(
+      _buttonsKey,
+      _serializeButtons(config.enabledButtons),
+    );
+    await prefs.setString(_hiddenKey, _serializeButtonSet(config.hidden));
     await prefs.setDouble(_sizeKey, state.barSizeFactor);
     await prefs.setDouble(_spacingKey, state.buttonSpacingFactor);
     await prefs.setDouble(_iconSizeKey, state.iconSizeFactor);
@@ -89,6 +95,9 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
   }
 
   Future<void> setEnabledButtons(List<NavBarButton> buttons) async {
+    buttons = buttons
+        .where((button) => !NavBarConfig.sectionOnlyButtons.contains(button))
+        .toList();
     if (buttons.isEmpty) return;
     if (_buttonsEqual(state.enabledButtons, buttons)) return;
     state = state.copyWith(enabledButtons: buttons);
@@ -96,6 +105,7 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
   }
 
   Future<void> toggleButton(NavBarButton button) async {
+    if (NavBarConfig.sectionOnlyButtons.contains(button)) return;
     final updated = List<NavBarButton>.from(state.enabledButtons);
     if (updated.contains(button)) {
       if (updated.length == 1) return;
@@ -108,6 +118,7 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
   }
 
   Future<void> toggleHidden(NavBarButton button) async {
+    if (NavBarConfig.sectionOnlyButtons.contains(button)) return;
     final updated = Set<NavBarButton>.from(state.hidden);
     if (updated.contains(button)) {
       updated.remove(button);

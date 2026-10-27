@@ -20,8 +20,15 @@ class BottomBarSettingsScreen extends ConsumerWidget {
     final enabled = config.enabledButtons;
     final enabledCount = enabled.length;
     final hidden = config.hidden;
-    final disabledVisible = NavBarButton.values.where((b) => !enabled.contains(b) && !hidden.contains(b)).toList();
-    final hiddenButtons = NavBarButton.values.where((b) => hidden.contains(b)).toList();
+    final settingsButtons = NavBarButton.values.where(
+      (button) => !NavBarConfig.sectionOnlyButtons.contains(button),
+    );
+    final disabledVisible = settingsButtons
+        .where((b) => !enabled.contains(b) && !hidden.contains(b))
+        .toList();
+    final hiddenButtons = settingsButtons
+        .where((b) => hidden.contains(b))
+        .toList();
 
     return SettingsScaffold(
       title: 'Bottom Bar',
@@ -58,7 +65,8 @@ class BottomBarSettingsScreen extends ConsumerWidget {
               ToggleSetting(
                 icon: LucideIcons.split,
                 title: 'Separate from Nav Bar',
-                subtitle: 'Show the mini player as its own bar above the buttons',
+                subtitle:
+                    'Show the mini player as its own bar above the buttons',
                 value: appPreferences.separateMiniPlayerFromNavBar,
                 onChanged: (value) {
                   ref
@@ -75,8 +83,7 @@ class BottomBarSettingsScreen extends ConsumerWidget {
               ToggleSetting(
                 icon: LucideIcons.timer,
                 title: 'Auto Collapse',
-                subtitle:
-                    'Hide navigation buttons after being idle',
+                subtitle: 'Hide navigation buttons after being idle',
                 value: appPreferences.bottomBarAutoCollapseEnabled,
                 onChanged: (value) {
                   ref
@@ -89,8 +96,7 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                 SliderSetting(
                   icon: LucideIcons.clock,
                   title: 'Collapse After',
-                  subtitle:
-                      'Seconds of inactivity before collapsing',
+                  subtitle: 'Seconds of inactivity before collapsing',
                   value: appPreferences.bottomBarAutoCollapseSeconds.toDouble(),
                   displayValue:
                       '${appPreferences.bottomBarAutoCollapseSeconds}s',
@@ -153,7 +159,9 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                             ),
                             child: Icon(
                               LucideIcons.gripVertical,
-                              color: AppColors.textSecondary.withValues(alpha: 0.4),
+                              color: AppColors.textSecondary.withValues(
+                                alpha: 0.4,
+                              ),
                               size: 20,
                             ),
                           ),
@@ -162,7 +170,8 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                           child: ToggleSetting(
                             icon: button.icon,
                             title: button.label,
-                            subtitle: 'Show the ${button.label} tab in the bottom bar',
+                            subtitle:
+                                'Show the ${button.label} tab in the bottom bar',
                             value: true,
                             onChanged: isOnly
                                 ? (_) {}
@@ -190,8 +199,12 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                   _DisabledNavItem(
                     button: disabledVisible[i],
                     isHidden: false,
-                    onEnable: () => ref.read(navBarConfigProvider.notifier).toggleButton(disabledVisible[i]),
-                    onToggleHide: () => ref.read(navBarConfigProvider.notifier).toggleHidden(disabledVisible[i]),
+                    onEnable: () => ref
+                        .read(navBarConfigProvider.notifier)
+                        .toggleButton(disabledVisible[i]),
+                    onToggleHide: () => ref
+                        .read(navBarConfigProvider.notifier)
+                        .toggleHidden(disabledVisible[i]),
                   ),
                 ],
               ],
@@ -208,10 +221,16 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                     button: hiddenButtons[i],
                     isHidden: true,
                     onEnable: () {
-                      ref.read(navBarConfigProvider.notifier).toggleButton(hiddenButtons[i]);
-                      ref.read(navBarConfigProvider.notifier).toggleHidden(hiddenButtons[i]);
+                      ref
+                          .read(navBarConfigProvider.notifier)
+                          .toggleButton(hiddenButtons[i]);
+                      ref
+                          .read(navBarConfigProvider.notifier)
+                          .toggleHidden(hiddenButtons[i]);
                     },
-                    onToggleHide: () => ref.read(navBarConfigProvider.notifier).toggleHidden(hiddenButtons[i]),
+                    onToggleHide: () => ref
+                        .read(navBarConfigProvider.notifier)
+                        .toggleHidden(hiddenButtons[i]),
                   ),
                 ],
               ],
@@ -274,7 +293,8 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                 title: 'Button Spacing',
                 subtitle: 'Adjust spacing between buttons',
                 value: config.buttonSpacingFactor,
-                displayValue: '${config.buttonSpacingFactor.toStringAsFixed(1)}x',
+                displayValue:
+                    '${config.buttonSpacingFactor.toStringAsFixed(1)}x',
                 min: 0.5,
                 max: 2.0,
                 divisions: 15,
@@ -307,9 +327,7 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                 subtitle: 'Display text labels below icons',
                 value: config.showLabels,
                 onChanged: (value) {
-                  ref
-                      .read(navBarConfigProvider.notifier)
-                      .setShowLabels(value);
+                  ref.read(navBarConfigProvider.notifier).setShowLabels(value);
                 },
               ),
             ],
