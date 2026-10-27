@@ -47,6 +47,14 @@ class TidalHubScreen extends ConsumerStatefulWidget {
 }
 
 class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
+  static const double _kTidalSectionGap = AppConstants.spacingMd;
+  static const double _kTidalTitleContentGap = 8;
+
+  // 136px cover + its 6px internal gap + 15px (13px title line) +
+  // 2px subtitle gap + 13px (11px subtitle line), measured with Flutter's
+  // default text metrics for these styles. This fits the tallest carousel item.
+  static const double _kTidalCarouselSectionHeight = 172;
+
   bool _isSigningIn = false;
   String? _verificationUri;
   String? _signInError;
@@ -949,62 +957,80 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ],
           data: _buildFeedSectionChildren,
         ),
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        SizedBox(height: context.scaleSize(_kTidalSectionGap)),
 
         // 4. My Playlists Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'My Playlists',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+        SizedBox(
+          height: 22,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'My Playlists',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(
-                    LucideIcons.fileSpreadsheet,
-                    size: 19,
-                    color: Color(0xD9FFFFFF),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    constraints: const BoxConstraints.tightFor(
+                      width: 22,
+                      height: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(
+                      LucideIcons.fileSpreadsheet,
+                      size: 19,
+                      color: Color(0xD9FFFFFF),
+                    ),
+                    tooltip: 'Import Playlist from JSON',
+                    onPressed: _importPlaylistFromJson,
                   ),
-                  tooltip: 'Import Playlist from JSON',
-                  onPressed: _importPlaylistFromJson,
-                ),
-                IconButton(
-                  icon: const Icon(
-                    LucideIcons.plus,
-                    size: 20,
-                    color: Color(0xD9FFFFFF),
+                  IconButton(
+                    constraints: const BoxConstraints.tightFor(
+                      width: 22,
+                      height: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(
+                      LucideIcons.plus,
+                      size: 20,
+                      color: Color(0xD9FFFFFF),
+                    ),
+                    tooltip: 'Create TIDAL Playlist',
+                    onPressed: _showCreatePlaylistDialog,
                   ),
-                  tooltip: 'Create TIDAL Playlist',
-                  onPressed: _showCreatePlaylistDialog,
-                ),
-                IconButton(
-                  icon: const Icon(
-                    LucideIcons.refreshCw,
-                    size: 16,
-                    color: AppColors.textSecondary,
+                  IconButton(
+                    constraints: const BoxConstraints.tightFor(
+                      width: 22,
+                      height: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(
+                      LucideIcons.refreshCw,
+                      size: 16,
+                      color: AppColors.textSecondary,
+                    ),
+                    tooltip: 'Refresh Playlists',
+                    onPressed: () {
+                      unawaited(
+                        ref
+                            .read(tidalPlaylistMutationsProvider)
+                            .refreshUserPlaylists(),
+                      );
+                      ref.invalidate(tidalLikedSongsProvider);
+                    },
                   ),
-                  tooltip: 'Refresh Playlists',
-                  onPressed: () {
-                    unawaited(
-                      ref
-                          .read(tidalPlaylistMutationsProvider)
-                          .refreshUserPlaylists(),
-                    );
-                    ref.invalidate(tidalLikedSongsProvider);
-                  },
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
-        SizedBox(height: context.scaleSize(AppConstants.spacingSm)),
+        SizedBox(height: _kTidalTitleContentGap),
 
         // Scoped Consumer: playlist updates rebuild only this section.
         Consumer(
@@ -1144,6 +1170,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             );
           },
         ),
+        // Clearance lets the last playlist tile scroll above the mini-player
+        // and navigation bar, which overlay the screen content.
         SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
       ],
     );
@@ -1193,6 +1221,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     // mounted later — scrolled into view — don't re-animate.
     var entranceIndex = 0;
     final entranceChildren = <Widget>[];
+    final lastFeedSectionIndex = _lastFeedSectionIndex(feed);
 
     // Vibes Tabs Pills ('For You' first, then the API tabs)
     if (displayTabs.isNotEmpty) {
@@ -1237,9 +1266,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
           ),
         ),
       );
-      entranceChildren.add(
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-      );
+      if (lastFeedSectionIndex >= 0) {
+        entranceChildren.add(
+          SizedBox(height: context.scaleSize(_kTidalSectionGap)),
+        );
+      }
     }
 
     // Quick-Access Shortcut Grid (SHORTCUT_LIST)
@@ -1249,7 +1280,11 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       entranceChildren.add(
         StaggeredEntrance(
           index: entranceIndex++,
-          child: _buildShortcutGrid(sec, scope: 'sec$i'),
+          child: _buildShortcutGrid(
+            sec,
+            scope: 'sec$i',
+            includeTrailingGap: i != lastFeedSectionIndex,
+          ),
         ),
       );
     }
@@ -1261,12 +1296,29 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
       entranceChildren.add(
         StaggeredEntrance(
           index: entranceIndex++,
-          child: _buildAdaptiveSection(sec, scope: 'sec$i'),
+          child: _buildAdaptiveSection(
+            sec,
+            scope: 'sec$i',
+            includeTrailingGap: i != lastFeedSectionIndex,
+          ),
         ),
       );
     }
 
     return entranceChildren;
+  }
+
+  int _lastFeedSectionIndex(TidalHomeFeed feed) {
+    final orderedSections = [
+      ...feed.sections.where((section) => section.isShortcutList),
+      ...feed.sections.where((section) => !section.isShortcutList),
+    ];
+    for (var i = orderedSections.length - 1; i >= 0; i--) {
+      if (orderedSections[i].items.isNotEmpty) {
+        return feed.sections.indexOf(orderedSections[i]);
+      }
+    }
+    return -1;
   }
 
   Widget _buildPlaylistTile(Map<String, dynamic> pl, {required int index}) {
@@ -1316,13 +1368,18 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     );
   }
 
-  Widget _buildShortcutGrid(TidalHomeSection section, {String scope = 'sc'}) {
+  Widget _buildShortcutGrid(
+    TidalHomeSection section, {
+    String scope = 'sc',
+    bool includeTrailingGap = true,
+  }) {
     if (section.items.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (section.title.isNotEmpty && section.title != 'Shortcuts') ...[
+        if (section.title.trim().isNotEmpty &&
+            section.title != 'Shortcuts') ...[
           Text(
             section.title,
             style: const TextStyle(
@@ -1331,13 +1388,14 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: _kTidalTitleContentGap),
         ],
         // Two-column shortcut layout built from Rows instead of a
         // `shrinkWrap` GridView: a never-scrolling nested viewport measures
         // every tile eagerly and adds a RenderViewport per section.
         _buildShortcutRows(section, scope),
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        if (includeTrailingGap)
+          SizedBox(height: context.scaleSize(_kTidalSectionGap)),
       ],
     );
   }
@@ -1455,28 +1513,31 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   Widget _buildHorizontalCarousel(
     TidalHomeSection section, {
     String scope = 'c',
+    bool includeTrailingGap = true,
   }) {
     if (section.items.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              section.title,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+        if (section.title.trim().isNotEmpty)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                section.title,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
+            ],
+          ),
+        if (section.title.trim().isNotEmpty)
+          const SizedBox(height: _kTidalTitleContentGap),
         SizedBox(
-          height: 205,
+          height: _kTidalCarouselSectionHeight,
           child: ListView.builder(
             // Own PageStorage slot per section (scope is 'sec$i'): without
             // this key, PageStorage computed the slot from the ancestor
@@ -1606,23 +1667,42 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             },
           ),
         ),
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        if (includeTrailingGap)
+          SizedBox(height: context.scaleSize(_kTidalSectionGap)),
       ],
     );
   }
 
-  Widget _buildAdaptiveSection(TidalHomeSection sec, {required String scope}) {
+  Widget _buildAdaptiveSection(
+    TidalHomeSection sec, {
+    required String scope,
+    bool includeTrailingGap = true,
+  }) {
     if (sec.sectionType == 'TRACK_LIST') {
-      return _buildTrackListSection(sec);
+      return _buildTrackListSection(
+        sec,
+        includeTrailingGap: includeTrailingGap,
+      );
     }
     if (sec.sectionType == 'COMPACT_GRID_CARD' ||
         sec.title.toLowerCase().contains('recently played')) {
-      return _buildCompactGridSection(sec, scope: scope);
+      return _buildCompactGridSection(
+        sec,
+        scope: scope,
+        includeTrailingGap: includeTrailingGap,
+      );
     }
-    return _buildHorizontalCarousel(sec, scope: scope);
+    return _buildHorizontalCarousel(
+      sec,
+      scope: scope,
+      includeTrailingGap: includeTrailingGap,
+    );
   }
 
-  Widget _buildTrackListSection(TidalHomeSection section) {
+  Widget _buildTrackListSection(
+    TidalHomeSection section, {
+    bool includeTrailingGap = true,
+  }) {
     if (section.items.isEmpty) return const SizedBox.shrink();
 
     final displayItems = section.items.take(6).toList();
@@ -1630,17 +1710,18 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            section.title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+        if (section.title.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: _kTidalTitleContentGap),
+            child: Text(
+              section.title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-        ),
         Container(
           decoration: BoxDecoration(
             color: AppColors.glassBackground,
@@ -1664,7 +1745,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             ],
           ),
         ),
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        if (includeTrailingGap)
+          SizedBox(height: context.scaleSize(_kTidalSectionGap)),
       ],
     );
   }
@@ -1744,6 +1826,7 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
   Widget _buildCompactGridSection(
     TidalHomeSection section, {
     String scope = 'g',
+    bool includeTrailingGap = true,
   }) {
     if (section.items.isEmpty) return const SizedBox.shrink();
 
@@ -1753,17 +1836,18 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Text(
-            section.title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+        if (section.title.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: _kTidalTitleContentGap),
+            child: Text(
+              section.title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-        ),
         SizedBox(
           height: 124,
           child: ListView.builder(
@@ -1806,7 +1890,8 @@ class _TidalHubScreenState extends ConsumerState<TidalHubScreen> {
             },
           ),
         ),
-        SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+        if (includeTrailingGap)
+          SizedBox(height: context.scaleSize(_kTidalSectionGap)),
       ],
     );
   }
