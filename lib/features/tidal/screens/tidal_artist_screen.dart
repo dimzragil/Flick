@@ -46,6 +46,9 @@ class TidalArtistScreen extends ConsumerStatefulWidget {
 
 class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
     with TidalDominantColor {
+  static const double _kTidalSectionGap = AppConstants.spacingMd;
+  static const double _kTidalTitleContentGap = 8;
+
   /// Wraps [cover] in a [Hero] when this screen was opened from a hub card
   /// that supplied a matching [TidalArtistScreen.heroTag].
   Widget _withCoverHero(Widget cover) {
@@ -186,7 +189,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
         context.scaleSize(AppConstants.spacingLg),
         0,
         context.scaleSize(AppConstants.spacingLg),
-        context.scaleSize(AppConstants.spacingSm),
+        _kTidalTitleContentGap,
       ),
       child: Text(
         title,
@@ -365,9 +368,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
         slivers: [
           SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.scaleSize(AppConstants.spacingLg),
-                vertical: context.scaleSize(AppConstants.spacingMd),
+              padding: EdgeInsets.only(
+                left: context.scaleSize(AppConstants.spacingLg),
+                top: context.scaleSize(AppConstants.spacingMd),
+                right: context.scaleSize(AppConstants.spacingLg),
               ),
               child: Column(
                 children: [
@@ -411,7 +415,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                       ),
                     ),
                   ),
-                  SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+                  SizedBox(height: context.scaleSize(_kTidalSectionGap)),
                   // Artist Name
                   Text(
                     name,
@@ -422,7 +426,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
+                  SizedBox(height: context.scaleSize(_kTidalSectionGap)),
                   // Unified action bar, themed with the photo's color.
                   // TIDAL-specific mapping: the first segment is Follow
                   // (no favorite concept for artists) and Queue is dropped.
@@ -444,7 +448,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                   ),
                   // About — only when the TIDAL biography is available.
                   if (aboutText != null) ...[
-                    SizedBox(height: context.scaleSize(AppConstants.spacingLg)),
+                    SizedBox(height: context.scaleSize(_kTidalSectionGap)),
                     StaggeredEntrance(
                       index: 1,
                       child: Column(
@@ -460,7 +464,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                     ),
                   ],
                   if (topTracks.isNotEmpty) ...[
-                    SizedBox(height: context.scaleSize(AppConstants.spacingLg)),
+                    SizedBox(height: context.scaleSize(_kTidalSectionGap)),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -472,7 +476,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                         ),
                       ),
                     ),
-                    SizedBox(height: context.scaleSize(AppConstants.spacingSm)),
+                    SizedBox(height: _kTidalTitleContentGap),
                   ],
                 ],
               ),
@@ -574,6 +578,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
           // Albums Section (Horizontal Carousel)
           if (albums.isNotEmpty)
             SliverToBoxAdapter(
+              child: SizedBox(height: context.scaleSize(_kTidalSectionGap)),
+            ),
+          if (albums.isNotEmpty)
+            SliverToBoxAdapter(
               child: _buildHorizontalReleaseSection(
                 context,
                 title: 'Albums',
@@ -585,6 +593,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
           // Singles & EPs Section (Horizontal Carousel)
           if (singlesAndEPs.isNotEmpty)
             SliverToBoxAdapter(
+              child: SizedBox(height: context.scaleSize(_kTidalSectionGap)),
+            ),
+          if (singlesAndEPs.isNotEmpty)
+            SliverToBoxAdapter(
               child: _buildHorizontalReleaseSection(
                 context,
                 title: 'Singles & EPs',
@@ -594,6 +606,10 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
             ),
 
           // Compilations Section (Horizontal Carousel)
+          if (compilations.isNotEmpty)
+            SliverToBoxAdapter(
+              child: SizedBox(height: context.scaleSize(_kTidalSectionGap)),
+            ),
           if (compilations.isNotEmpty)
             SliverToBoxAdapter(
               child: _buildHorizontalReleaseSection(
@@ -624,7 +640,7 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
 
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = ((screenWidth - 48) / 2.2).clamp(130.0, 160.0);
-    final sectionHeight = cardWidth + 62.0;
+    final sectionHeight = cardWidth + 41;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -634,9 +650,9 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               context.scaleSize(AppConstants.spacingLg),
+              0,
               context.scaleSize(AppConstants.spacingLg),
-              context.scaleSize(AppConstants.spacingLg),
-              context.scaleSize(AppConstants.spacingSm),
+              _kTidalTitleContentGap,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
