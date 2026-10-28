@@ -1,14 +1,17 @@
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:flick/features/tidal/screens/tidal_collection_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_liked_albums_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_liked_artists_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_liked_songs_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_playlist_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_playlists_screen.dart';
 import 'package:flick/providers/player_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Collection shows its four entries and playlist actions', (
+  testWidgets('Collection shows four entries without inline playlists', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -26,6 +29,7 @@ void main() {
     expect(find.text('Collection'), findsOneWidget);
     expect(find.text('Liked Songs'), findsOneWidget);
     expect(find.text('Playlists'), findsOneWidget);
+    expect(find.text('0 playlists'), findsOneWidget);
     expect(find.text('Albums'), findsOneWidget);
     expect(find.text('Artists'), findsOneWidget);
     expect(
@@ -38,15 +42,17 @@ void main() {
     );
     expect(
       find.text('No playlists found in your TIDAL library.'),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.byTooltip('Import Playlist from JSON'), findsOneWidget);
-    expect(find.byTooltip('Create TIDAL Playlist'), findsOneWidget);
-    expect(find.byTooltip('Refresh Playlists'), findsOneWidget);
+    expect(find.byTooltip('Import Playlist from JSON'), findsNothing);
+    expect(find.byTooltip('Create TIDAL Playlist'), findsNothing);
+    expect(find.byTooltip('Refresh Playlists'), findsNothing);
     expect(find.byType(TidalPlaylistScreen), findsNothing);
   });
 
-  testWidgets('Liked Songs row opens the liked-songs screen', (tester) async {
+  testWidgets('Collection rows open their corresponding screens', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -61,34 +67,32 @@ void main() {
 
     await tester.tap(find.text('Liked Songs'));
     await tester.pumpAndSettle();
-
     expect(find.byType(TidalLikedSongsScreen), findsOneWidget);
-  });
+    Navigator.of(tester.element(find.byType(TidalLikedSongsScreen))).pop();
+    await tester.pumpAndSettle();
 
-  testWidgets('Playlist tile opens its playlist detail screen', (tester) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          currentSongProvider.overrideWith((ref) => null),
-          tidalUserPlaylistsProvider.overrideWith(
-            (ref) async => [
-              {
-                'uuid': 'playlist-1',
-                'title': 'Collection Playlist',
-                'numberOfTracks': 3,
-              },
-            ],
-          ),
-          tidalLikedSongsProvider.overrideWith((ref) async => []),
-        ],
-        child: const MaterialApp(home: TidalCollectionScreen()),
-      ),
+    await tester.tap(find.text('Playlists'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TidalPlaylistsScreen), findsOneWidget);
+    Navigator.of(tester.element(find.byType(TidalPlaylistsScreen))).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Albums'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TidalLikedAlbumsScreen), findsOneWidget);
+    expect(
+      find.text('Albums you love will appear here once album liking lands.'),
+      findsOneWidget,
     );
+    Navigator.of(tester.element(find.byType(TidalLikedAlbumsScreen))).pop();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Collection Playlist'));
+    await tester.tap(find.text('Artists'));
     await tester.pumpAndSettle();
-
-    expect(find.byType(TidalPlaylistScreen), findsOneWidget);
+    expect(find.byType(TidalLikedArtistsScreen), findsOneWidget);
+    expect(
+      find.text('Artists you love will appear here once artist liking lands.'),
+      findsOneWidget,
+    );
   });
 }
