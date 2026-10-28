@@ -22,6 +22,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 class _MockTidalServerNotifier extends TidalServerNotifier {
   final NetworkServerEntity? _server;
@@ -385,6 +388,7 @@ void main() {
           tidalServerProvider.overrideWith(
             () => _MockTidalServerNotifier(_serverWithToken()),
           ),
+          tidalAlbumLovedProvider(testAlbumId).overrideWith((ref) => false),
           tidalAlbumDetailsProvider(testAlbumId).overrideWith(
             (ref) async => (
               album: {
@@ -413,6 +417,187 @@ void main() {
     expect(find.text('Track One'), findsOneWidget);
     expect(find.text('Track Two'), findsOneWidget);
     expect(find.text('HI-RES LOSSLESS 24-BIT'), findsOneWidget);
+  });
+
+  testWidgets('album love changes only album favorites', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'favorite_song_ids': ['local-keep'],
+    });
+    final favoriteRequests = <String>[];
+    final tidal = TidalService.create(
+      client: MockClient((request) async {
+        if (request.url.path == '/v1/users/user-1/favorites/albums') {
+          favoriteRequests.add('${request.method} ${request.url.path}');
+          if (request.method == 'GET') {
+            return http.Response(jsonEncode({'items': []}), 200);
+          }
+          return http.Response('', 201);
+        }
+        if (request.url.path == '/v1/users/user-1/favorites/albums/album-42') {
+          favoriteRequests.add('${request.method} ${request.url.path}');
+          return http.Response('', 204);
+        }
+        if (request.url.path.contains('/favorites/tracks')) {
+          fail('Album love must not call the track-favorites API');
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    const albumId = 'album-42';
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()..id = 0),
+          ),
+          tidalServiceProvider.overrideWithValue(tidal),
+          tidalAlbumDetailsProvider(albumId).overrideWith(
+            (ref) async => (
+              album: {
+                'id': albumId,
+                'title': 'Loved Album',
+                'artist': {'name': 'Test Artist'},
+              },
+              tracks: [
+                const Song(
+                  id: 'tidal_9_track-1',
+                  title: 'Track One',
+                  artist: 'Test Artist',
+                  duration: Duration(seconds: 100),
+                  fileType: 'flac',
+                ),
+              ],
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: TidalAlbumScreen(albumId: albumId)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Love album'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Remove from loved albums'), findsOneWidget);
+    final albumContainer = ProviderScope.containerOf(
+      tester.element(find.byType(TidalAlbumScreen)),
+    );
+    expect(
+      albumContainer
+          .read(tidalLikedAlbumsOptimisticProvider)
+          .added
+          .map((album) => album['id']),
+      contains(albumId),
+    );
+    await tester.tap(find.byTooltip('Remove from loved albums'));
+    await tester.pumpAndSettle();
+
+    expect(
+      favoriteRequests,
+      contains('POST /v1/users/user-1/favorites/albums'),
+    );
+    expect(
+      favoriteRequests,
+      contains('DELETE /v1/users/user-1/favorites/albums/album-42'),
+    );
+    expect(
+      favoriteRequests.where((request) => request.startsWith('GET ')),
+      contains('GET /v1/users/user-1/favorites/albums'),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('favorite_song_ids'), ['local-keep']);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TidalAlbumScreen)),
+    );
+    expect(
+      container.read(tidalLikedAlbumsOptimisticProvider).removed,
+      contains(albumId),
+    );
+    expect(container.read(tidalLikedSongsOptimisticProvider).added, isEmpty);
+    expect(container.read(tidalLikedSongsOptimisticProvider).removed, isEmpty);
+  });
+
+  testWidgets('artist follow updates the Artists collection', (tester) async {
+    final favoriteRequests = <String>[];
+    final tidal = TidalService.create(
+      client: MockClient((request) async {
+        if (request.url.path == '/v1/users/user-1/favorites/artists') {
+          favoriteRequests.add('${request.method} ${request.url.path}');
+          if (request.method == 'GET') {
+            return http.Response(jsonEncode({'items': []}), 200);
+          }
+          return http.Response('', 201);
+        }
+        if (request.url.path ==
+            '/v1/users/user-1/favorites/artists/artist-42') {
+          favoriteRequests.add('${request.method} ${request.url.path}');
+          return http.Response('', 204);
+        }
+        if (request.url.path == '/v1/artists/artist-42') {
+          return http.Response(
+            jsonEncode({'id': 'artist-42', 'name': 'Followed Artist'}),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    const artistId = 'artist-42';
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()..id = 0),
+          ),
+          tidalServiceProvider.overrideWithValue(tidal),
+          tidalArtistDetailsProvider(artistId).overrideWith(
+            (ref) async => (
+              artist: <String, dynamic>{
+                'id': artistId,
+                'name': 'Followed Artist',
+              },
+              topTracks: <Song>[],
+              albums: <Map<String, dynamic>>[],
+              singlesAndEPs: <Map<String, dynamic>>[],
+              compilations: <Map<String, dynamic>>[],
+            ),
+          ),
+          tidalArtistBioProvider(artistId).overrideWith((ref) async => null),
+          tidalArtistAlbumsProvider(artistId).overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: TidalArtistScreen(artistId: artistId)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Follow artist'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Unfollow artist'), findsOneWidget);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TidalArtistScreen)),
+    );
+    expect(
+      container.read(tidalFavoriteArtistIdsOptimisticProvider).added,
+      contains(artistId),
+    );
+
+    await tester.tap(find.byTooltip('Unfollow artist'));
+    await tester.pumpAndSettle();
+    expect(
+      favoriteRequests,
+      contains('POST /v1/users/user-1/favorites/artists'),
+    );
+    expect(
+      favoriteRequests,
+      contains('DELETE /v1/users/user-1/favorites/artists/artist-42'),
+    );
+    expect(
+      container.read(tidalFavoriteArtistIdsOptimisticProvider).removed,
+      contains(artistId),
+    );
   });
 
   testWidgets(
@@ -465,6 +650,7 @@ void main() {
               ],
             ),
             tidalLikedSongsProvider.overrideWith((ref) async => []),
+            tidalAlbumLovedProvider('alb-77').overrideWith((ref) => false),
             tidalAlbumDetailsProvider('alb-77').overrideWith(
               (ref) async => (
                 album: {
@@ -610,6 +796,7 @@ void main() {
           tidalServerProvider.overrideWith(
             () => _MockTidalServerNotifier(_serverWithToken()),
           ),
+          tidalAlbumLovedProvider('alb-55').overrideWith((ref) => false),
           tidalHomeFeedProvider.overrideWith((ref, slug) async => feed),
           tidalUserPlaylistsProvider.overrideWith((ref) async => []),
           tidalLikedSongsProvider.overrideWith((ref) async => []),

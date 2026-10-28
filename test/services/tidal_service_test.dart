@@ -2196,6 +2196,88 @@ void main() {
     );
   });
 
+  group('favorite albums', () {
+    test('collects album metadata across paginated favorites', () async {
+      final requestedOffsets = <String?>[];
+      final client = MockClient((request) async {
+        expect(request.url.path, '/v1/users/user-1/favorites/albums');
+        final offset = request.url.queryParameters['offset'];
+        requestedOffsets.add(offset);
+        final items = offset == '0'
+            ? List.generate(
+                100,
+                (i) => {
+                  'item': {'id': 'album-$i', 'title': 'Album $i'},
+                },
+              )
+            : [
+                {
+                  'item': {'id': 'album-101', 'title': 'Last Album'},
+                },
+              ];
+        return http.Response(jsonEncode({'items': items}), 200);
+      });
+      final service = TidalService.create(client: client);
+
+      final albums = await service.getFavoriteAlbums(
+        _server(token: _validToken()),
+      );
+
+      expect(albums, hasLength(101));
+      expect(albums.first['title'], 'Album 0');
+      expect(albums.last['id'], 'album-101');
+      expect(requestedOffsets, ['0', '100']);
+    });
+
+    test('addFavoriteAlbum posts the albumId form field', () async {
+      late http.Request captured;
+      final service = TidalService.create(
+        client: MockClient((request) async {
+          captured = request;
+          return http.Response('', 201);
+        }),
+      );
+
+      await service.addFavoriteAlbum(_server(token: _validToken()), '42');
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, '/v1/users/user-1/favorites/albums');
+      expect(captured.url.queryParameters['countryCode'], 'NO');
+      expect(captured.headers['Authorization'], 'Bearer acc-xyz');
+      expect(captured.body, 'albumId=42');
+    });
+
+    test('removeFavoriteAlbum deletes the favorite relationship', () async {
+      late http.Request captured;
+      final service = TidalService.create(
+        client: MockClient((request) async {
+          captured = request;
+          return http.Response('', 204);
+        }),
+      );
+
+      await service.removeFavoriteAlbum(_server(token: _validToken()), '42');
+
+      expect(captured.method, 'DELETE');
+      expect(captured.url.path, '/v1/users/user-1/favorites/albums/42');
+      expect(captured.url.queryParameters['countryCode'], 'NO');
+    });
+
+    test(
+      'favorite-album calls are no-ops without a signed-in account',
+      () async {
+        final service = TidalService.create(
+          client: MockClient((_) async => fail('unexpected request')),
+        );
+        final server = _server();
+
+        expect(await service.getFavoriteAlbums(server), isEmpty);
+        await service.addFavoriteAlbum(server, '42');
+        await service.removeFavoriteAlbum(server, '42');
+      },
+    );
+  });
+
   group('getTrackLyrics', () {
     test('GETs /tracks/{id}/lyrics with auth and countryCode', () async {
       late http.Request seen;

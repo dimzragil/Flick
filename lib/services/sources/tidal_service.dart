@@ -3803,12 +3803,24 @@ class TidalService implements NetworkSourceService {
   /// collected so far on error so the UI can fall back to "not followed"
   /// instead of breaking.
   Future<Set<String>> getFavoriteArtistIds(NetworkServerEntity server) async {
+    final artists = await getFavoriteArtists(server);
+    return artists
+        .map((artist) => artist['id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  /// Get the user's favorite artists with their catalog metadata.
+  Future<List<Map<String, dynamic>>> getFavoriteArtists(
+    NetworkServerEntity server,
+  ) async {
     final creds = _creds(server.token);
     final userId = creds?.userId;
-    if (userId == null || userId.isEmpty) return {};
+    if (userId == null || userId.isEmpty) return [];
     const pageSize = 100;
     const maxArtists = 5000;
-    final ids = <String>{};
+    final artists = <Map<String, dynamic>>[];
     var offset = 0;
     try {
       while (offset < maxArtists) {
@@ -3822,19 +3834,21 @@ class TidalService implements NetworkSourceService {
         for (final it in items) {
           if (it is Map<String, dynamic>) {
             final item = it['item'] as Map<String, dynamic>?;
-            final id = item?['id']?.toString() ?? it['id']?.toString();
-            if (id != null && id.isNotEmpty) {
-              ids.add(id);
+            if (item != null) {
+              artists.add(item);
+            } else {
+              final id = it['id']?.toString();
+              if (id != null && id.isNotEmpty) artists.add({'id': id});
             }
           }
         }
         if (items.length < pageSize) break;
         offset += pageSize;
       }
-      return ids;
+      return artists;
     } catch (e) {
-      devLog('[Tidal] getFavoriteArtistIds error: $e');
-      return ids;
+      devLog('[Tidal] getFavoriteArtists error: $e');
+      return artists;
     }
   }
 
@@ -3871,6 +3885,77 @@ class TidalService implements NetworkSourceService {
         '[Tidal] removeFavoriteArtist failed: HTTP ${res.statusCode} ${res.body}',
       );
       throw TidalException('Failed to unfollow artist: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Get the user's TIDAL favorite albums with their catalog metadata.
+  Future<List<Map<String, dynamic>>> getFavoriteAlbums(
+    NetworkServerEntity server,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return [];
+    const pageSize = 100;
+    const maxAlbums = 5000;
+    final albums = <Map<String, dynamic>>[];
+    var offset = 0;
+    try {
+      while (offset < maxAlbums) {
+        final res = await _apiGet(
+          server,
+          '/users/$userId/favorites/albums',
+          query: {'limit': '$pageSize', 'offset': '$offset'},
+        );
+        final items = res['items'] as List<dynamic>?;
+        if (items == null || items.isEmpty) break;
+        for (final entry in items) {
+          if (entry is! Map<String, dynamic>) continue;
+          final item = entry['item'];
+          if (item is Map<String, dynamic>) albums.add(item);
+        }
+        if (items.length < pageSize) break;
+        offset += pageSize;
+      }
+      return albums;
+    } catch (e) {
+      devLog('[Tidal] getFavoriteAlbums error: $e');
+      return albums;
+    }
+  }
+
+  /// Add an album to TIDAL favorites.
+  Future<void> addFavoriteAlbum(
+    NetworkServerEntity server,
+    String albumId,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/albums';
+    final res = await _apiAuthPostForm(server, url, {'albumId': albumId});
+    if (res.statusCode >= 400) {
+      devLog(
+        '[Tidal] addFavoriteAlbum failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException('Failed to love album: HTTP ${res.statusCode}');
+    }
+  }
+
+  /// Remove an album from TIDAL favorites.
+  Future<void> removeFavoriteAlbum(
+    NetworkServerEntity server,
+    String albumId,
+  ) async {
+    final creds = _creds(server.token);
+    final userId = creds?.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = '$_apiBase/users/$userId/favorites/albums/$albumId';
+    final res = await _apiAuthDelete(server, url);
+    if (res.statusCode >= 400) {
+      devLog(
+        '[Tidal] removeFavoriteAlbum failed: HTTP ${res.statusCode} ${res.body}',
+      );
+      throw TidalException('Failed to unlove album: HTTP ${res.statusCode}');
     }
   }
 

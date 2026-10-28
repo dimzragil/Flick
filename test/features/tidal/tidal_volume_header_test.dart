@@ -179,6 +179,7 @@ void main() {
             tidalServerProvider.overrideWith(
               () => _MockTidalServerNotifier(_serverWithToken()),
             ),
+            tidalAlbumLovedProvider(albumId).overrideWith((ref) => false),
             tidalAlbumDetailsProvider(albumId).overrideWith(
               (ref) async => (
                 album: {

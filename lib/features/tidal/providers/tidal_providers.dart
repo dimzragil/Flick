@@ -111,6 +111,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
     ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
     ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
     ref.read(tidalFavoriteArtistIdsOptimisticProvider.notifier).clear();
+    ref.read(tidalLikedAlbumsOptimisticProvider.notifier).clear();
 
     state = AsyncValue.data(server);
     return server;
@@ -132,6 +133,7 @@ class TidalServerNotifier extends AsyncNotifier<NetworkServerEntity?> {
       ref.read(tidalFavoriteTrackIdsOptimisticProvider.notifier).clear();
       ref.read(tidalLikedSongsOptimisticProvider.notifier).clear();
       ref.read(tidalFavoriteArtistIdsOptimisticProvider.notifier).clear();
+      ref.read(tidalLikedAlbumsOptimisticProvider.notifier).clear();
       state = AsyncValue.data(server);
     }
   }
@@ -712,6 +714,51 @@ final tidalFavoriteArtistIdsOptimisticProvider =
       ({Set<String> added, Set<String> removed})
     >(TidalFavoriteArtistIdsOptimisticNotifier.new);
 
+String? _tidalCollectionItemId(Map<String, dynamic> item) {
+  final id = item['id']?.toString();
+  return id == null || id.isEmpty ? null : id;
+}
+
+/// Local optimistic adjustments to loved TIDAL albums.
+class TidalLikedAlbumsOptimisticNotifier
+    extends
+        Notifier<({List<Map<String, dynamic>> added, Set<String> removed})> {
+  @override
+  ({List<Map<String, dynamic>> added, Set<String> removed}) build() =>
+      (added: const <Map<String, dynamic>>[], removed: const <String>{});
+
+  void add(Map<String, dynamic> album) {
+    final id = _tidalCollectionItemId(album);
+    if (id == null) return;
+    state = (
+      added: [
+        album,
+        ...state.added.where((item) => _tidalCollectionItemId(item) != id),
+      ],
+      removed: state.removed.where((itemId) => itemId != id).toSet(),
+    );
+  }
+
+  void remove(String id) {
+    state = (
+      added: state.added
+          .where((item) => _tidalCollectionItemId(item) != id)
+          .toList(),
+      removed: {...state.removed, id},
+    );
+  }
+
+  void clear() {
+    state = (added: const <Map<String, dynamic>>[], removed: const <String>{});
+  }
+}
+
+final tidalLikedAlbumsOptimisticProvider =
+    NotifierProvider<
+      TidalLikedAlbumsOptimisticNotifier,
+      ({List<Map<String, dynamic>> added, Set<String> removed})
+    >(TidalLikedAlbumsOptimisticNotifier.new);
+
 /// Fetches the set of followed (favorite) artist IDs for the authenticated
 /// TIDAL account, merged with local optimistic additions and removals for
 /// real-time updates.
@@ -746,6 +793,80 @@ final tidalArtistFollowedProvider = Provider.autoDispose.family<bool, String>((
   return ref.watch(tidalFavoriteArtistIdsProvider).value?.contains(artistId) ??
       false;
 });
+
+/// Full loved-album collection, merged with optimistic album love changes.
+final tidalLikedAlbumsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null || server.token == null || server.token!.isEmpty) {
+        return const <Map<String, dynamic>>[];
+      }
+      final remote = await ref
+          .read(tidalServiceProvider)
+          .getFavoriteAlbums(server);
+      final optimistic = ref.watch(tidalLikedAlbumsOptimisticProvider);
+      final result = <Map<String, dynamic>>[...optimistic.added];
+      for (final album in remote) {
+        final id = _tidalCollectionItemId(album);
+        if (id == null || optimistic.removed.contains(id)) continue;
+        if (!result.any((item) => _tidalCollectionItemId(item) == id)) {
+          result.add(album);
+        }
+      }
+      return result;
+    });
+
+/// Whether an album is loved, including optimistic updates.
+final tidalAlbumLovedProvider = Provider.autoDispose.family<bool, String>((
+  ref,
+  albumId,
+) {
+  final optimistic = ref.watch(tidalLikedAlbumsOptimisticProvider);
+  if (optimistic.added.any(
+    (album) => _tidalCollectionItemId(album) == albumId,
+  )) {
+    return true;
+  }
+  if (optimistic.removed.contains(albumId)) return false;
+  return ref
+          .watch(tidalLikedAlbumsProvider)
+          .value
+          ?.any((album) => _tidalCollectionItemId(album) == albumId) ??
+      false;
+});
+
+/// Full followed-artist collection, merged with optimistic follow changes.
+final tidalLikedArtistsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+      final server = await ref.watch(tidalServerProvider.future);
+      if (server == null || server.token == null || server.token!.isEmpty) {
+        return const <Map<String, dynamic>>[];
+      }
+      final remote = await ref
+          .read(tidalServiceProvider)
+          .getFavoriteArtists(server);
+      final optimistic = ref.watch(tidalFavoriteArtistIdsOptimisticProvider);
+      final result = <Map<String, dynamic>>[];
+      for (final artist in remote) {
+        final id = _tidalCollectionItemId(artist);
+        if (id != null && !optimistic.removed.contains(id)) result.add(artist);
+      }
+      final knownIds = result
+          .map(_tidalCollectionItemId)
+          .whereType<String>()
+          .toSet();
+      for (final id in optimistic.added.difference(knownIds)) {
+        try {
+          result.add(
+            await ref.read(tidalServiceProvider).getArtist(server, id),
+          );
+        } catch (_) {
+          // Keep the followed artist visible even if metadata temporarily fails.
+          result.add({'id': id, 'name': 'Unknown Artist'});
+        }
+      }
+      return result;
+    });
 
 /// Fetches the full TIDAL "Liked Songs" collection (favorite tracks with
 /// metadata) for the authenticated account, merged with local optimistic updates

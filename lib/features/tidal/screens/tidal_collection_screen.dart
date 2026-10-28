@@ -23,7 +23,12 @@ class TidalCollectionScreen extends ConsumerStatefulWidget {
 
 class _TidalCollectionScreenState extends ConsumerState<TidalCollectionScreen> {
   Future<void> _refreshCollection() async {
-    final _ = await ref.refresh(tidalLikedSongsProvider.future);
+    await Future.wait([
+      ref.refresh(tidalLikedSongsProvider.future),
+      ref.refresh(tidalLikedAlbumsProvider.future),
+      ref.refresh(tidalLikedArtistsProvider.future),
+      ref.refresh(tidalUserPlaylistsProvider.future),
+    ]);
   }
 
   @override
@@ -48,19 +53,23 @@ class _TidalCollectionScreenState extends ConsumerState<TidalCollectionScreen> {
             SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
             _buildPlaylistsTile(),
             SizedBox(height: context.scaleSize(AppConstants.spacingMd)),
-            _buildPlaceholder(
+            _buildCollectionTile(
               icon: LucideIcons.disc3,
               title: 'Albums',
-              message:
-                  'Albums you love will appear here once album liking lands.',
+              subtitle: _countSubtitle(
+                ref.watch(tidalLikedAlbumsProvider),
+                'album',
+              ),
               screen: const TidalLikedAlbumsScreen(),
             ),
             SizedBox(height: context.scaleSize(AppConstants.spacingSm)),
-            _buildPlaceholder(
+            _buildCollectionTile(
               icon: LucideIcons.users,
               title: 'Artists',
-              message:
-                  'Artists you love will appear here once artist liking lands.',
+              subtitle: _countSubtitle(
+                ref.watch(tidalLikedArtistsProvider),
+                'artist',
+              ),
               screen: const TidalLikedArtistsScreen(),
             ),
             SizedBox(height: context.scaleSize(AppConstants.spacingXl * 2)),
@@ -72,145 +81,85 @@ class _TidalCollectionScreenState extends ConsumerState<TidalCollectionScreen> {
 
   Widget _buildPlaylistsTile() {
     final playlistsAsync = ref.watch(tidalUserPlaylistsProvider);
+    return _buildCollectionTile(
+      icon: LucideIcons.listMusic,
+      title: 'Playlists',
+      subtitle: playlistsAsync.when(
+        data: (items) => _countText(items.length, 'playlist'),
+        loading: () => 'Loading...',
+        error: (_, _) => 'Could not load',
+      ),
+      screen: const TidalPlaylistsScreen(),
+    );
+  }
 
+  String _countText(int count, String noun) =>
+      '$count $noun${count == 1 ? '' : 's'}';
+
+  String _countSubtitle(
+    AsyncValue<List<Map<String, dynamic>>> value,
+    String noun,
+  ) => value.when(
+    data: (items) => _countText(items.length, noun),
+    loading: () => 'Loading...',
+    error: (_, _) => 'Could not load',
+  );
+
+  Widget _buildCollectionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget screen,
+  }) {
     return PressScale(
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         leading: Icon(
-          LucideIcons.listMusic,
-          size: context.scaleSize(24),
+          icon,
           color: AppColors.textSecondary,
+          size: context.scaleSize(24),
         ),
-        title: const Text(
-          'Playlists',
-          style: TextStyle(
+        title: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: playlistsAsync.when(
-          data: (playlists) => Text(
-            '${playlists.length} playlists',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-          loading: () => const Text(
-            'Loading...',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          error: (_, _) => const Text(
-            'Could not load',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
+        subtitle: Text(
+          subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         trailing: const Icon(
           LucideIcons.chevronRight,
-          color: AppColors.textSecondary,
           size: 18,
+          color: AppColors.textSecondary,
         ),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const TidalPlaylistsScreen()),
-          );
-        },
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => screen)),
       ),
-    );
-  }
-
-  Widget _buildPlaceholder({
-    required IconData icon,
-    required String title,
-    required String message,
-    required Widget screen,
-  }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      leading: Icon(icon, color: AppColors.textSecondary, size: 24),
-      title: Text(title, style: const TextStyle(color: AppColors.textPrimary)),
-      subtitle: Text(
-        message,
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-      ),
-      trailing: const Icon(
-        LucideIcons.chevronRight,
-        size: 18,
-        color: AppColors.textSecondary,
-      ),
-      onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
-      },
     );
   }
 
   /// Liked Songs is the first row of Collection and opens the TIDAL favorites.
   Widget _buildLikedSongsTile() {
     final likedAsync = ref.watch(tidalLikedSongsProvider);
-    final size = context.scaleSize(52);
-
-    return PressScale(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-        leading: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Colors.pinkAccent, Colors.purpleAccent],
-            ),
-          ),
-          child: Icon(
-            LucideIcons.heart,
-            color: Colors.white,
-            size: context.scaleSize(24),
-          ),
-        ),
-        title: const Text(
-          'Liked Songs',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: likedAsync.when(
-          data: (songs) => Text(
-            '${songs.length} tracks',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-          loading: () => const Text(
-            'Loading...',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          error: (err, _) => Text(
-            isTidalRateLimitError(err)
-                ? 'Rate limited — try again soon'
-                : 'Could not load',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-        ),
-        trailing: const Icon(
-          LucideIcons.chevronRight,
-          color: AppColors.textSecondary,
-          size: 18,
-        ),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const TidalLikedSongsScreen()),
-          );
-        },
+    return _buildCollectionTile(
+      icon: LucideIcons.heart,
+      title: 'Liked Songs',
+      subtitle: likedAsync.when(
+        data: (songs) => _countText(songs.length, 'track'),
+        loading: () => 'Loading...',
+        error: (err, _) => isTidalRateLimitError(err)
+            ? 'Rate limited — try again soon'
+            : 'Could not load',
       ),
+      screen: const TidalLikedSongsScreen(),
     );
   }
 }

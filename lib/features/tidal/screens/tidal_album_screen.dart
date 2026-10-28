@@ -11,7 +11,6 @@ import '../../../core/utils/navigation_helper.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../models/song.dart';
 import '../../../providers/app_preferences_provider.dart';
-import '../../../providers/favorites_provider.dart';
 import '../../../services/player_service.dart';
 import '../../../services/sources/tidal_album_deduplication.dart';
 import '../../../services/sources/tidal_service.dart';
@@ -115,39 +114,38 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
     );
   }
 
-  bool _isAllFavorites(List<Song> tracks) {
-    final favorites = ref.watch(favoritesProvider).value;
-    if (favorites == null || tracks.isEmpty) return false;
-    return tracks.every((song) => favorites.isFavorite(song.id));
-  }
-
-  Future<void> _toggleFavoriteAll(List<Song> tracks) async {
-    if (tracks.isEmpty) return;
-    final favoriteIds =
-        ref.read(favoritesProvider).value?.favoriteIds ?? const <String>{};
-    final notifier = ref.read(favoritesProvider.notifier);
-    final isAll = tracks.every((song) => favoriteIds.contains(song.id));
-    if (isAll) {
-      for (final song in tracks) {
-        await notifier.removeFavorite(song.id, song: song);
-      }
+  Future<void> _toggleAlbumLove(Map<String, dynamic> album) async {
+    final server = ref.read(tidalServerProvider).value;
+    if (server == null || server.token == null || server.token!.isEmpty) return;
+    final wasLoved = ref.read(tidalAlbumLovedProvider(widget.albumId));
+    final optimistic = ref.read(tidalLikedAlbumsOptimisticProvider.notifier);
+    final tidal = ref.read(tidalServiceProvider);
+    if (wasLoved) {
+      optimistic.remove(widget.albumId);
     } else {
-      for (final song in tracks) {
-        if (!favoriteIds.contains(song.id)) {
-          await notifier.addFavorite(song.id, song: song);
-        }
-      }
+      optimistic.add({...album, 'id': widget.albumId});
     }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isAll
-              ? 'Removed ${tracks.length} songs from favorites'
-              : 'Added ${tracks.length} songs to favorites',
+    try {
+      if (wasLoved) {
+        await tidal.removeFavoriteAlbum(server, widget.albumId);
+      } else {
+        await tidal.addFavoriteAlbum(server, widget.albumId);
+      }
+    } catch (_) {
+      if (wasLoved) {
+        optimistic.add({...album, 'id': widget.albumId});
+      } else {
+        optimistic.remove(widget.albumId);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasLoved ? 'Failed to unlove album' : 'Failed to love album',
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   /// TIDAL albums currently ship without editorial text. Return the first
@@ -457,6 +455,8 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
   ) {
     final album = data.album;
     final tracks = data.tracks;
+    final hasAccount = ref.watch(tidalAuthStateProvider);
+    final isLoved = ref.watch(tidalAlbumLovedProvider(widget.albumId));
     final title = (album['title'] as String?) ?? 'Unknown Album';
     final artistMap = album['artist'] as Map<String, dynamic>?;
     final artist = (artistMap?['name'] as String?) ?? 'Unknown Artist';
@@ -605,8 +605,12 @@ class _TidalAlbumScreenState extends ConsumerState<TidalAlbumScreen>
                   StaggeredEntrance(
                     index: 0,
                     child: DetailActionCapsule(
-                      isFavorite: _isAllFavorites(tracks),
-                      onToggleFavorite: () => _toggleFavoriteAll(tracks),
+                      isFavorite: isLoved,
+                      onToggleFavorite: hasAccount
+                          ? () => _toggleAlbumLove(album)
+                          : null,
+                      toggleActiveTooltip: 'Remove from loved albums',
+                      toggleInactiveTooltip: 'Love album',
                       onShuffle: () => _shuffleAll(tracks),
                       onPlay: () => _playAll(tracks),
                       onQueue: () => _queueAll(tracks),
