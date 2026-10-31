@@ -5,6 +5,7 @@ import 'package:flick/data/entities/network_server_entity.dart';
 import 'package:flick/features/tidal/providers/tidal_providers.dart';
 import 'package:flick/features/tidal/screens/tidal_album_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_artist_screen.dart';
+import 'package:flick/features/tidal/screens/tidal_artist_releases_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_hub_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_mix_screen.dart';
 import 'package:flick/features/tidal/screens/tidal_playlist_screen.dart';
@@ -987,6 +988,133 @@ void main() {
     expect(find.text('About'), findsOneWidget);
     expect(find.text('Born in Oslo.'), findsOneWidget);
     expect(find.text('Top One'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('artist release headers open every release in section order', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const artistId = 'art-releases';
+    final List<Map<String, dynamic>> albums = [
+      {'id': 'album-1', 'title': 'Album One', 'releaseDate': '2020-01-01'},
+      {'id': 'album-2', 'title': 'Album Two', 'releaseDate': '2021-01-01'},
+      {'id': 'album-3', 'title': 'Album Three', 'releaseDate': '2022-01-01'},
+    ];
+    final List<Map<String, dynamic>> singles = [
+      {'id': 'single-1', 'title': 'Single One', 'releaseDate': '2020-02-01'},
+      {'id': 'single-2', 'title': 'Single Two', 'releaseDate': '2021-02-01'},
+      {'id': 'single-3', 'title': 'Single Three', 'releaseDate': '2022-02-01'},
+    ];
+    final List<Map<String, dynamic>> compilations = [
+      {'id': 'comp-1', 'title': 'Compilation One'},
+      {'id': 'comp-2', 'title': 'Compilation Two'},
+      {'id': 'comp-3', 'title': 'Compilation Three'},
+    ];
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalArtistDetailsProvider(artistId).overrideWith(
+            (ref) async => (
+              artist: {'id': artistId, 'name': 'Release Artist'},
+              topTracks: const <Song>[],
+              albums: albums,
+              singlesAndEPs: singles,
+              compilations: compilations,
+            ),
+          ),
+          tidalArtistBioProvider(artistId).overrideWith((ref) async => null),
+          tidalFavoriteArtistIdsProvider.overrideWith(
+            (ref) async => <String>{},
+          ),
+        ],
+        child: const MaterialApp(home: TidalArtistScreen(artistId: artistId)),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    for (final title in ['Albums', 'Singles & EPs', 'Compilations']) {
+      final viewAll = find.byKey(ValueKey('tidal-artist-view-all-$title'));
+      expect(viewAll, findsOneWidget);
+      expect(
+        find.descendant(of: viewAll, matching: find.text('View All')),
+        findsOneWidget,
+      );
+      final header = find
+          .ancestor(of: viewAll, matching: find.byType(Row))
+          .first;
+      expect(
+        find.descendant(of: header, matching: find.text('3')),
+        findsNothing,
+      );
+    }
+
+    await tester.tap(
+      find.byKey(const ValueKey('tidal-artist-view-all-Singles & EPs')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TidalArtistReleasesScreen), findsOneWidget);
+    expect(find.text('Singles & EPs'), findsOneWidget);
+    expect(find.text('3 singles & EPs'), findsOneWidget);
+    expect(find.text('Single One'), findsOneWidget);
+    expect(find.text('Single Two'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Single Three'), 300);
+    expect(find.text('Single Three'), findsOneWidget);
+    final list = find.descendant(
+      of: find.byType(TidalArtistReleasesScreen),
+      matching: find.byType(ListView),
+    );
+    expect(
+      (tester.widget<ListView>(list).childrenDelegate
+              as SliverChildBuilderDelegate)
+          .childCount,
+      3,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('artist release row opens its album detail', (tester) async {
+    const Map<String, dynamic> release = {
+      'id': 'release-1',
+      'title': 'Release One',
+      'releaseDate': '2024-03-12',
+    };
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentSongProvider.overrideWith((ref) => null),
+          tidalServerProvider.overrideWith(
+            () => _MockTidalServerNotifier(_serverWithToken()),
+          ),
+          tidalAlbumDetailsProvider(
+            'release-1',
+          ).overrideWith((ref) async => (album: release, tracks: <Song>[])),
+          tidalLikedAlbumsProvider.overrideWith(
+            (ref) async => <Map<String, dynamic>>[],
+          ),
+        ],
+        child: const MaterialApp(
+          home: TidalArtistReleasesScreen(title: 'Albums', items: [release]),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Release One'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TidalAlbumScreen), findsOneWidget);
+    expect(find.text('Release One'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

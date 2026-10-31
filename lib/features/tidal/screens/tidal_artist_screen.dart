@@ -25,6 +25,7 @@ import '../widgets/tidal_detail_theme.dart';
 import '../widgets/tidal_shimmer.dart';
 import '../../songs/widgets/song_actions_bottom_sheet.dart';
 import 'tidal_album_screen.dart';
+import 'tidal_artist_releases_screen.dart';
 
 class TidalArtistScreen extends ConsumerStatefulWidget {
   final String artistId;
@@ -665,12 +666,27 @@ class _TidalArtistScreenState extends ConsumerState<TidalArtistScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(
-                  '${items.length}',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                GestureDetector(
+                  key: ValueKey('tidal-artist-view-all-$title'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => NavigationHelper.pushSharedAxis(
+                    context,
+                    (_) =>
+                        TidalArtistReleasesScreen(title: title, items: items),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    child: const Text(
+                      'View All',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ),
               ],
